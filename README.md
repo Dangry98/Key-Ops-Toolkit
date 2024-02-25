@@ -3,7 +3,8 @@ Key Ops: Toolkit is my first addon which  I have been developing now for almost 
 
 [Documentation](https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9)
 
-Features
+### Features:
+
 Maya
 - Industri Standard Keymaps:
 - Maya Navigation - Adds navigation that works similar to Maya in the 3d view
