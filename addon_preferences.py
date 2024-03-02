@@ -227,6 +227,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             row.prop(self, "add_object_pie_relative_scale")   
             row.prop(self, "add_object_pie_min_scale")    
             row.prop(self, "add_object_pie_default_scale")
+            layout = column.split(factor=5.0)
+            row = layout.row()
+            row.alignment = 'LEFT'
+            row.prop(self, "add_object_pie_empty")
 
         if self.enable_view_camera_pie:
                 bb = b.box()
@@ -489,5 +493,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     add_object_pie_relative_scale: FloatProperty(name="Screen Size", default=6.0, min=1.0, max=25.0, description="Default Relative Scale Value") # type: ignore
     add_object_pie_default_scale: FloatProperty(name="Size", default=2.0, min=0.1, max=10.0, unit='LENGTH', description="Default Regular Scale Size Value") # type: ignore
     add_object_pie_min_scale: FloatProperty(name="Min Size", default=0.01, min=0.0001, max=10.0, unit='LENGTH', description="Relative Scale Min Size Value") # type: ignore
+    add_object_pie_empty: BoolProperty(name="Add Empty Instead of Monkey", default=False) # type: ignore
     smart_uv_sync_panel_name: StringProperty(name="", default="Tool") # type: ignore
    

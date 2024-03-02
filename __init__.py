@@ -30,10 +30,11 @@ from .utils.register_extensions import get_extension, register_classes, unregist
 import time 
 from .addon_preferences import KeyOpsPreferences
 from .operators.rebind import Rebind
+from .operators.auto_smooth import AutoSmooth
 import bpy
 
 def register():
-    debug = False
+    debug = True
     global classes, keymaps
 
     if debug:
@@ -41,8 +42,10 @@ def register():
 
     #default classes
     default_classes_start_time = time.time()
-    bpy.utils.register_class(KeyOpsPreferences)
+    if bpy.app.version <= (4, 1, 0):
+        bpy.utils.register_class(KeyOpsPreferences)
     bpy.utils.register_class(Rebind)
+    bpy.utils.register_class(AutoSmooth)
     if debug:
         print(f"registering default classes took {time.time() - default_classes_start_time:.4f} seconds")
 
@@ -65,6 +68,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(KeyOpsPreferences)
     bpy.utils.unregister_class(Rebind)
+    bpy.utils.unregister_class(AutoSmooth)
 
     global classes, keymaps
     unregister_keymaps(keymaps)

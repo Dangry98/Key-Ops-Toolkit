@@ -117,6 +117,10 @@ def AddCylinder(context, segment_amount, scale, use_relative_scale, scale_relati
             scale = scale*0.5
         bpy.ops.mesh.primitive_cylinder_add(radius=scale, depth=scale*2, vertices=segment_amount)
 
+def AddEmpty(context, scale, use_relative_scale, scale_relative_float, scale_property):
+    scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0)
+    bpy.ops.object.empty_add(type='ARROWS', radius=scale)
+
 class AddMesh(bpy.types.Operator):
     bl_description = "Add a mesh"
     bl_idname = "keyops.add_mesh"
@@ -133,7 +137,8 @@ class AddMesh(bpy.types.Operator):
             ("UVSPHERE", "UV Sphere", "Add a UV sphere"),
             ("CIRCLE", "Circle", "Add a circle"),
             ("MONKEY", "Monkey", "Add a monkey"),
-            ("CYLINDER", "Cylinder", "Add a cylinder")],
+            ("CYLINDER", "Cylinder", "Add a cylinder"),
+            ("EMPTY", "Empty", "Add an empty"),],
         name="Mesh Type", default="CUBE") #type:ignore
     scale_property: bpy.props.FloatProperty(name="Size", default=prefs.add_object_pie_default_scale, min=0.1, max=10.0,description="Absolute scale of the mesh", unit='LENGTH') #type:ignore
     use_relative_scale: bpy.props.BoolProperty(name="Use Relative Scale", default=prefs.add_object_pie_use_relative) #type:ignore
@@ -178,4 +183,6 @@ class AddMesh(bpy.types.Operator):
             AddMonkey(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         elif self.mesh_type == "CYLINDER":
             AddCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+        elif self.mesh_type == "EMPTY":
+            AddEmpty(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         return {'FINISHED'}
