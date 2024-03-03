@@ -60,6 +60,9 @@ class AutoSmooth(bpy.types.Operator):
             #bpy.ops.object.shade_smooth(keep_sharp_edges=not self.ignore_sharp)
             
             def add_smooth_modifier(obj):
+                if "Auto Smooth" in [m.name for m in obj.modifiers]:
+                    bpy.context.view_layer.objects.active = obj
+                    bpy.ops.object.modifier_remove(modifier="Auto Smooth")
                 if "Smooth by Angle" not in [m.name for m in obj.modifiers]:
                     bpy.context.view_layer.objects.active = obj
                     bpy.ops.object.modifier_add_node_group(asset_library_type='ESSENTIALS', asset_library_identifier="", relative_asset_identifier="geometry_nodes\\smooth_by_angle.blend\\NodeTree\\Smooth by Angle")
@@ -77,7 +80,6 @@ class AutoSmooth(bpy.types.Operator):
                  
         else:
             def remove_smooth_modifier(obj):
-                if "Smooth by Angle" in [m.name for m in obj.modifiers]:
                     bpy.context.view_layer.objects.active = obj
                     bpy.ops.object.modifier_remove(modifier="Smooth by Angle")
                     # ob = bpy.data.objects.get(obj.name)
@@ -86,7 +88,8 @@ class AutoSmooth(bpy.types.Operator):
                     #     ob.modifiers.remove(auto_smooth[-1])
 
             for obj in selected_objects:
-                remove_smooth_modifier(obj)                  
+                if "Smooth by Angle" in [m.name for m in obj.modifiers]:
+                    remove_smooth_modifier(obj)                  
 
         bpy.context.view_layer.objects.active = active_object
         return {'FINISHED'}
