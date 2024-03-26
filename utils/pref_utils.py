@@ -15,7 +15,11 @@ def get_addon_name():
     return os.path.basename(get_absolute_path())
 
 def get_keyops_prefs():
-    return bpy.context.preferences.addons[get_addon_name()].preferences
+    addon_name = get_addon_name()
+    if addon_name in bpy.context.preferences.addons:
+        return bpy.context.preferences.addons[addon_name].preferences
+    else:
+        return None
 
 #The following code is based on the MACHIN3 addon: MACHIN3tools
 #Check out there awesome addons here: https://machin3.io/
