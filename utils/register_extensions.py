@@ -163,7 +163,7 @@ def get_extension():
                  get_maya_shortcuts,
                  get_double_click_select_island,
                  get_smart_seam,
-                 get_smart_uv_sync,
+                 get_uv_tools,
                  get_add_objects_pie,
                  get_view_camera_pie,
                  get_add_modifier_pie,
@@ -172,9 +172,8 @@ def get_extension():
                  get_legacy_shortcuts,
                  get_fast_merge,
                  get_modi_key,
-                 get_uv_space_pie,
-                 get_uv_u_pie,
-                 get_uv_q_pie,
+                 get_uv_pies,
+                 get_utility_pie,
                  get_cad_decimate,
                  get_auto_lod,
                  get_polycount_list,
@@ -211,8 +210,8 @@ def get_double_click_select_island(): pass
 @operator("Smart Seam")
 def get_smart_seam(): pass
 
-@operator("Smart UV Sync")
-def get_smart_uv_sync(): pass
+@operator("UV Tools")
+def get_uv_tools(): pass
 
 @operator("Add Objects Pie")
 def get_add_objects_pie(): pass
@@ -238,14 +237,11 @@ def get_fast_merge(): pass
 @operator("Modi Key")
 def get_modi_key(): pass
 
-@operator("UV Space Pie")
-def get_uv_space_pie(): pass
+@operator("UV Pies")
+def get_uv_pies(): pass
 
-@operator("UV U Pie")
-def get_uv_u_pie(): pass
-
-@operator("UV Q Pie")
-def get_uv_q_pie(): pass
+@operator("Utility Pie")
+def get_utility_pie(): pass
 
 @operator("CAD Decimate")
 def get_cad_decimate(): pass

@@ -18,9 +18,7 @@ class AddObjectsPie(Menu):
     def draw(self, context):
         layout = self.layout
         pie = layout.menu_pie()
-
         prefs = get_keyops_prefs()
-
 
         pie.operator("keyops.add_mesh", text="UV Sphere", icon="SHADING_WIRE").mesh_type = "UVSPHERE" #LEFT
 
@@ -31,6 +29,7 @@ class AddObjectsPie(Menu):
         pie.operator("keyops.add_mesh", text="Plane", icon="MESH_PLANE").mesh_type = "PLANE" #TOP
 
         pie.operator("keyops.add_mesh", text="Mod Cylinder", icon="MOD_SCREW").mesh_type = "MODCYLINDER" #LEFT TOP
+
         if prefs.add_object_pie_empty:
             pie.operator("keyops.add_mesh", text="Empty", icon="EMPTY_ARROWS").mesh_type = "EMPTY" #RIGHT TOP
         else:
@@ -46,12 +45,6 @@ class ViewCameraPie(Menu):
 
     def draw(self, context):
         layout = self.layout
-        pie = layout.menu_pie()
-
-        pie.operator("view3d.view_axis", text="Left", icon="MESH_MONKEY").type = 'LEFT'   #LEFT
-        pie.operator("view3d.view_axis", text="Right", icon="MESH_MONKEY").type = 'RIGHT' #RIGHT
-        pie.operator("view3d.view_axis", text="Bottom", icon="MESH_MONKEY").type = 'BOTTOM' #BOTTOM
-        pie.operator("view3d.view_axis", text="Top", icon="MESH_MONKEY").type = 'TOP' #TOP
 
 class AddModifierPie(Menu):
     bl_idname = "KEYOPS_MT_add_modifier_pie"
@@ -188,16 +181,13 @@ class UVSpacePie(Menu):
         # if uvpackmaster and zenuv:
         #     pie.operator("uv.zenuv_pack", text="Pack Master", icon="MOD_MULTIRES") #BOTTOM
         # else:
-        pie.operator("keyops.quick_pack", text="Quick Pack", icon="MOD_MULTIRES") #BOTTOM
+        pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
-        pie.operator("uv.unwrap", text="Unfold and Pack", icon="UV_FACESEL") #TOP
+        pie.operator("uv.unwrap", text="Unwrap and Pack", icon="UV_FACESEL") #TOP
 
-        pie.operator("keyops.unfold_selected", text="Unfold Selected", icon="UV_VERTEXSEL") #LEFT TOP
+        pie.operator("keyops.unwrap_selected", text="Unwrap Selected", icon="UV_VERTEXSEL") #LEFT TOP
 
-        if zenuv:
-            pie.operator("uv.zenuv_unwrap_inplace", text="Unfold Inplace", icon="STICKY_UVS_VERT") #RIGHT TOP
-        else:
-            pie.operator("keyops.unfold_inplace", text="Unfold Inplace", icon="STICKY_UVS_VERT") #RIGHT TOP
+        pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #RIGHT TOP
 
         if uvtoolkit and zenuv:
             if bpy.context.tool_settings.use_uv_select_sync:
@@ -212,24 +202,18 @@ class UVSpacePie(Menu):
         pie.operator("image.view_selected", text="View Selected", icon="ZOOM_SELECTED") #RIGHT BOTTOM
 
     def register():
-        bpy.utils.register_class(IsolateUVIsland)
-        bpy.utils.register_class(QuickPack)
-        bpy.utils.register_class(UnfoldSelected)
         bpy.utils.register_class(StreightenSelection)
         bpy.utils.register_class(StreightenAfterEdge)
-        bpy.utils.register_class(UnfoldInplace)
+        bpy.utils.register_class(UVQPie)
 
     def unregister():
-        bpy.utils.unregister_class(IsolateUVIsland)
-        bpy.utils.unregister_class(QuickPack)
-        bpy.utils.unregister_class(UnfoldSelected)
         bpy.utils.unregister_class(StreightenSelection)
         bpy.utils.unregister_class(StreightenAfterEdge)
-        bpy.utils.unregister_class(UnfoldInplace)
+        bpy.utils.unregister_class(UVQPie)
 
-class UVUPie(Menu):
-    bl_idname = "KEYOPS_MT_uv_u_pie"
-    bl_label = "UV U Pie"
+class UtilityPie(Menu):
+    bl_idname = "KEYOPS_MT_utility_pie"
+    bl_label = "Utility Pie"
 
     def draw(self, context):
         layout = self.layout
@@ -266,17 +250,19 @@ class UVUPie(Menu):
             pie.operator("uv.zenuv_quadrify", text="Quadrify Island after edge", icon="UV_ISLANDSEL") #LEFT BOTTOM
         elif bpy.context.mode == "OBJECT":
             pie.operator("keyops.make_single_user" , text="Make Single User") #LEFT BOTTOM
-
-        pie.operator("keyops.smooth_by_sharp", text="Smooth by Sharp Edge") #RIGHT BOTTOM
+        
+        if bpy.app.version >= (4, 1, 0):
+            pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
+        else:
+            pie.operator("keyops.smooth_by_sharp", text="Smooth by Sharp Edge") #RIGHT BOTTOM
+        
+        
     def register():
-        bpy.utils.register_class(AutoSeam)
-        bpy.utils.register_class(ToggleSmoothSharp)
+
         bpy.utils.register_class(MakeSingleUser)
         #bpy.utils.register_class(UVMappingMenu)
         bpy.utils.register_class(UnwrapingOp)
     def unregister():
-        bpy.utils.unregister_class(AutoSeam)
-        bpy.utils.unregister_class(ToggleSmoothSharp)
         bpy.utils.unregister_class(MakeSingleUser)
         #bpy.utils.unregister_class(UVMappingMenu)
         bpy.utils.unregister_class(UnwrapingOp)
@@ -316,7 +302,7 @@ class UVQPie(Menu):
         if uvtoolkit:
             pie.operator("uv.toolkit_sharp_edges_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT") #TOP
         else:
-            pie.operator("keyops.sharp_by_uv_borders" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
+            pie.operator("keyops.sharp_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
         
         pie.operator("uv.seams_from_islands", text="Seams from Islands") #LEFT TOP
 
@@ -341,102 +327,13 @@ class UVQPie(Menu):
 
         
     def register():
-        bpy.utils.register_class(OrientIslandToEdge)
         bpy.utils.register_class(StackSimilarIslands)
-        bpy.utils.register_class(SharpByUVBorders)
         bpy.utils.register_class(MirrorSeams)
         bpy.utils.register_class(SelectSimilarIslands)
     def unregister():   
-        bpy.utils.unregister_class(OrientIslandToEdge)
         bpy.utils.unregister_class(StackSimilarIslands)
-        bpy.utils.unregister_class(SharpByUVBorders)
         bpy.utils.unregister_class(MirrorSeams)
         bpy.utils.unregister_class(SelectSimilarIslands)
-
-class AutoSeam(bpy.types.Operator):
-    bl_idname = "keyops.seam_by_angle"
-    bl_label = "Seam by Angle"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    angle : bpy.props.FloatProperty(name="Angle", default=1.0472, min=0.0, max=180.0, description="Angle", subtype="ANGLE") # type: ignore
-    selection : bpy.props.BoolProperty(name="On Selection Only", default=False, description="Selection") # type: ignore
-    mark_seams : bpy.props.BoolProperty(name="Mark Seams", default=True, description="Mark Seams") # type: ignore
-    mark_sharp : bpy.props.BoolProperty(name="Mark Sharp", default=True, description="Mark Sharp") # type: ignore
-    keep_existing_seams : bpy.props.BoolProperty(name="Keep Existing Seams", default=False, description="Keep Existing Seams") # type: ignore
-    shading_by_sharp_edge : bpy.props.BoolProperty(name="Smooth by Sharp Edge", default=True, description="Shading by Sharp Edge") # type: ignore
-    select_seams : bpy.props.BoolProperty(name="Select New Seams", default=False, description="Select Seams") # type: ignore
-
-    def auto_seam(self, context):
-        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-            
-        if self.selection:
-            bpy.ops.mesh.select_all(action='INVERT')
-            bpy.ops.mesh.hide(unselected=False)
-            bpy.ops.mesh.select_all(action='INVERT')
-            bpy.ops.mesh.select_all(action='DESELECT')
-
-        if not self.keep_existing_seams:
-            bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.mesh.mark_seam(clear=True)
-            bpy.ops.mesh.mark_sharp(clear=True)
-
-        bpy.ops.mesh.select_all(action='DESELECT')
-        bpy.ops.mesh.edges_select_sharp(sharpness= self.angle)
-
-        if self.mark_seams:
-            bpy.ops.mesh.mark_seam(clear=False)
-        if self.mark_sharp:
-            bpy.ops.mesh.mark_sharp(clear=False)
-
-        if not self.select_seams:
-            bpy.ops.mesh.select_all(action='DESELECT')
-        if self.selection:
-            bpy.ops.mesh.reveal(select=False)
-        if self.shading_by_sharp_edge:
-            bpy.ops.keyops.smooth_by_sharp()
-        return {'FINISHED'}
-
-    def execute(self, context):
-        if bpy.context.mode == 'EDIT_MESH':
-            self.auto_seam(context)
-        if bpy.context.mode == 'OBJECT':
-            bpy.ops.object.mode_set(mode='EDIT')
-            self.auto_seam(context)
-            bpy.ops.object.mode_set(mode='OBJECT')
-        
-        return {'FINISHED'}
-          
-class ToggleSmoothSharp(bpy.types.Operator):
-    bl_idname = "keyops.smooth_by_sharp"
-    bl_label = "Toggle Smooth Sharp"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' 
-
-    def execute(self, context):
-        if bpy.context.mode == 'EDIT_MESH':
-            for obj in context.objects_in_mode:
-                
-                for obj in context.objects_in_mode:
-                    me, bm = obj.data, bmesh.from_edit_mesh(obj.data)
-                    for face in bm.faces:
-                        if not face.smooth:
-                            face.smooth = True
-
-                    bmesh.update_edit_mesh(me, loop_triangles=False)
-
-                    obj.data.auto_smooth_angle = 3.141590118408203
-                    obj.data.use_auto_smooth = True
-            
-        elif bpy.context.mode == 'OBJECT':
-            for obj in context.selected_objects:
-                if obj.type == 'MESH':
-                        bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=3.14159)
-
-        return {'FINISHED'}
 
 class MakeSingleUser(bpy.types.Operator):
     bl_description = "Make Single User"
@@ -515,129 +412,6 @@ class UnwrapingOp(bpy.types.Operator):
         bpy.ops.uv
         if self.pack_islands:
             bpy.ops.uv.pack_islands()
-        
-class IsolateUVIsland(bpy.types.Operator):
-    bl_description = "Isolate UV Island"
-    bl_idname = "keyops.isolate_uv_island"
-    bl_label = "Isolate UV Island"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        """ Validate context """
-        active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-    
-    def execute(self, context):
-        if context.tool_settings.use_uv_select_sync:
-            bpy.ops.uv.select_linked()
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-            bpy.context.scene.tool_settings.use_uv_select_sync = False
-        else:
-            bpy.ops.keyops.smart_uv_sync()
-            bpy.context.scene.tool_settings.use_uv_select_sync = False
-
-        return {'FINISHED'}
-
-class QuickPack(bpy.types.Operator):
-    bl_description = "Quick Pack"
-    bl_idname = "keyops.quick_pack"
-    bl_label = "Quick Pack"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    #add advance settings cheackbox with all settings?
-
-    margin: bpy.props.FloatProperty(name="Margin",description="Margin",default=0.001) # type: ignore
-    scale: bpy.props.BoolProperty(name="Scale",description="Scale",default=True) # type: ignore
-    
-    rotate: bpy.props.BoolProperty(name="Rotate",description="Rotate",default=True) # type: ignore
-    rotate_method: bpy.props.EnumProperty(
-        items=[ 
-            ("AXIS_ALIGNED", "Axis Aligned", "Axis Aligned"),
-            ("CARDINAL", "Cardinal", "Cardinal"),
-            ("ANY", "Any", "Any")],#type: ignore
-        name="Rotate Method",description="Rotate Method",default="CARDINAL")
-
-    merge_overlapping: bpy.props.BoolProperty(name="Merge Overlapping",description="Merge Overlapping",default=False) # type: ignore
-
-    @classmethod
-    def poll(cls, context):
-        """ Validate context """
-        active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-    
-    
-    def execute(self, context):
-        bpy.ops.uv.pack_islands(rotate_method=self.rotate_method, margin=self.margin, shape_method='AABB', rotate=self.rotate, scale=self.scale, merge_overlap=self.merge_overlapping)
-        return {'FINISHED'}
-
-class UnfoldSelected(bpy.types.Operator):
-    bl_description = "Unfold Selected"
-    bl_idname = "keyops.unfold_selected"
-    bl_label = "Unfold Selected"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-    
-    reset_uv_sync = False
-
-    def execute(self, context):
-        global zenuv
-
-        if zenuv is None:
-            zenuv = get_is_addon_enabled("ZenUV")
-    
-        if not zenuv:
-            if context.tool_settings.use_uv_select_sync:
-                if bpy.context.scene.smart_uv_sync_enable == False:
-                    bpy.context.scene.smart_uv_sync_enable = True
-                    self.reset_uv_sync = True
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                bpy.ops.keyops.smart_uv_sync()
-                bpy.ops.uv.unwrap()
-                bpy.ops.keyops.smart_uv_sync()
-                if self.reset_uv_sync:
-                    bpy.context.scene.smart_uv_sync_enable = False
-            else:
-                bpy.ops.uv.unwrap()
-        else:
-            if bpy.context.scene.tool_settings.use_uv_select_sync == True:
-                bpy.ops.uv.zenuv_unwrap_constraint()
-
-            else:
-                bpy.ops.uv.unwrap()
-        return {'FINISHED'}
-
-
-class UnfoldInplace(bpy.types.Operator):
-    bl_description = "Unfold Inplace"
-    bl_idname = "keyops.unfold_inplace"
-    bl_label = "Unfold Inplace"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-
-    def execute(self, context):
-        if not zenuv:
-            if context.tool_settings.use_uv_select_sync:
-                if bpy.context.scene.smart_uv_sync_enable == False:
-                    bpy.context.scene.smart_uv_sync_enable = True
-                    self.reset_uv_sync = True
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                bpy.ops.keyops.smart_uv_sync()
-                bpy.ops.uv.unwrap()
-                bpy.ops.keyops.smart_uv_sync()
-                if self.reset_uv_sync:
-                    bpy.context.scene.smart_uv_sync_enable = False
-            else:
-                bpy.ops.uv.unwrap()
-        return {'FINISHED'}
 
 
 class StreightenSelection(bpy.types.Operator):
@@ -663,9 +437,9 @@ class StreightenSelection(bpy.types.Operator):
     def execute(self, context):
             if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                bpy.ops.keyops.smart_uv_sync()
+                bpy.ops.uv.keyops_smart_uv_sync()
                 bpy.ops.uv.toolkit_straighten(gridify=False)
-                bpy.ops.keyops.smart_uv_sync()
+                bpy.ops.uv.keyops_smart_uv_sync()
 
             else:
                 bpy.ops.uv.toolkit_straighten(gridify=False)
@@ -684,45 +458,14 @@ class StreightenAfterEdge(bpy.types.Operator):
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            bpy.ops.keyops.smart_uv_sync()
+            bpy.ops.uv.keyops_smart_uv_sync()
             bpy.ops.uv.toolkit_straighten_island()
-            bpy.ops.keyops.smart_uv_sync()
+            bpy.ops.uv.keyops_smart_uv_sync()
 
         else:
             bpy.ops.uv.toolkit_straighten_island()
 
         return {'FINISHED'}
-
-class OrientIslandToEdge(bpy.types.Operator):
-    bl_description = "Orient Island to Edge"
-    bl_idname = "keyops.orient_island_to_edge"
-    bl_label = "Orient Island to Edge"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    uvtoolkit = None
-
-    if uvtoolkit is None:
-        uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-
-    def execute(self, context):
-        if uvtoolkit:
-            if bpy.context.scene.tool_settings.use_uv_select_sync:
-                bpy.ops.keyops.smart_uv_sync()
-                bpy.ops.uv.toolkit_orient_to_edge()
-            else:
-                bpy.ops.uv.toolkit_orient_to_edge()
-            return {'FINISHED'}
-
-        else:
-            if bpy.context.scene.tool_settings.use_uv_select_sync:
-                bpy.ops.keyops.smart_uv_sync()
-                bpy.ops.uv.select_more()
-                bpy.ops.uv.select_less()
-                bpy.ops.uv.align_rotation(method='EDGE')
-                bpy.ops.keyops.smart_uv_sync()
-            else:
-                bpy.ops.uv.align_rotation(method='EDGE')
-            return {'FINISHED'}
 
 class StackSimilarIslands(bpy.types.Operator):
     bl_description = "Stack Similar Islands"
@@ -741,21 +484,6 @@ class StackSimilarIslands(bpy.types.Operator):
         else:
             bpy.ops.uv.copy()
             bpy.ops.uv.paste()
-        return {'FINISHED'}
-
-class SharpByUVBorders(bpy.types.Operator):
-    bl_description = "Sharp By UV Borders"
-    bl_idname = "keyops.sharp_by_uv_borders"
-    bl_label = "Sharp By UV Borders"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None
-    
-    def execute(self, context):
-        bpy.ops.keyops.smooth_by_sharp()
-        bpy.ops.uv.seams_from_islands(mark_seams=False, mark_sharp=True)
         return {'FINISHED'}
 
 class MirrorSeams(bpy.types.Operator):
@@ -794,7 +522,7 @@ class SelectSimilarIslands(bpy.types.Operator):
         else:
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
             if bpy.context.tool_settings.use_uv_select_sync:
-                bpy.ops.keyops.smart_uv_sync()
+                bpy.ops.uv.keyops_smart_uv_sync()
 
             bpy.ops.uv.select_mode(type='ISLAND')
 

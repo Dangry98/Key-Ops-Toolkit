@@ -1,94 +1,74 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
+import tempfile
 
 #fix attribute toggle in edit mode/objet mode
 
 def offset_uv():
-    offset_uv = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Offset UV")
+	offset_uv = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Offset UV")
 
-    offset_uv.is_modifier = True
+	offset_uv.is_modifier = True
 
-    named_attribute = offset_uv.nodes.new("GeometryNodeInputNamedAttribute")
-    named_attribute.name = "Named Attribute"
-    named_attribute.data_type = 'FLOAT_VECTOR'
-    named_attribute.inputs[0].default_value = "UVMap"
+	named_attribute = offset_uv.nodes.new("GeometryNodeInputNamedAttribute")
+	named_attribute.name = "Named Attribute"
+	named_attribute.data_type = 'FLOAT_VECTOR'
+	named_attribute.inputs[0].default_value = "UVMap"
 
-    vector_math = offset_uv.nodes.new("ShaderNodeVectorMath")
-    vector_math.name = "Vector Math"
-    vector_math.operation = 'ADD'
-    vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
-    vector_math.inputs[3].default_value = 1.0
+	vector_math = offset_uv.nodes.new("ShaderNodeVectorMath")
+	vector_math.name = "Vector Math"
+	vector_math.operation = 'ADD'
+	vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
+	vector_math.inputs[3].default_value = 1.0
 
-    combine_xyz = offset_uv.nodes.new("ShaderNodeCombineXYZ")
-    combine_xyz.name = "Combine XYZ"
-    combine_xyz.inputs[2].default_value = 0.0
+	combine_xyz = offset_uv.nodes.new("ShaderNodeCombineXYZ")
+	combine_xyz.name = "Combine XYZ"
+	combine_xyz.inputs[2].default_value = 0.0
 
-    store_named_attribute = offset_uv.nodes.new("GeometryNodeStoreNamedAttribute")
-    store_named_attribute.name = "Store Named Attribute"
-    store_named_attribute.data_type = 'FLOAT2'
-    store_named_attribute.domain = 'CORNER'
-    store_named_attribute.inputs[2].default_value = "UVMap"
-    store_named_attribute.inputs[4].default_value = 0.0
-    store_named_attribute.inputs[5].default_value = (0.0, 0.0, 0.0, 0.0)
-    store_named_attribute.inputs[6].default_value = False
-    store_named_attribute.inputs[7].default_value = 0
-    store_named_attribute.inputs[8].default_value = (0.0, 0.0, 0.0)
+	store_named_attribute = offset_uv.nodes.new("GeometryNodeStoreNamedAttribute")
+	store_named_attribute.name = "Store Named Attribute"
+	store_named_attribute.data_type = 'FLOAT2'
+	store_named_attribute.domain = 'CORNER'
+	store_named_attribute.inputs[2].default_value = "UVMap"
 
-    group_output = offset_uv.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-    geometry_socket = offset_uv.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket.attribute_domain = 'POINT'
+	group_output = offset_uv.nodes.new("NodeGroupOutput")
+	group_output.name = "Group Output"
+	group_output.is_active_output = True
+	geometry_socket = offset_uv.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
+	geometry_socket.attribute_domain = 'POINT'
+
+	group_input = offset_uv.nodes.new("NodeGroupInput")
+	group_input.name = "Group Input"
+	geometry_socket = offset_uv.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+	geometry_socket.attribute_domain = 'POINT'
+
+	selection_socket = offset_uv.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
+	selection_socket.attribute_domain = 'POINT'
+	selection_socket.hide_value = True
+
+	offset_uv_x_socket = offset_uv.interface.new_socket(name = "Offset UV X", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	offset_uv_x_socket.subtype = 'NONE'
+	offset_uv_x_socket.default_value = 1.0
+	offset_uv_x_socket.min_value = -10000.0
+	offset_uv_x_socket.max_value = 10000.0
+	offset_uv_x_socket.attribute_domain = 'POINT'
+
+	offset_uv_y_socket = offset_uv.interface.new_socket(name = "Offset UV Y", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	offset_uv_y_socket.subtype = 'NONE'
+	offset_uv_y_socket.default_value = 0.0
+	offset_uv_y_socket.min_value = -10000.0
+	offset_uv_y_socket.max_value = 10000.0
+	offset_uv_y_socket.attribute_domain = 'POINT'
 
 
-
-    group_input = offset_uv.nodes.new("NodeGroupInput")
-    group_input.name = "Group Input"
-    geometry_socket = offset_uv.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket.attribute_domain = 'POINT'
-
-    selection_socket = offset_uv.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
-    selection_socket.attribute_domain = 'POINT'
-    selection_socket.hide_value = True
-    selection_socket.default_value = True   
-
-    offset_uv_x_socket = offset_uv.interface.new_socket(name = "Offset UV X", in_out='INPUT', socket_type = 'NodeSocketFloat')
-    offset_uv_x_socket.subtype = 'NONE'
-    offset_uv_x_socket.default_value = 1.0
-    offset_uv_x_socket.min_value = -10000.0
-    offset_uv_x_socket.max_value = 10000.0
-    offset_uv_x_socket.attribute_domain = 'POINT'
-
-    offset_uv_y_socket = offset_uv.interface.new_socket(name = "Offset UV Y", in_out='INPUT', socket_type = 'NodeSocketFloat')
-    offset_uv_y_socket.subtype = 'NONE'
-    offset_uv_y_socket.default_value = 0.0
-    offset_uv_y_socket.min_value = -10000.0
-    offset_uv_y_socket.max_value = 10000.0
-    offset_uv_y_socket.attribute_domain = 'POINT'
-
-    named_attribute.location = (-427.7541809082031, -191.61178588867188)
-    vector_math.location = (-249.5355224609375, -130.76705932617188)
-    combine_xyz.location = (-421.7253112792969, -51.163997650146484)
-    store_named_attribute.location = (-71.33470153808594, 71.70158386230469)
-    group_output.location = (121.15008544921875, 72.86686706542969)
-    group_input.location = (-622.7821655273438, 11.500011444091797)
-
-    named_attribute.width, named_attribute.height = 140.0, 100.0
-    vector_math.width, vector_math.height = 140.0, 100.0
-    combine_xyz.width, combine_xyz.height = 140.0, 100.0
-    store_named_attribute.width, store_named_attribute.height = 140.0, 100.0
-    group_output.width, group_output.height = 140.0, 100.0
-    group_input.width, group_input.height = 140.0, 100.0
-
-    offset_uv.links.new(store_named_attribute.outputs[0], group_output.inputs[0])
-    offset_uv.links.new(group_input.outputs[0], store_named_attribute.inputs[0])
-    offset_uv.links.new(named_attribute.outputs[0], vector_math.inputs[0])
-    offset_uv.links.new(vector_math.outputs[0], store_named_attribute.inputs[3])
-    offset_uv.links.new(group_input.outputs[1], store_named_attribute.inputs[1])
-    offset_uv.links.new(combine_xyz.outputs[0], vector_math.inputs[1])
-    offset_uv.links.new(group_input.outputs[2], combine_xyz.inputs[0])
-    offset_uv.links.new(group_input.outputs[3], combine_xyz.inputs[1])
-    return offset_uv
+	offset_uv.links.new(store_named_attribute.outputs[0], group_output.inputs[0])
+	offset_uv.links.new(group_input.outputs[0], store_named_attribute.inputs[0])
+	offset_uv.links.new(named_attribute.outputs[0], vector_math.inputs[0])
+	offset_uv.links.new(vector_math.outputs[0], store_named_attribute.inputs[3])
+	offset_uv.links.new(group_input.outputs[1], store_named_attribute.inputs[1])
+	offset_uv.links.new(combine_xyz.outputs[0], vector_math.inputs[1])
+	offset_uv.links.new(group_input.outputs[2], combine_xyz.inputs[0])
+	offset_uv.links.new(group_input.outputs[3], combine_xyz.inputs[1])
+	return offset_uv
 
 def select_atribute(attribute_name):
     C = bpy.context
@@ -123,6 +103,8 @@ class UtilitiesPanelOP(bpy.types.Operator):
     mix_factor: bpy.props.FloatProperty(name="Mix Factor", default=1.0, min=0.0, max=1.0) # type: ignore
     set_orgin_to_geometry: bpy.props.BoolProperty(name="Set Origin to Geometry", default=True) # type: ignore
     subdivide: bpy.props.IntProperty(name="Subdivide", default=6, min=0, max=10) # type: ignore
+    try_deduplicate_materials: bpy.props.BoolProperty(name="Try Deduplicate Materials", default=True) # type: ignore
+    triangulate: bpy.props.BoolProperty(name="Triangulate", default=True) # type: ignore
 
     def draw(self, context):
         layout = self.layout
@@ -139,6 +121,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
             layout.prop(self, "join_objects")     
             layout.prop(self, "apply_instances") 
             layout.prop(self, "export_normals")
+            layout.prop(self, "triangulate")
         if self.type == "set_sphere_normal":
             layout.prop(self, "mix_factor")
             layout.prop(self, "scale")
@@ -146,6 +129,9 @@ class UtilitiesPanelOP(bpy.types.Operator):
             layout.prop(self, "set_orgin_to_geometry")
         if self.type == "set_normal_from_selection":
             layout.prop(self, "mix_factor")
+        if self.type == "Quick_Apply_All_Modifiers":
+            layout.label(text="Can have unexpected results, save backup!", icon='ERROR')
+            layout.prop(self, "try_deduplicate_materials")
             
 
     def execute(self, context):
@@ -261,6 +247,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
                         if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
                             segment_amount = modifiers[-1].segments + (modifiers[-1].segments * bpy.context.scene.bevel_segment_by_percent / 100)
                             modifiers[-1].segments = int(segment_amount)
+
         if self.type == "hide_bevels_by_offset":
             selected_objects = bpy.context.selected_objects
 
@@ -357,6 +344,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
             else:
                 for obj in selected_objects:
                     obj.select_set(True)
+                    
         if self.type == "Apply_and_Join":
             import time
             operation_time = time.time()
@@ -387,16 +375,19 @@ class UtilitiesPanelOP(bpy.types.Operator):
 
             if self.join_objects == True:
                 bpy.ops.object.join()
-                bpy.ops.object.modifier_add(type='TRIANGULATE')
-                bpy.context.object.modifiers["Triangulate"].keep_custom_normals = True
-            else:
-                for selected_obj in selected_objects:
-                    bpy.context.view_layer.objects.active = selected_obj
+                if self.triangulate == True:
                     bpy.ops.object.modifier_add(type='TRIANGULATE')
                     bpy.context.object.modifiers["Triangulate"].keep_custom_normals = True
+            else:
+                if self.triangulate == True:
+                    for selected_obj in selected_objects:
+                        bpy.context.view_layer.objects.active = selected_obj
+                        bpy.ops.object.modifier_add(type='TRIANGULATE')
+                        bpy.context.object.modifiers["Triangulate"].keep_custom_normals = True
             
             bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-            bpy.context.object.data.use_auto_smooth = True
+            if bpy.app.version <= (4, 0, 0):
+                bpy.context.object.data.use_auto_smooth = True
 
             if self.set_material_index == True and prefs.enable_material_index:
                 bpy.ops.keyops.material_index(type="Make_Material_Index")
@@ -408,13 +399,126 @@ class UtilitiesPanelOP(bpy.types.Operator):
             #print(f"Total Selection Time: {perf_time:.4f} seconds")
             #can crash sometimes, dont know why, debug
             #needs a way to make sure to presver normals, maybe add custom split normals data if it does not have it?, no does not work
+
+        if self.type == "Quick_Apply_All_Modifiers":
+            #nice when modifiers are very slow to apply, but the final result is not that high-poly - test decmiation modifier 32 seconds to 1.5 seconds
+            selected_objects = bpy.context.selected_objects
+        
+            was_edit_mode = False
+            if bpy.context.mode == 'EDIT_MESH':
+                was_edit_mode = True
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+            temp_file_path = tempfile.gettempdir()
+            file_name = "temp_file.obj"
+            temp_file_path = temp_file_path + "\\" + file_name
+            bpy.ops.wm.obj_export(filepath=temp_file_path, export_selected_objects=True, export_uv=True, export_materials=True)
+            bpy.ops.object.delete(use_global=False, confirm=False)  
+
+            #import back the objects with obj importer
+            output_directory = temp_file_path
+            bpy.ops.wm.obj_import(filepath=temp_file_path, directory=output_directory)
+            #obj 12.5 seconds - should be the fastest, except for .ply perhaps, but that one is unreliable in my experience
+            if was_edit_mode:
+                bpy.ops.object.mode_set(mode='EDIT')
+
+            #move this later to a utility function, also should only operate on the selected objects
+            #from https://blender.stackexchange.com/questions/75790/how-to-merge-around-300-duplicate-materials/195474#195474
+            def replace_material(bad_mat, good_mat):
+                bad_mat.user_remap(good_mat)
+                bpy.data.materials.remove(bad_mat)              
+                
+            def get_duplicate_materials(og_material):
+                get_selected_objects = None
+                for obj in bpy.context.selected_objects:
+                    if obj.type == 'MESH':
+                        get_selected_objects = bpy.context.selected_objects
+                        break
+                get_all_selected_materials = [material for obj in get_selected_objects for material in obj.data.materials]
+
+                common_name = og_material.name
+                
+                if common_name[-3:].isnumeric():
+                    common_name = common_name[:-4]
+                
+                duplicate_materials = []
+                
+                for material in get_all_selected_materials:
+                    if material is not og_material:
+                        name = material.name
+                        if name[-3:].isnumeric() and name[-4] == ".":
+                            name = name[:-4]
+                        
+                        if name == common_name:
+                            duplicate_materials.append(material)
+                
+                text = "{} duplicate materials found"
+                print(text.format(len(duplicate_materials)))
+                
+                return duplicate_materials
+
+            def remove_all_duplicate_materials():
+                i = 0
+                while i < len(bpy.data.materials):
+                    
+                    og_material = bpy.data.materials[i]
+                    
+                    print("og material: " + og_material.name)
+                    
+                    # get duplicate materials
+                    duplicate_materials = get_duplicate_materials(og_material)
+                    
+                    # replace all duplicates
+                    for duplicate_material in duplicate_materials:
+                        replace_material(duplicate_material, og_material)
+                    
+                    # adjust name to no trailing numbers
+                    if og_material.name[-3:].isnumeric() and og_material.name[-4] == ".":
+                        og_material.name = og_material.name[:-4]
+                        
+                    i = i+1
+            if self.try_deduplicate_materials:
+                remove_all_duplicate_materials()  
+            self.report({'WARNING'}, "This operation can cause unexpected results, please save backup before using")
+
+
+        if self.type == "toggle_high_low":
+            if bpy.context.scene.collection.children.get("high") is not None and bpy.context.scene.collection.children.get("low") is not None:
+                high_index = bpy.context.scene.collection.children.find("high") + 1
+                low_index = bpy.context.scene.collection.children.find("low") + 1
+                active_index = bpy.context.scene.collection.children.find(bpy.context.view_layer.active_layer_collection.name) + 1
+                if active_index == high_index:
+                    bpy.ops.object.hide_collection(collection_index=low_index, extend=False)
+                else:
+                    bpy.ops.object.hide_collection(collection_index=high_index, extend=False)
+            else:
+                self.report({'WARNING'}, "high or low collections not found")
+        if self.type == "high":
+            if bpy.context.scene.collection.children.get("high") is None:
+                if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "low":
+                    bpy.context.scene.collection.children[0].name = "high"
+                else:
+                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="high")
+            else:
+                get_index_of_high = bpy.context.scene.collection.children.find("high") + 1
+                bpy.ops.object.move_to_collection(collection_index=get_index_of_high)
+        if self.type == "low":
+            if bpy.context.scene.collection.children.get("low") is None:
+                if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "high":
+                    bpy.context.scene.collection.children[0].name = "low"
+                else:
+                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="low")
+            else:
+                get_index_of_low = bpy.context.scene.collection.children.find("low") + 1
+                bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
+
         return {'FINISHED'}
+    
     
     def register():
         bpy.utils.register_class(UtilitiesPanel)
     def unregister():
         bpy.utils.unregister_class(UtilitiesPanel)
-
 
 
 class UtilitiesPanel(bpy.types.Panel):
@@ -432,17 +536,31 @@ class UtilitiesPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.operator("keyops.unique_collection_duplicate", text="Unique Collection Duplicate")
-        row = layout.row()
-        row.operator("keyops.utilities_panel_op", text="Join and Preserve Normals").type = "Apply_and_Join"
+        if bpy.context.mode == 'OBJECT':
+            row.operator("keyops.utilities_panel_op", text="Join Objects & Keep Normals").type = "Apply_and_Join"
+            row = layout.row()
+            row.operator("keyops.utilities_panel_op", text="Quick Apply All Modifiers").type = "Quick_Apply_All_Modifiers"
+            layout.label(text="Collections:")
+            row = layout.row(align=True)
+            row.operator("keyops.unique_collection_duplicate", text="Unique Collection Duplicate")
+            row = layout.row(align=True)
+            row.operator("keyops.utilities_panel_op", text="Toggle").type = "toggle_high_low"
+            row.operator("keyops.utilities_panel_op", text="high").type = "high"
+            row.operator("keyops.utilities_panel_op", text="low").type = "low"
 
-        layout.separator()
+            layout.separator()
 
-        row = layout.row()
-        if bpy.context.mode == 'EDIT_MESH':
-            row.operator("keyops.utilities_panel_op", text="Offset Selected UV", icon= "MOD_UVPROJECT").type = "offset_uv"   
-        else:   
-            row.operator("keyops.utilities_panel_op", text="Offset Object UV", icon= "MOD_UVPROJECT").type = "offset_uv"
+        def draw_uv_operations():
+            row = layout.row()
+            if bpy.context.mode == 'EDIT_MESH':
+                row.operator("keyops.utilities_panel_op", text="Offset Selected UV", icon= "MOD_UVPROJECT").type = "offset_uv"   
+            else:   
+                row.operator("keyops.utilities_panel_op", text="Offset Object UV", icon= "MOD_UVPROJECT").type = "offset_uv"
+            row = layout.row()
+            row.operator("keyops.seam_by_angle", text="Seam by Angle", icon= "MOD_EDGESPLIT")
+        
+        if get_keyops_prefs().enable_uv_tools:
+            draw_uv_operations()
         
         row = layout.row()
         row.label(text="Set Normals:")
@@ -466,17 +584,25 @@ class UtilitiesPanel(bpy.types.Panel):
         row.prop(context.scene, "compensate_for_scale", text="Scale")
         row.prop(context.scene, "bevel_offset", text="")
 
-        layout.separator()
-        row = layout.row()
-        row.label(text="Changde Meshes:")
-        row = layout.row(align=True)
-        row.operator("keyops.utilities_panel_op", text="Marke", icon="SEQUENCE_COLOR_01").type = "Marke_Changed"
-        row.operator("keyops.utilities_panel_op", text="Clear", icon="SEQUENCE_COLOR_04").type = "Clear_Changed"
-        row = layout.row(align=True)
-        row.operator("keyops.utilities_panel_op", text="Preview", icon="HIDE_OFF").type = "Preview_Change_Objects"
-        row.operator("keyops.utilities_panel_op", text="Clear All", icon="X" ).type = "Clear_All"
-        row = layout.row()
-        row.operator("keyops.utilities_panel_op", text="Select All Changed", icon="RESTRICT_SELECT_OFF").type = "Select_Changed"
+        def change_meshes_draw():
+            row = layout.row(align=True)
+            row.operator("keyops.utilities_panel_op", text="Marke", icon="SEQUENCE_COLOR_01").type = "Marke_Changed"
+            row.operator("keyops.utilities_panel_op", text="Clear", icon="SEQUENCE_COLOR_04").type = "Clear_Changed"
+            row = layout.row(align=True)
+            row.operator("keyops.utilities_panel_op", text="Preview", icon="HIDE_OFF").type = "Preview_Change_Objects"
+            row.operator("keyops.utilities_panel_op", text="Clear All", icon="X" ).type = "Clear_All"
+            row = layout.row()
+            row.operator("keyops.utilities_panel_op", text="Select All Changed", icon="RESTRICT_SELECT_OFF").type = "Select_Changed"
+        if bpy.app.version >= (4, 1, 0):
+            header, panel_changde_meshes = layout.panel(idname="Mark Changde Objects",  default_closed=True)
+            header.label(text="Mark Changde Objects")
+            if panel_changde_meshes:
+                change_meshes_draw()
+        else:
+            row = layout.row()
+            row.label(text="Changde Meshes:")
+            row = layout.row(align=True)
+            change_meshes_draw()
 
     def register():
         bpy.types.Scene.bevel_segment_amount = bpy.props.IntProperty(name="Bevel Segment Amount", default=2, min=1, max=128)

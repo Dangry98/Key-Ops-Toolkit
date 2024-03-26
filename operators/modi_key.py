@@ -48,7 +48,10 @@ class ModiKey(Operator):
 
                 elif self.type == 'delete':
                     if modifier_list:
-                        bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
+                        if modifier_list:
+                            bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
+                        else:
+                            obj.modifiers.remove(active_modifier)
                     else:
                         current_mode = bpy.context.object.mode
                         bpy.ops.object.mode_set(mode='OBJECT')
@@ -86,7 +89,7 @@ class ModiKey(Operator):
                 elif self.type == 'Cage_Toggle':
                     active_modifier.show_on_cage = not active_modifier.show_on_cage
                 elif self.type == 'Duplicate':
-                    modifier_list.duplicate_modifier = active_modifier.name
+                    bpy.ops.object.modifier_copy(modifier=active_modifier.name)
 
         
         if bpy.context.space_data.context == 'MATERIAL':

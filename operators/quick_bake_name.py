@@ -46,6 +46,9 @@ class QuickBakeName(bpy.types.Operator):
         in_high_collection = False
         in_low_collection = False
 
+        if len(selected) == 1:
+            self.report({'WARNING'}, "Please select at least two objects")
+
         if len(selected) == 2:
             for obj in selected:
                 for coll in obj.users_collection:
@@ -182,6 +185,7 @@ class QuickBakeNamePanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'ToolKit'
+    bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):

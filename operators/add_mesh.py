@@ -184,5 +184,7 @@ class AddMesh(bpy.types.Operator):
         elif self.mesh_type == "CYLINDER":
             AddCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         elif self.mesh_type == "EMPTY":
+            if context.mode == 'EDIT_MESH':
+                bpy.ops.object.editmode_toggle()
             AddEmpty(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         return {'FINISHED'}

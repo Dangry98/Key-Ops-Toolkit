@@ -68,27 +68,24 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                     ("D Pivot that works similar to D in Maya", "enable_maya_pivot", True, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
                     ]
         draw_section(b, "Maya", maya_data)
-
-        uv_data = [("Syncs Selection when Toggling UV Sync", "enable_smart_uv_sync", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
+        
+        uv_data = [("WIP. UV Toolkit of tools", "enable_uv_tools", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
                    ("WIP. Smart seam marking", "enable_smart_seam", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
-                   ("WIP. UV Space Pie Menu in UV Editor", "enable_uv_space_pie", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
-                   ("WIP. UV U Pie Menu in Edit Mode", "enable_uv_u_pie", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
-                   ("WIP. UV Q Pie Menu in UV Editor", "enable_uv_q_pie", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),]   
+                   ("WIP. UV Pies", "enable_uv_pies", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),]
         draw_section(b, "UV", uv_data)
 
         pie_data = [("Faster way to add mesh primitivs", "enable_add_objects_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
+                    ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
                     ("Viewport perspectiv views and focus on object", "enable_view_camera_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("WIP. Faster way to Add Common Modifers", "enable_add_modifier_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("Switch Workspace Faster", "enable_workspace_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("Better Shift S Pie Menu", "enable_cursor_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),]
         draw_section(b, "Pie Menu", pie_data)
 
-        Legacy_Blender_data = [("Adds back useful shortcuts, click to learn more", "enable_legacy_shortcuts", False, None, "https://key-ops-toolkit.notion.site/Blender-2-79x-639a8f60b4794927aede4c835a8af4fc")]
-        draw_section(b, "Blender 2.79x", Legacy_Blender_data)
-
-        Extra_data = [("1 to merge to nearest vert, Alt 1 merge center", "enable_fast_merge", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
+        Extra_data = [("Useful shortcuts from 2.79x, click to learn more", "enable_legacy_shortcuts", False, None, "https://key-ops-toolkit.notion.site/Blender-2-79x-639a8f60b4794927aede4c835a8af4fc"),
+                      ("1 to merge to nearest vert, Alt 1 merge center", "enable_fast_merge", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
                       ("Adds more shortcuts to the modifier panel", "enable_modi_key", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
-                      ("Adds Attributes Operations like select and assign", "enable_atri_op", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df")]
+                      ("Adds Attributes Operations like select and assign", "enable_atri_op", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),]
         draw_section (b, "Extra", Extra_data)   
 
         Game_Art_Toolkit = [("Tool to Decimate meshes that are in the 100 of millions of tris", "enable_cad_decimate", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
@@ -179,6 +176,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             row.label(text="Fast Merge")
             row.alignment = 'LEFT'
             row.prop(self, "fast_merge_last") 
+            row.prop(self, "fast_merge_soft_limit")
+            if self.fast_merge_soft_limit == "max_polycount" or self.fast_merge_soft_limit == "max_limit_&_all_selected":
+                row.prop(self, "fast_merge_polycount")
 
         if self.enable_smart_seam:
             bb = b.box()
@@ -260,15 +260,15 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                     row.label(text="Play Animation Currently (Shift Space)")
                     row.operator("keyops.space_to_view_camera_pie", text="Play back to (Space)?"). type = "Space To View Camera Pie"            
 
-        if self.enable_smart_uv_sync:
+        if self.enable_uv_tools:
             bb = b.box()
             bb
             layout = bb.split(factor=0.0)
             column = bb.column()
             row = column.row()
-            row.label(text="Smart UV Sync")
+            row.label(text="UV Tools")
             row.label(text="panel name (restart required)")  
-            row.prop(self, "smart_uv_sync_panel_name")
+            row.prop(self, "uv_tools_panel_name")
 
     def draw_keymaps(self, box):
         from .classes_keymap_items import keymap_items
@@ -429,10 +429,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_maya_shortcuts: BoolProperty(name="Maya Shortcuts", description="Adds Useful Maya Shortcuts", default=True, update=enable_deco("maya_shortcuts")) # type: ignore
     enable_double_click_select_island: BoolProperty(name="Double Click Select Island", description="Double Click to Select Mesh Island like in Maya", default=True, update=enable_deco("double_click_select_island")) # type: ignore
     enable_smart_seam: BoolProperty(name="Smart seam", default=False, update=enable_deco("smart_seam")) # type: ignore
-    enable_smart_uv_sync: BoolProperty(name="Smart UV Sync", default=True, update=enable_deco("smart_uv_sync")) # type: ignore
-    enable_uv_space_pie: BoolProperty(name="UV Space Pie", default=False, update=enable_deco("uv_space_pie")) # type: ignore
-    enable_uv_u_pie: BoolProperty(name="UV U Pie", default=True, update=enable_deco("uv_u_pie")) # type: ignore
-    enable_uv_q_pie: BoolProperty(name="UV Q Pie", default=False, update=enable_deco("uv_q_pie")) # type: ignore
+    enable_uv_tools: BoolProperty(name="UV Tools", default=True, update=enable_deco("uv_tools")) # type: ignore
+    enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
+    enable_utility_pie: BoolProperty(name="Utility Pie", default=True, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=True, update=enable_deco("add_objects_pie")) # type: ignore
     enable_view_camera_pie: BoolProperty(name="View Camera Pie", default=False, update=enable_deco("view_camera_pie")) # type: ignore
     enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
@@ -445,19 +444,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_auto_lod: BoolProperty(name="Auto LOD", default=False, update=enable_deco("auto_lod")) # type: ignore
     enable_quick_bake_name: BoolProperty(name="Quick Bake Name", default=False, update=enable_deco("quick_bake_name")) # type: ignore
     enable_polycount_list: BoolProperty(name="Polycount List", default=False, update=enable_deco("polycount_list")) # type: ignore
-    enable_utilities_panel_op: BoolProperty(name="Utilities Panel", default=False, update=enable_deco("utilities_panel_op")) # type: ignore
+    enable_utilities_panel_op: BoolProperty(name="Utilities Panel", default=True, update=enable_deco("utilities_panel_op")) # type: ignore
     enable_quick_export: BoolProperty(name="Quick Export", default=False, update=enable_deco("quick_export")) # type: ignore
     enable_atri_op: BoolProperty(name="Atributes Operations", default=True, update=enable_deco("atri_op")) # type: ignore
     enable_material_index: BoolProperty(name="Material Index", default=False, update=enable_deco("material_index")) # type: ignore
 
-    polyquilt = None
-
-    if polyquilt is None:
-        polyquilt = get_is_addon_enabled("PolyQuilt")
-
-    default_retology_tool = "builtin.select_box"
-    if polyquilt:
-        default_retology_tool = "mesh_tool.poly_quilt"
+    default_retology_tool = "mesh_tool.poly_quilt"
 
     #prefs settings variables
     auto_delete_dissolv_edge: BoolProperty(name="Dissolve Edge", default=False) # type: ignore
@@ -487,12 +479,21 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             ("HOLD", "Hold", "Hold key to move Pivot")],
         default="HOLD") # type: ignore
     maya_pivot_show_gizmo: BoolProperty(name="Show Gizmo", default=True) # type: ignore
-    fast_merge_last: BoolProperty(name="Merge to active selection if two ore more verts are selected", default=True) # type: ignore
+    fast_merge_last: BoolProperty(name="Always merge nerast", default=False) # type: ignore
+    fast_merge_soft_limit: EnumProperty(
+        name="Limit",
+        items=[
+            ("max_polycount", "Max Polycount", "Limit the polycount of the mesh"),
+            ("all_selected", "All Selected", "Do not merge if all verts are selected"),
+            ("max_limit_&_all_selected", "Max Limit & All Selected", "Do not merge if all verts are selected and polycount is above limit"),
+            ("no_limit", "No Limit", "Merge all selected verts")],
+        default="no_limit") # type: ignore
+    fast_merge_polycount: IntProperty(name="Verts", default=1000, min=1, max=1000000) # type: ignore
     smart_seam_settings: BoolProperty(name="Add/remove seam based on current selection", default=False) # type: ignore
     add_object_pie_use_relative: BoolProperty(name="Relative Scale", default=True, description="Default Relative Scale Value") # type: ignore
     add_object_pie_relative_scale: FloatProperty(name="Screen Size", default=6.0, min=1.0, max=25.0, description="Default Relative Scale Value") # type: ignore
     add_object_pie_default_scale: FloatProperty(name="Size", default=2.0, min=0.1, max=10.0, unit='LENGTH', description="Default Regular Scale Size Value") # type: ignore
     add_object_pie_min_scale: FloatProperty(name="Min Size", default=0.01, min=0.0001, max=10.0, unit='LENGTH', description="Relative Scale Min Size Value") # type: ignore
     add_object_pie_empty: BoolProperty(name="Add Empty Instead of Monkey", default=False) # type: ignore
-    smart_uv_sync_panel_name: StringProperty(name="", default="Tool") # type: ignore
+    uv_tools_panel_name: StringProperty(name="", default="UV Tools") # type: ignore
    
