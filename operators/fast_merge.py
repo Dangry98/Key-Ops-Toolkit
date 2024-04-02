@@ -24,9 +24,10 @@ class FastMerge(bpy.types.Operator):
     bl_description = "Fast Merge"
     bl_options = {'REGISTER', 'UNDO'}
     
-    preserve_uvs: bpy.props.BoolProperty(name="Preserve UVs", description="Try Preserve UVs (Slow)", default=False) # type: ignore
+    preserve_uvs: bpy.props.BoolProperty(name="Preserve UVs", description="Try Preserve UVs (Slower and does not always work)", default=False) # type: ignore
     prefs = get_keyops_prefs()
     mouse_position = Vector((0, 0))
+    draw_preserve_uvs = False
 
     @classmethod
     def poll(cls, context):
@@ -38,14 +39,19 @@ class FastMerge(bpy.types.Operator):
         return self.execute(context)
 
     def draw(self, context):
-        if len(self.selected_verts) != 1:
-            self.layout.prop(self, "preserve_uvs")
+        self.layout.prop(self, "preserve_uvs")
 
     def execute(self, context):
         bm = bmesh.from_edit_mesh(context.active_object.data)
         selected_verts = [vert for vert in bm.verts if vert.select]
+
         def merge(self, context, bm=bm, selected_verts=selected_verts):
-            if len(selected_verts) == 1 or self.prefs.fast_merge_last:
+            active_vert = bm.select_history.active
+            if not selected_verts == None:
+                if len(selected_verts) == 0:
+                    self.report({'WARNING'}, "No vertices selected")
+                    return {'FINISHED'}
+            if len(selected_verts) == 1 and self.prefs.fast_merge_merge_options == "only merge if active or only 1 verts is selected" or self.prefs.fast_merge_merge_options == "always merge to nearest vert" or self.prefs.fast_merge_merge_options == "merge to nerest vert if no active" and active_vert == None or len(selected_verts) == 1:
                 obj = context.object
                 matrix_world = obj.matrix_world.copy()
                 bm = bmesh.from_edit_mesh(obj.data)
@@ -76,18 +82,24 @@ class FastMerge(bpy.types.Operator):
                     else:
                         bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=nearest_vertex.co)
                         bmesh.update_edit_mesh(obj.data)
-
+                        
+                    self.report({'INFO'}, "Merged %d vertices" % (len(selected_verts) - 1))
                 return {'FINISHED'}
-                
+            
             else:
-                selected_history = bm.select_history.active
-                active_edge = selected_history if selected_history in selected_verts else []
+                active_vert = bm.select_history.active
 
-                if active_edge:
+                if active_vert is not None:
                     if self.preserve_uvs:
+                        amount_of_verts_merged = len(selected_verts)
                         bpy.ops.mesh.merge(uvs=True, type='LAST')
                     else:
-                        bpy.ops.mesh.merge(type='LAST')
+                        amount_of_verts_merged = len(selected_verts)
+                        bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=active_vert.co)
+                        bmesh.update_edit_mesh(context.active_object.data)
+                        
+                    self.report({'INFO'}, "Merged %d vertices" % (amount_of_verts_merged - 1))
+
                 else:
                     self.report({'WARNING'}, "No Active Vertex to Merge to")
 
@@ -97,18 +109,18 @@ class FastMerge(bpy.types.Operator):
             if self.prefs.fast_merge_polycount >= len(selected_verts):
                 merge(self, context, bm, selected_verts)
             else:
-                self.report({'WARNING'}, "Too many vertices selected")
+                self.report({'WARNING'}, "Limit - Too many vertices selected")
         elif self.prefs.fast_merge_soft_limit == "all_selected":
             if len(selected_verts) == len(bm.verts):
-                self.report({'WARNING'}, "All vertices are selected")
+                self.report({'WARNING'}, "Limit - All vertices are selected")
             else:
                 merge(self, context, bm, selected_verts)
         elif self.prefs.fast_merge_soft_limit == "max_limit_&_all_selected":
             if len(selected_verts) == len(bm.verts) and self.prefs.fast_merge_polycount < len(selected_verts):
-                self.report({'WARNING'}, "All vertices are selected")
+                self.report({'WARNING'}, "Limit - All vertices are selected and too many vertices selected")
             elif self.prefs.fast_merge_polycount >= len(selected_verts):
                 merge(self, context, bm, selected_verts)
             else:
-                self.report({'WARNING'}, "Too many vertices selected")
+                self.report({'WARNING'}, "Limit - Too many vertices selected")
             
         return {'FINISHED'}

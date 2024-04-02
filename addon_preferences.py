@@ -175,7 +175,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             row = column.row()
             row.label(text="Fast Merge")
             row.alignment = 'LEFT'
-            row.prop(self, "fast_merge_last") 
+            row.prop(self, "fast_merge_merge_options")
             row.prop(self, "fast_merge_soft_limit")
             if self.fast_merge_soft_limit == "max_polycount" or self.fast_merge_soft_limit == "max_limit_&_all_selected":
                 row.prop(self, "fast_merge_polycount")
@@ -430,7 +430,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_double_click_select_island: BoolProperty(name="Double Click Select Island", description="Double Click to Select Mesh Island like in Maya", default=True, update=enable_deco("double_click_select_island")) # type: ignore
     enable_smart_seam: BoolProperty(name="Smart seam", default=False, update=enable_deco("smart_seam")) # type: ignore
     enable_uv_tools: BoolProperty(name="UV Tools", default=True, update=enable_deco("uv_tools")) # type: ignore
-    enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
+    enable_uv_pies: BoolProperty(name="UV Pies", default=True, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", default=True, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=True, update=enable_deco("add_objects_pie")) # type: ignore
     enable_view_camera_pie: BoolProperty(name="View Camera Pie", default=False, update=enable_deco("view_camera_pie")) # type: ignore
@@ -479,7 +479,13 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             ("HOLD", "Hold", "Hold key to move Pivot")],
         default="HOLD") # type: ignore
     maya_pivot_show_gizmo: BoolProperty(name="Show Gizmo", default=True) # type: ignore
-    fast_merge_last: BoolProperty(name="Always merge nerast", default=False) # type: ignore
+    fast_merge_merge_options: EnumProperty( 
+        name="Options",
+        items=[
+            ("merge to nerest vert if no active", "Merge to nearest if no active and over 1 vert is selected", "Merge to nearest vert if no active vert and over 1 vert is selected"),
+            ("always merge to nearest vert", "Always merge to nearest vert", "Always merge to nearest vert"),
+            ("only merge if active or only 1 verts is selected", "only merge to nearest if 1 vert is selected, otherwise to active vert", "(legacy) only merge if active vert or only 1 verts is selected")],
+        default="merge to nerest vert if no active") # type: ignore
     fast_merge_soft_limit: EnumProperty(
         name="Limit",
         items=[

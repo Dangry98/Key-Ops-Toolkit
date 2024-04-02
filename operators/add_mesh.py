@@ -45,8 +45,8 @@ def draw_scale_prop(self, layout):
 def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_relative_float, scale_property):
     if bpy.context.mode == 'EDIT_MESH':
         bpy.ops.object.editmode_toggle()
-
-    bpy.ops.mesh.primitive_plane_add(size=2, enter_editmode=True, align='WORLD',  scale=(1, 1, 1))
+    bpy.ops.mesh.primitive_plane_add(size=2, enter_editmode=False, align='WORLD',  scale=(1, 1, 1))    
+    bpy.ops.object.editmode_toggle()
     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
     bpy.ops.mesh.edge_collapse()
     bpy.ops.mesh.extrude_region_move(MESH_OT_extrude_region={"use_normal_flip":False, "use_dissolve_ortho_edges":False, "mirror":False}, TRANSFORM_OT_translate={"value":(1, 0, 0),  "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL', "constraint_axis":(True, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'VERTEX'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0),})
@@ -58,7 +58,6 @@ def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_rel
 
     bpy.ops.object.modifier_add(type='SCREW')
     bpy.context.object.modifiers["Screw"].name = "Cylinder"
-    bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=1.0472)
     bpy.context.object.modifiers["Cylinder"].use_smooth_shade = True
     bpy.context.object.modifiers["Cylinder"].steps = segment_amount
     bpy.context.object.modifiers["Cylinder"].use_normal_calculate = True
@@ -72,6 +71,8 @@ def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_rel
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.context.object.modifiers["Cylinder"].use_merge_vertices = True
     bpy.context.object.modifiers["Cylinder"].merge_threshold = scale * 0.1
+    if bpy.app.version <= (4, 0, 2):
+        bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=1.0472)
    
 def AddQuadSphere(context, scale, use_relative_scale, scale_relative_float, scale_property, sub_amount, use_modifiers):
     scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0)
@@ -83,7 +84,7 @@ def AddQuadSphere(context, scale, use_relative_scale, scale_relative_float, scal
     bpy.ops.object.modifier_add(type='CAST')
     bpy.context.object.modifiers["Cast"].factor = 1
     bpy.ops.object.shade_smooth()
-    bpy.ops.transform.resize(value=(1.168, 1.168, 1.168), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False, alt_navigation=True)
+    bpy.ops.transform.resize(value=(1.168, 1.168, 1.168), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     if not use_modifiers: 

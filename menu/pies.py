@@ -183,11 +183,11 @@ class UVSpacePie(Menu):
         # else:
         pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
-        pie.operator("uv.unwrap", text="Unwrap and Pack", icon="UV_FACESEL") #TOP
+        pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #TOP
 
-        pie.operator("keyops.unwrap_selected", text="Unwrap Selected", icon="UV_VERTEXSEL") #LEFT TOP
+        pie.operator("uv.unwrap", text="Unwrap and Pack", icon="UV_FACESEL") #LEFT TOP
 
-        pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #RIGHT TOP
+        pie.operator("keyops.unwrap_selected", text="Unwrap Selected", icon="UV_VERTEXSEL") #RIGHT TOP
 
         if uvtoolkit and zenuv:
             if bpy.context.tool_settings.use_uv_select_sync:

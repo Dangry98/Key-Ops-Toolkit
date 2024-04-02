@@ -18,7 +18,7 @@
 bl_info = {
     "name": "Key Ops: Toolkit",
     "author": "DanGry, MACHIN3",
-    "version": (0, 1, 80),
+    "version": (0, 1, 81),
     "blender": (4, 0, 0),
     "description": "Adds new tools, shortcuts and operations to Blender",
     "category": "3D View"
@@ -97,7 +97,7 @@ if bpy.app.version >= (4, 1, 0):
     default_classes.append(AutoSmooth)
 
 def register():
-    debug = True
+    debug = False
     global classes, keymaps
     global default_classes
 

@@ -1,7 +1,7 @@
 import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
-import mathutils
+from ..utils.mesh_utils import modifier_toggle_visability_based
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
 #Only an very old version is still available, but I doubt it still works in new version of Blender  https://alexbel.gumroad.com/l/NbMya
@@ -13,6 +13,8 @@ class SmartUVSync(bpy.types.Operator):
     bl_label = "KeyOps: Smart UV Sync"
     bl_description = "Toggle Sync Mode and UV Selection while preserving selection and selection mode"
     bl_options = {'REGISTER'}
+
+    fast_sync: bpy.props.BoolProperty(name="Fast Mode", default=False, description="Fast Mode, Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes") # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -55,64 +57,68 @@ class SmartUVSync(bpy.types.Operator):
                 tool_settings.uv_select_mode = 'FACE'
 
     def sync_selected_elements(self, context, uv_sync_enable):
-        for ob in context.objects_in_mode_unique_data:
-            me = ob.data
-            bm = bmesh.from_edit_mesh(me)
+        objects_in_mode_unique_data = context.objects_in_mode_unique_data
+        if self.fast_sync:
+            for ob in objects_in_mode_unique_data:
+                objects_in_mode_unique_data = [ob for ob in objects_in_mode_unique_data if ob.data.total_vert_sel > 0]
+        for ob in objects_in_mode_unique_data:
+                me = ob.data
+                bm = bmesh.from_edit_mesh(me)
 
-            uv_layer = bm.loops.layers.uv.verify()
+                uv_layer = bm.loops.layers.uv.verify()
 
-            if uv_sync_enable:
-                for face in bm.faces:
-                    for loop in face.loops:
-                        loop_uv = loop[uv_layer]
-                        if not loop_uv.select:
-                            face.select = False
-
-                for face in bm.faces:
-                    for loop in face.loops:
-                        loop_uv = loop[uv_layer]
-                        if loop_uv.select:
-                            loop.vert.select = True
-
-                for edge in bm.edges:
-                    vert_count = 0
-                    for vert in edge.verts:
-                        if vert.select:
-                            vert_count += 1
-                    if vert_count == 2:
-                        edge.select = True
-
-            else:
-                for face in bm.faces:
-                    for loop in face.loops:
-                        loop_uv = loop[uv_layer]
-                        loop_uv.select = False
-
-                mesh_select_mode = context.tool_settings.mesh_select_mode[:]
-
-                if mesh_select_mode[2]:  # face
+                if uv_sync_enable:
                     for face in bm.faces:
-                        if face.select:
+                        for loop in face.loops:
+                            loop_uv = loop[uv_layer]
+                            if not loop_uv.select:
+                                face.select = False
+
+                    for face in bm.faces:
+                        for loop in face.loops:
+                            loop_uv = loop[uv_layer]
+                            if loop_uv.select:
+                                loop.vert.select = True
+
+                    for edge in bm.edges:
+                        vert_count = 0
+                        for vert in edge.verts:
+                            if vert.select:
+                                vert_count += 1
+                        if vert_count == 2:
+                            edge.select = True
+
+                else:
+                    for face in bm.faces:
+                        for loop in face.loops:
+                            loop_uv = loop[uv_layer]
+                            loop_uv.select = False
+
+                    mesh_select_mode = context.tool_settings.mesh_select_mode[:]
+
+                    if mesh_select_mode[2]:  # face
+                        for face in bm.faces:
+                            if face.select:
+                                for loop in face.loops:
+                                    loop_uv = loop[uv_layer]
+                                    if loop.vert.select:
+                                        loop_uv.select = True
+                    # if mesh_select_mode[1]:  # edge
+                    #     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+                    #     print ("edge")
+
+                    
+                    else: #vertex
+                        for face in bm.faces:
                             for loop in face.loops:
                                 loop_uv = loop[uv_layer]
                                 if loop.vert.select:
                                     loop_uv.select = True
-                # if mesh_select_mode[1]:  # edge
-                #     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                #     print ("edge")
 
-                
-                else: #vertex
                     for face in bm.faces:
-                        for loop in face.loops:
-                            loop_uv = loop[uv_layer]
-                            if loop.vert.select:
-                                loop_uv.select = True
-
-                for face in bm.faces:
-                    face.select = True
-        
-            bmesh.update_edit_mesh(me)
+                        face.select = True
+            
+                bmesh.update_edit_mesh(me)
 
     def register():
         bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
@@ -666,10 +672,11 @@ class UnwrapInPlace(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     selected_only: bpy.props.BoolProperty(name="Selected Only", default=False, description="Selected Only") # type: ignore
-    margin: bpy.props.FloatProperty(name="Margin", default=0.01, min=0.0, max=1.0, description="Margin") # type: ignore
+    select_islands: bpy.props.BoolProperty(name="Select Islands (Slow)", default=True, description="Select Islands") # type: ignore
+    uv_unwrap_method: bpy.props.EnumProperty(name="Method", items=(('ANGLE_BASED', "Angle Based", "Angle Based"), ('CONFORMAL', "Conformal", "Conformal")), default='CONFORMAL', description="UV Unwrap Method") # type: ignore
     fill_holes: bpy.props.BoolProperty(name="Fill Holes", default=True, description="Fill Holes") # type: ignore
-    angle_based: bpy.props.BoolProperty(name="Use Angle Based", default=False, description="Angle Based, slower than Conformal") # type: ignore
     pack_uv_islands: bpy.props.BoolProperty(name="Pack UV Islands", default=True, description="Pack UV Islands") # type: ignore
+    margin: bpy.props.FloatProperty(name="Margin", default=0.01, min=0.0, max=1.0, description="Margin") # type: ignore
     rotate: bpy.props.BoolProperty(name="Rotate", default=True, description="Rotate") # type: ignore
     rotation_method: bpy.props.EnumProperty(name="Rotation Method", items=(('ANY', "Any", "Any"), ('CARDINAL', "Cardinal", "Cardinal"), ('AXIS_ALIGNED', "Axis Aligned", "Axis Aligned")), default='CARDINAL', description="Rotation Method") # type: ignore
     #apply_modifier: bpy.props.BoolProperty(name="(Debug) No Apply", default=True, description="Apply Modifier") # type: ignore
@@ -677,90 +684,730 @@ class UnwrapInPlace(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.mode == 'EDIT_MESH'
+    
+    def draw (self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(self, "selected_only")
+        layout.prop(self, "select_islands")
+        layout.prop(self, "uv_unwrap_method")
+        layout.prop(self, "fill_holes")
+        layout.label(text="Pack Islands:")
+        layout.prop(self, "pack_uv_islands")
+        if self.pack_uv_islands:
+            layout.prop(self, "margin")
+            layout.prop(self, "rotate")
+            layout.prop(self, "rotation_method")
+            #layout.prop(self, "apply_modifier")
 
     def execute(self, context):
+        def match_bounding_box_node_group():
+            match_bounding_box = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Match Bounding Box")
+
+            match_bounding_box.is_modifier = True
+            
+            #initialize match_bounding_box nodes
+            #match_bounding_box interface
+            #Socket Vector
+            vector_socket = match_bounding_box.interface.new_socket(name = "Vector", in_out='OUTPUT', socket_type = 'NodeSocketVector')
+            vector_socket.subtype = 'NONE'
+            vector_socket.default_value = (0.0, 0.0, 0.0)
+            vector_socket.min_value = -3.4028234663852886e+38
+            vector_socket.max_value = 3.4028234663852886e+38
+            vector_socket.attribute_domain = 'POINT'
+            
+            #Socket Geometry
+            geometry_socket = match_bounding_box.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+            geometry_socket.attribute_domain = 'POINT'
+            
+            #Socket Target
+            target_socket = match_bounding_box.interface.new_socket(name = "Target", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+            target_socket.attribute_domain = 'POINT'
+            
+            
+            #node Vector Math.001
+            vector_math_001 = match_bounding_box.nodes.new("ShaderNodeVectorMath")
+            vector_math_001.name = "Vector Math.001"
+            vector_math_001.operation = 'SUBTRACT'
+            #Vector_002
+            vector_math_001.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_001.inputs[3].default_value = 1.0
+            
+            #node Vector Math
+            vector_math = match_bounding_box.nodes.new("ShaderNodeVectorMath")
+            vector_math.name = "Vector Math"
+            vector_math.operation = 'DIVIDE'
+            #Vector_002
+            vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math.inputs[3].default_value = 1.0
+            
+            #node Math
+            math = match_bounding_box.nodes.new("ShaderNodeMath")
+            math.name = "Math"
+            math.operation = 'ADD'
+            math.use_clamp = False
+            #Value
+            math.inputs[0].default_value = 2.0
+            #Value_001
+            math.inputs[1].default_value = 1.0
+            #Value_002
+            math.inputs[2].default_value = 0.5
+            
+            #node Math.001
+            math_001 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_001.name = "Math.001"
+            math_001.operation = 'MODULO'
+            math_001.use_clamp = False
+            #Value_001
+            math_001.inputs[1].default_value = 3.0
+            #Value_002
+            math_001.inputs[2].default_value = 0.5
+            
+            #node Math.002
+            math_002 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_002.name = "Math.002"
+            math_002.operation = 'ADD'
+            math_002.use_clamp = False
+            #Value
+            math_002.inputs[0].default_value = 2.0
+            #Value_001
+            math_002.inputs[1].default_value = 2.0
+            #Value_002
+            math_002.inputs[2].default_value = 0.5
+            
+            #node Math.003
+            math_003 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_003.name = "Math.003"
+            math_003.operation = 'MODULO'
+            math_003.use_clamp = False
+            #Value_001
+            math_003.inputs[1].default_value = 3.0
+            #Value_002
+            math_003.inputs[2].default_value = 0.5
+            
+            #node Position
+            position = match_bounding_box.nodes.new("GeometryNodeInputPosition")
+            position.name = "Position"
+            
+            #node Group Output
+            group_output = match_bounding_box.nodes.new("NodeGroupOutput")
+            group_output.name = "Group Output"
+            group_output.is_active_output = True
+            
+            #node Group Input
+            group_input = match_bounding_box.nodes.new("NodeGroupInput")
+            group_input.name = "Group Input"
+            
+            #node Mix
+            mix = match_bounding_box.nodes.new("ShaderNodeMix")
+            mix.name = "Mix"
+            mix.blend_type = 'MIX'
+            mix.clamp_factor = True
+            mix.clamp_result = False
+            mix.data_type = 'VECTOR'
+            mix.factor_mode = 'UNIFORM'
+            #Factor_Vector
+            mix.inputs[1].default_value = (0.5, 0.5, 0.5)
+            #A_Float
+            mix.inputs[2].default_value = 0.0
+            #B_Float
+            mix.inputs[3].default_value = 0.0
+            #A_Color
+            mix.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+            #B_Color
+            mix.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+            #A_Rotation
+            mix.inputs[8].default_value = (0.0, 0.0, 0.0)
+            #B_Rotation
+            mix.inputs[9].default_value = (0.0, 0.0, 0.0)
+            
+            #node Mix.001
+            mix_001 = match_bounding_box.nodes.new("ShaderNodeMix")
+            mix_001.name = "Mix.001"
+            mix_001.blend_type = 'MIX'
+            mix_001.clamp_factor = True
+            mix_001.clamp_result = False
+            mix_001.data_type = 'VECTOR'
+            mix_001.factor_mode = 'UNIFORM'
+            #Factor_Vector
+            mix_001.inputs[1].default_value = (0.5, 0.5, 0.5)
+            #A_Float
+            mix_001.inputs[2].default_value = 0.0
+            #B_Float
+            mix_001.inputs[3].default_value = 0.0
+            #A_Color
+            mix_001.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+            #B_Color
+            mix_001.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+            #A_Rotation
+            mix_001.inputs[8].default_value = (0.0, 0.0, 0.0)
+            #B_Rotation
+            mix_001.inputs[9].default_value = (0.0, 0.0, 0.0)
+            
+            #node Mix.002
+            mix_002 = match_bounding_box.nodes.new("ShaderNodeMix")
+            mix_002.name = "Mix.002"
+            mix_002.blend_type = 'MIX'
+            mix_002.clamp_factor = True
+            mix_002.clamp_result = False
+            mix_002.data_type = 'VECTOR'
+            mix_002.factor_mode = 'UNIFORM'
+            #Factor_Vector
+            mix_002.inputs[1].default_value = (0.5, 0.5, 0.5)
+            #A_Float
+            mix_002.inputs[2].default_value = 0.0
+            #B_Float
+            mix_002.inputs[3].default_value = 0.0
+            #A_Color
+            mix_002.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+            #B_Color
+            mix_002.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+            #A_Rotation
+            mix_002.inputs[8].default_value = (0.0, 0.0, 0.0)
+            #B_Rotation
+            mix_002.inputs[9].default_value = (0.0, 0.0, 0.0)
+            
+            #node Bounding Box
+            bounding_box = match_bounding_box.nodes.new("GeometryNodeBoundBox")
+            bounding_box.name = "Bounding Box"
+            
+            #node Vector Math.004
+            vector_math_004 = match_bounding_box.nodes.new("ShaderNodeVectorMath")
+            vector_math_004.name = "Vector Math.004"
+            vector_math_004.operation = 'SUBTRACT'
+            #Vector_002
+            vector_math_004.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_004.inputs[3].default_value = 1.0
+            
+            #node Reroute
+            reroute = match_bounding_box.nodes.new("NodeReroute")
+            reroute.name = "Reroute"
+            #node Separate XYZ
+            separate_xyz = match_bounding_box.nodes.new("ShaderNodeSeparateXYZ")
+            separate_xyz.name = "Separate XYZ"
+            
+            #node Compare
+            compare = match_bounding_box.nodes.new("FunctionNodeCompare")
+            compare.name = "Compare"
+            compare.data_type = 'INT'
+            compare.mode = 'ELEMENT'
+            compare.operation = 'EQUAL'
+            #A
+            compare.inputs[0].default_value = 0.0
+            #B
+            compare.inputs[1].default_value = 0.0
+            #B_INT
+            compare.inputs[3].default_value = 0
+            #A_VEC3
+            compare.inputs[4].default_value = (0.0, 0.0, 0.0)
+            #B_VEC3
+            compare.inputs[5].default_value = (0.0, 0.0, 0.0)
+            #A_COL
+            compare.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+            #B_COL
+            compare.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+            #A_STR
+            compare.inputs[8].default_value = ""
+            #B_STR
+            compare.inputs[9].default_value = ""
+            #C
+            compare.inputs[10].default_value = 0.8999999761581421
+            #Angle
+            compare.inputs[11].default_value = 0.08726649731397629
+            #Epsilon
+            compare.inputs[12].default_value = 0.0010000000474974513
+            
+            #node Math.004
+            math_004 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_004.name = "Math.004"
+            math_004.operation = 'MULTIPLY'
+            math_004.use_clamp = False
+            #Value_002
+            math_004.inputs[2].default_value = 0.5
+            
+            #node Reroute.001
+            reroute_001 = match_bounding_box.nodes.new("NodeReroute")
+            reroute_001.name = "Reroute.001"
+            #node Separate XYZ.001
+            separate_xyz_001 = match_bounding_box.nodes.new("ShaderNodeSeparateXYZ")
+            separate_xyz_001.name = "Separate XYZ.001"
+            
+            #node Compare.001
+            compare_001 = match_bounding_box.nodes.new("FunctionNodeCompare")
+            compare_001.name = "Compare.001"
+            compare_001.data_type = 'INT'
+            compare_001.mode = 'ELEMENT'
+            compare_001.operation = 'EQUAL'
+            #A
+            compare_001.inputs[0].default_value = 0.0
+            #B
+            compare_001.inputs[1].default_value = 0.0
+            #B_INT
+            compare_001.inputs[3].default_value = 0
+            #A_VEC3
+            compare_001.inputs[4].default_value = (0.0, 0.0, 0.0)
+            #B_VEC3
+            compare_001.inputs[5].default_value = (0.0, 0.0, 0.0)
+            #A_COL
+            compare_001.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+            #B_COL
+            compare_001.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+            #A_STR
+            compare_001.inputs[8].default_value = ""
+            #B_STR
+            compare_001.inputs[9].default_value = ""
+            #C
+            compare_001.inputs[10].default_value = 0.8999999761581421
+            #Angle
+            compare_001.inputs[11].default_value = 0.08726649731397629
+            #Epsilon
+            compare_001.inputs[12].default_value = 0.0010000000474974513
+            
+            #node Math.007
+            math_007 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_007.name = "Math.007"
+            math_007.operation = 'MULTIPLY'
+            math_007.use_clamp = False
+            #Value_002
+            math_007.inputs[2].default_value = 0.5
+            
+            #node Math.008
+            math_008 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_008.name = "Math.008"
+            math_008.operation = 'MULTIPLY'
+            math_008.use_clamp = False
+            #Value_002
+            math_008.inputs[2].default_value = 0.5
+            
+            #node Math.009
+            math_009 = match_bounding_box.nodes.new("ShaderNodeMath")
+            math_009.name = "Math.009"
+            math_009.operation = 'ADD'
+            math_009.use_clamp = False
+            #Value_002
+            math_009.inputs[2].default_value = 0.5
+            
+            #node Position.001
+            position_001 = match_bounding_box.nodes.new("GeometryNodeInputPosition")
+            position_001.name = "Position.001"
+            
+            #node Vertex of Corner
+            vertex_of_corner = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
+            vertex_of_corner.name = "Vertex of Corner"
+            
+            #node Vertex of Corner.001
+            vertex_of_corner_001 = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
+            vertex_of_corner_001.name = "Vertex of Corner.001"
+            
+            #node Corners of Face.001
+            corners_of_face_001 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
+            corners_of_face_001.name = "Corners of Face.001"
+            #Weights
+            corners_of_face_001.inputs[1].default_value = 0.0
+            #Sort Index
+            corners_of_face_001.inputs[2].default_value = 1
+            
+            #node Vertex of Corner.002
+            vertex_of_corner_002 = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
+            vertex_of_corner_002.name = "Vertex of Corner.002"
+            
+            #node Corners of Face.002
+            corners_of_face_002 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
+            corners_of_face_002.name = "Corners of Face.002"
+            #Weights
+            corners_of_face_002.inputs[1].default_value = 0.0
+            #Sort Index
+            corners_of_face_002.inputs[2].default_value = 2
+            
+            #node Vertex of Corner.003
+            vertex_of_corner_003 = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
+            vertex_of_corner_003.name = "Vertex of Corner.003"
+            
+            #node Sample Index.002
+            sample_index_002 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_002.name = "Sample Index.002"
+            sample_index_002.clamp = False
+            sample_index_002.data_type = 'FLOAT_VECTOR'
+            sample_index_002.domain = 'POINT'
+            
+            #node Sample Index.005
+            sample_index_005 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_005.name = "Sample Index.005"
+            sample_index_005.clamp = False
+            sample_index_005.data_type = 'FLOAT_VECTOR'
+            sample_index_005.domain = 'POINT'
+            
+            #node Sample Index.004
+            sample_index_004 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_004.name = "Sample Index.004"
+            sample_index_004.clamp = False
+            sample_index_004.data_type = 'FLOAT_VECTOR'
+            sample_index_004.domain = 'POINT'
+            
+            #node Sample Index.007
+            sample_index_007 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_007.name = "Sample Index.007"
+            sample_index_007.clamp = False
+            sample_index_007.data_type = 'FLOAT_VECTOR'
+            sample_index_007.domain = 'POINT'
+            
+            #node Sample Index.001
+            sample_index_001 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_001.name = "Sample Index.001"
+            sample_index_001.clamp = False
+            sample_index_001.data_type = 'FLOAT_VECTOR'
+            sample_index_001.domain = 'FACE'
+            #Index
+            sample_index_001.inputs[2].default_value = 0
+            
+            #node Sample Index.003
+            sample_index_003 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_003.name = "Sample Index.003"
+            sample_index_003.clamp = False
+            sample_index_003.data_type = 'FLOAT_VECTOR'
+            sample_index_003.domain = 'FACE'
+            #Index
+            sample_index_003.inputs[2].default_value = 0
+            
+            #node Sample Index.008
+            sample_index_008 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_008.name = "Sample Index.008"
+            sample_index_008.clamp = False
+            sample_index_008.data_type = 'FLOAT_VECTOR'
+            sample_index_008.domain = 'FACE'
+            #Index
+            sample_index_008.inputs[2].default_value = 0
+            
+            #node Sample Index.006
+            sample_index_006 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
+            sample_index_006.name = "Sample Index.006"
+            sample_index_006.clamp = False
+            sample_index_006.data_type = 'FLOAT_VECTOR'
+            sample_index_006.domain = 'FACE'
+            #Index
+            sample_index_006.inputs[2].default_value = 0
+            
+            #node Corners of Face.003
+            corners_of_face_003 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
+            corners_of_face_003.name = "Corners of Face.003"
+            #Weights
+            corners_of_face_003.inputs[1].default_value = 0.0
+            #Sort Index
+            corners_of_face_003.inputs[2].default_value = 3
+            
+            #node Corners of Face
+            corners_of_face = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
+            corners_of_face.name = "Corners of Face"
+            #Weights
+            corners_of_face.inputs[1].default_value = 0.0
+            #Sort Index
+            corners_of_face.inputs[2].default_value = 0
+            
+            #node Index
+            index = match_bounding_box.nodes.new("GeometryNodeInputIndex")
+            index.name = "Index"
+            
+            
+            
+            
+            #Set locations
+            vector_math_001.location = (671.8292846679688, -3.393566131591797)
+            vector_math.location = (905.0932006835938, 144.4541015625)
+            math.location = (565.4978637695312, -232.2760772705078)
+            math_001.location = (881.5574340820312, -204.1563720703125)
+            math_002.location = (590.8495483398438, -395.4056396484375)
+            math_003.location = (884.0984497070312, -376.4026184082031)
+            position.location = (393.37603759765625, -64.50838470458984)
+            group_output.location = (1984.5904541015625, 958.5203857421875)
+            group_input.location = (-385.03082275390625, 340.2637939453125)
+            mix.location = (1455.6461181640625, 951.1998291015625)
+            mix_001.location = (1458.203857421875, 762.4796142578125)
+            mix_002.location = (1741.3050537109375, 888.8538818359375)
+            bounding_box.location = (9.702392578125, 74.94915771484375)
+            vector_math_004.location = (424.3367919921875, 105.096923828125)
+            reroute.location = (816.8677978515625, -114.7408676147461)
+            separate_xyz.location = (987.7881469726562, 44.316226959228516)
+            compare.location = (882.8019409179688, -80.56271362304688)
+            math_004.location = (1067.386962890625, -60.907283782958984)
+            reroute_001.location = (1015.1231079101562, -369.200927734375)
+            separate_xyz_001.location = (1128.98388671875, -163.91058349609375)
+            compare_001.location = (1129.827880859375, -309.7416687011719)
+            math_007.location = (1451.3521728515625, 267.85394287109375)
+            math_008.location = (1450.5181884765625, 218.8677978515625)
+            math_009.location = (1588.9984130859375, 460.2774353027344)
+            position_001.location = (330.43988037109375, 1052.831298828125)
+            vertex_of_corner.location = (336.75323486328125, 979.8141479492188)
+            vertex_of_corner_001.location = (316.51531982421875, 770.7216186523438)
+            corners_of_face_001.location = (37.93927001953125, 766.745849609375)
+            vertex_of_corner_002.location = (296.0479736328125, 562.2384643554688)
+            corners_of_face_002.location = (17.47186279296875, 558.2626953125)
+            vertex_of_corner_003.location = (274.91302490234375, 347.5218505859375)
+            sample_index_002.location = (618.0657958984375, 1046.685546875)
+            sample_index_005.location = (577.3604736328125, 629.1099243164062)
+            sample_index_004.location = (597.827880859375, 837.5931396484375)
+            sample_index_007.location = (556.2257080078125, 414.3934326171875)
+            sample_index_001.location = (935.4558715820312, 1079.818603515625)
+            sample_index_003.location = (911.6384887695312, 866.556396484375)
+            sample_index_008.location = (864.8963012695312, 393.2352294921875)
+            sample_index_006.location = (889.1013793945312, 656.0769653320312)
+            corners_of_face_003.location = (-4.5345458984375, 349.69403076171875)
+            corners_of_face.location = (58.17718505859375, 975.83837890625)
+            index.location = (-164.66323852539062, 893.779296875)
+            
+            #Set dimensions
+            vector_math_001.width, vector_math_001.height = 140.0, 100.0
+            vector_math.width, vector_math.height = 140.0, 100.0
+            math.width, math.height = 140.0, 100.0
+            math_001.width, math_001.height = 140.0, 100.0
+            math_002.width, math_002.height = 140.0, 100.0
+            math_003.width, math_003.height = 140.0, 100.0
+            position.width, position.height = 140.0, 100.0
+            group_output.width, group_output.height = 140.0, 100.0
+            group_input.width, group_input.height = 140.0, 100.0
+            mix.width, mix.height = 140.0, 100.0
+            mix_001.width, mix_001.height = 140.0, 100.0
+            mix_002.width, mix_002.height = 140.0, 100.0
+            bounding_box.width, bounding_box.height = 140.0, 100.0
+            vector_math_004.width, vector_math_004.height = 140.0, 100.0
+            reroute.width, reroute.height = 100.0, 100.0
+            separate_xyz.width, separate_xyz.height = 140.0, 100.0
+            compare.width, compare.height = 140.0, 100.0
+            math_004.width, math_004.height = 140.0, 100.0
+            reroute_001.width, reroute_001.height = 100.0, 100.0
+            separate_xyz_001.width, separate_xyz_001.height = 140.0, 100.0
+            compare_001.width, compare_001.height = 140.0, 100.0
+            math_007.width, math_007.height = 140.0, 100.0
+            math_008.width, math_008.height = 140.0, 100.0
+            math_009.width, math_009.height = 140.0, 100.0
+            position_001.width, position_001.height = 140.0, 100.0
+            vertex_of_corner.width, vertex_of_corner.height = 140.0, 100.0
+            vertex_of_corner_001.width, vertex_of_corner_001.height = 140.0, 100.0
+            corners_of_face_001.width, corners_of_face_001.height = 140.0, 100.0
+            vertex_of_corner_002.width, vertex_of_corner_002.height = 140.0, 100.0
+            corners_of_face_002.width, corners_of_face_002.height = 140.0, 100.0
+            vertex_of_corner_003.width, vertex_of_corner_003.height = 140.0, 100.0
+            sample_index_002.width, sample_index_002.height = 140.0, 100.0
+            sample_index_005.width, sample_index_005.height = 140.0, 100.0
+            sample_index_004.width, sample_index_004.height = 140.0, 100.0
+            sample_index_007.width, sample_index_007.height = 140.0, 100.0
+            sample_index_001.width, sample_index_001.height = 140.0, 100.0
+            sample_index_003.width, sample_index_003.height = 140.0, 100.0
+            sample_index_008.width, sample_index_008.height = 140.0, 100.0
+            sample_index_006.width, sample_index_006.height = 140.0, 100.0
+            corners_of_face_003.width, corners_of_face_003.height = 140.0, 100.0
+            corners_of_face.width, corners_of_face.height = 140.0, 100.0
+            index.width, index.height = 140.0, 100.0
+            
+            #initialize match_bounding_box links
+            #mix.Result -> mix_002.A
+            match_bounding_box.links.new(mix.outputs[1], mix_002.inputs[4])
+            #mix_001.Result -> mix_002.B
+            match_bounding_box.links.new(mix_001.outputs[1], mix_002.inputs[5])
+            #position.Position -> vector_math_001.Vector
+            match_bounding_box.links.new(position.outputs[0], vector_math_001.inputs[0])
+            #vector_math_001.Vector -> vector_math.Vector
+            match_bounding_box.links.new(vector_math_001.outputs[0], vector_math.inputs[0])
+            #math.Value -> math_001.Value
+            match_bounding_box.links.new(math.outputs[0], math_001.inputs[0])
+            #math_002.Value -> math_003.Value
+            match_bounding_box.links.new(math_002.outputs[0], math_003.inputs[0])
+            #mix_002.Result -> group_output.Vector
+            match_bounding_box.links.new(mix_002.outputs[1], group_output.inputs[0])
+            #bounding_box.Max -> vector_math_004.Vector
+            match_bounding_box.links.new(bounding_box.outputs[2], vector_math_004.inputs[0])
+            #bounding_box.Min -> vector_math_004.Vector
+            match_bounding_box.links.new(bounding_box.outputs[1], vector_math_004.inputs[1])
+            #bounding_box.Min -> vector_math_001.Vector
+            match_bounding_box.links.new(bounding_box.outputs[1], vector_math_001.inputs[1])
+            #vector_math_004.Vector -> vector_math.Vector
+            match_bounding_box.links.new(vector_math_004.outputs[0], vector_math.inputs[1])
+            #group_input.Target -> bounding_box.Geometry
+            match_bounding_box.links.new(group_input.outputs[1], bounding_box.inputs[0])
+            #reroute.Output -> compare.A
+            match_bounding_box.links.new(reroute.outputs[0], compare.inputs[2])
+            #separate_xyz.X -> math_004.Value
+            match_bounding_box.links.new(separate_xyz.outputs[0], math_004.inputs[0])
+            #compare.Result -> math_004.Value
+            match_bounding_box.links.new(compare.outputs[0], math_004.inputs[1])
+            #math_001.Value -> reroute.Input
+            match_bounding_box.links.new(math_001.outputs[0], reroute.inputs[0])
+            #vector_math.Vector -> separate_xyz.Vector
+            match_bounding_box.links.new(vector_math.outputs[0], separate_xyz.inputs[0])
+            #math_004.Value -> mix.Factor
+            match_bounding_box.links.new(math_004.outputs[0], mix.inputs[0])
+            #math_004.Value -> mix_001.Factor
+            match_bounding_box.links.new(math_004.outputs[0], mix_001.inputs[0])
+            #reroute_001.Output -> compare_001.A
+            match_bounding_box.links.new(reroute_001.outputs[0], compare_001.inputs[2])
+            #reroute_001.Output -> math_008.Value
+            match_bounding_box.links.new(reroute_001.outputs[0], math_008.inputs[1])
+            #separate_xyz_001.X -> math_007.Value
+            match_bounding_box.links.new(separate_xyz_001.outputs[0], math_007.inputs[0])
+            #compare_001.Result -> math_007.Value
+            match_bounding_box.links.new(compare_001.outputs[0], math_007.inputs[1])
+            #separate_xyz_001.Y -> math_008.Value
+            match_bounding_box.links.new(separate_xyz_001.outputs[1], math_008.inputs[0])
+            #math_007.Value -> math_009.Value
+            match_bounding_box.links.new(math_007.outputs[0], math_009.inputs[0])
+            #math_008.Value -> math_009.Value
+            match_bounding_box.links.new(math_008.outputs[0], math_009.inputs[1])
+            #math_003.Value -> reroute_001.Input
+            match_bounding_box.links.new(math_003.outputs[0], reroute_001.inputs[0])
+            #vector_math.Vector -> separate_xyz_001.Vector
+            match_bounding_box.links.new(vector_math.outputs[0], separate_xyz_001.inputs[0])
+            #math_009.Value -> mix_002.Factor
+            match_bounding_box.links.new(math_009.outputs[0], mix_002.inputs[0])
+            #vertex_of_corner_002.Vertex Index -> sample_index_005.Index
+            match_bounding_box.links.new(vertex_of_corner_002.outputs[0], sample_index_005.inputs[2])
+            #index.Index -> corners_of_face_002.Face Index
+            match_bounding_box.links.new(index.outputs[0], corners_of_face_002.inputs[0])
+            #vertex_of_corner_001.Vertex Index -> sample_index_004.Index
+            match_bounding_box.links.new(vertex_of_corner_001.outputs[0], sample_index_004.inputs[2])
+            #sample_index_007.Value -> sample_index_008.Value
+            match_bounding_box.links.new(sample_index_007.outputs[0], sample_index_008.inputs[1])
+            #vertex_of_corner.Vertex Index -> sample_index_002.Index
+            match_bounding_box.links.new(vertex_of_corner.outputs[0], sample_index_002.inputs[2])
+            #sample_index_004.Value -> sample_index_003.Value
+            match_bounding_box.links.new(sample_index_004.outputs[0], sample_index_003.inputs[1])
+            #corners_of_face_003.Corner Index -> vertex_of_corner_003.Corner Index
+            match_bounding_box.links.new(corners_of_face_003.outputs[0], vertex_of_corner_003.inputs[0])
+            #position_001.Position -> sample_index_005.Value
+            match_bounding_box.links.new(position_001.outputs[0], sample_index_005.inputs[1])
+            #corners_of_face_001.Corner Index -> vertex_of_corner_001.Corner Index
+            match_bounding_box.links.new(corners_of_face_001.outputs[0], vertex_of_corner_001.inputs[0])
+            #position_001.Position -> sample_index_002.Value
+            match_bounding_box.links.new(position_001.outputs[0], sample_index_002.inputs[1])
+            #position_001.Position -> sample_index_004.Value
+            match_bounding_box.links.new(position_001.outputs[0], sample_index_004.inputs[1])
+            #index.Index -> corners_of_face_003.Face Index
+            match_bounding_box.links.new(index.outputs[0], corners_of_face_003.inputs[0])
+            #index.Index -> corners_of_face_001.Face Index
+            match_bounding_box.links.new(index.outputs[0], corners_of_face_001.inputs[0])
+            #vertex_of_corner_003.Vertex Index -> sample_index_007.Index
+            match_bounding_box.links.new(vertex_of_corner_003.outputs[0], sample_index_007.inputs[2])
+            #sample_index_005.Value -> sample_index_006.Value
+            match_bounding_box.links.new(sample_index_005.outputs[0], sample_index_006.inputs[1])
+            #corners_of_face_002.Corner Index -> vertex_of_corner_002.Corner Index
+            match_bounding_box.links.new(corners_of_face_002.outputs[0], vertex_of_corner_002.inputs[0])
+            #index.Index -> corners_of_face.Face Index
+            match_bounding_box.links.new(index.outputs[0], corners_of_face.inputs[0])
+            #position_001.Position -> sample_index_007.Value
+            match_bounding_box.links.new(position_001.outputs[0], sample_index_007.inputs[1])
+            #corners_of_face.Corner Index -> vertex_of_corner.Corner Index
+            match_bounding_box.links.new(corners_of_face.outputs[0], vertex_of_corner.inputs[0])
+            #sample_index_002.Value -> sample_index_001.Value
+            match_bounding_box.links.new(sample_index_002.outputs[0], sample_index_001.inputs[1])
+            #group_input.Geometry -> sample_index_006.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_006.inputs[0])
+            #group_input.Geometry -> sample_index_002.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_002.inputs[0])
+            #group_input.Geometry -> sample_index_005.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_005.inputs[0])
+            #group_input.Geometry -> sample_index_001.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_001.inputs[0])
+            #group_input.Geometry -> sample_index_007.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_007.inputs[0])
+            #group_input.Geometry -> sample_index_003.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_003.inputs[0])
+            #group_input.Geometry -> sample_index_004.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_004.inputs[0])
+            #group_input.Geometry -> sample_index_008.Geometry
+            match_bounding_box.links.new(group_input.outputs[0], sample_index_008.inputs[0])
+            #sample_index_001.Value -> mix.A
+            match_bounding_box.links.new(sample_index_001.outputs[0], mix.inputs[4])
+            #sample_index_003.Value -> mix.B
+            match_bounding_box.links.new(sample_index_003.outputs[0], mix.inputs[5])
+            #sample_index_008.Value -> mix_001.A
+            match_bounding_box.links.new(sample_index_008.outputs[0], mix_001.inputs[4])
+            #sample_index_006.Value -> mix_001.B
+            match_bounding_box.links.new(sample_index_006.outputs[0], mix_001.inputs[5])
+            return match_bounding_box
 
         def unwrap_in_place_node_group():
             unwrap_in_place = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Unwrap In Place")
 
             unwrap_in_place.is_modifier = True
-
+            
             #initialize unwrap_in_place nodes
-            #node Group Input
-            group_input = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input.name = "Group Input"
-            #unwrap_in_place inputs
-            #input Geometry
-            geometry_socket = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-            geometry_socket.attribute_domain = 'POINT'
-
-            #input UV
+            #unwrap_in_place interface
+            #Socket Geometry
+            geometry_socket_1 = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
+            geometry_socket_1.attribute_domain = 'POINT'
+            
+            #Socket Geometry
+            geometry_socket_2 = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+            geometry_socket_2.attribute_domain = 'POINT'
+            
+            #Socket UV
             uv_socket = unwrap_in_place.interface.new_socket(name = "UV", in_out='INPUT', socket_type = 'NodeSocketString')
             uv_socket.attribute_domain = 'POINT'
-
-            #input Seam
+            
+            #Socket Seam
             seam_socket = unwrap_in_place.interface.new_socket(name = "Seam", in_out='INPUT', socket_type = 'NodeSocketBool')
+            seam_socket.default_attribute_name = "seam_Unwrap_In_Place"
             seam_socket.attribute_domain = 'POINT'
             seam_socket.hide_value = True
-
-            #input Selection
+            
+            #Socket Selection
             selection_socket = unwrap_in_place.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
+            selection_socket.default_attribute_name = "UV_Selection_Unwrap_In_Place"
             selection_socket.attribute_domain = 'POINT'
             selection_socket.hide_value = True
-
-            #input Margin
+            
+            #Socket Margin
             margin_socket = unwrap_in_place.interface.new_socket(name = "Margin", in_out='INPUT', socket_type = 'NodeSocketFloat')
             margin_socket.subtype = 'NONE'
             margin_socket.default_value = 0.0010000000474974513
             margin_socket.min_value = 0.0
             margin_socket.max_value = 1.0
             margin_socket.attribute_domain = 'POINT'
-
-            #input Fill Holes
+            
+            #Socket Fill Holes
             fill_holes_socket = unwrap_in_place.interface.new_socket(name = "Fill Holes", in_out='INPUT', socket_type = 'NodeSocketBool')
             fill_holes_socket.attribute_domain = 'POINT'
-
-            #input Angle Based
+            
+            #Socket Angle Based
             angle_based_socket = unwrap_in_place.interface.new_socket(name = "Angle Based", in_out='INPUT', socket_type = 'NodeSocketBool')
             angle_based_socket.attribute_domain = 'POINT'
-
-
-            group_input.outputs[3].hide = True
-            group_input.outputs[4].hide = True
-            group_input.outputs[5].hide = True
-            group_input.outputs[6].hide = True
-            group_input.outputs[7].hide = True
-
+            
+            
+            #node Group Input
+            group_input_1 = unwrap_in_place.nodes.new("NodeGroupInput")
+            group_input_1.name = "Group Input"
+            group_input_1.outputs[3].hide = True
+            group_input_1.outputs[4].hide = True
+            group_input_1.outputs[5].hide = True
+            group_input_1.outputs[6].hide = True
+            group_input_1.outputs[7].hide = True
+            
             #node Group Output
-            group_output = unwrap_in_place.nodes.new("NodeGroupOutput")
-            group_output.name = "Group Output"
-            group_output.is_active_output = True
-            #unwrap_in_place outputs
-            #output Geometry
-            geometry_socket = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-            geometry_socket.attribute_domain = 'POINT'
-
-
-
+            group_output_1 = unwrap_in_place.nodes.new("NodeGroupOutput")
+            group_output_1.name = "Group Output"
+            group_output_1.is_active_output = True
+            
             #node Set Position
             set_position = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
             set_position.name = "Set Position"
             #Offset
             set_position.inputs[3].default_value = (0.0, 0.0, 0.0)
-
+            
             #node Named Attribute
             named_attribute = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
             named_attribute.name = "Named Attribute"
             named_attribute.data_type = 'FLOAT_VECTOR'
-
+            
             #node Position
-            position = unwrap_in_place.nodes.new("GeometryNodeInputPosition")
-            position.name = "Position"
-
+            position_1 = unwrap_in_place.nodes.new("GeometryNodeInputPosition")
+            position_1.name = "Position"
+            
             #node Split Edges
             split_edges = unwrap_in_place.nodes.new("GeometryNodeSplitEdges")
             split_edges.name = "Split Edges"
-
+            
             #node Group Input.001
             group_input_001 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_001.name = "Group Input.001"
@@ -771,686 +1418,58 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_001.outputs[5].hide = True
             group_input_001.outputs[6].hide = True
             group_input_001.outputs[7].hide = True
-
+            
             #node Bounding Box
-            bounding_box = unwrap_in_place.nodes.new("GeometryNodeBoundBox")
-            bounding_box.name = "Bounding Box"
-
+            bounding_box_1 = unwrap_in_place.nodes.new("GeometryNodeBoundBox")
+            bounding_box_1.name = "Bounding Box"
+            
             #node Store Named Attribute.003
             store_named_attribute_003 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_003.name = "Store Named Attribute.003"
             store_named_attribute_003.data_type = 'FLOAT2'
             store_named_attribute_003.domain = 'CORNER'
-
+            
             #node UV Unwrap.001
             uv_unwrap_001 = unwrap_in_place.nodes.new("GeometryNodeUVUnwrap")
             uv_unwrap_001.name = "UV Unwrap.001"
             uv_unwrap_001.method = 'ANGLE_BASED'
-
+            
             #node Store Named Attribute.004
             store_named_attribute_004 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_004.name = "Store Named Attribute.004"
             store_named_attribute_004.data_type = 'FLOAT2'
             store_named_attribute_004.domain = 'CORNER'
-
+            
             #node Set Position.003
             set_position_003 = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
             set_position_003.name = "Set Position.003"
             #Offset
             set_position_003.inputs[3].default_value = (0.0, 0.0, 0.0)
-
+            
             #node Set Position.001
             set_position_001 = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
             set_position_001.name = "Set Position.001"
             #Offset
             set_position_001.inputs[3].default_value = (0.0, 0.0, 0.0)
-
+            
             #node Named Attribute.005
             named_attribute_005 = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
             named_attribute_005.name = "Named Attribute.005"
             named_attribute_005.data_type = 'FLOAT_VECTOR'
-
+            
             #node Group Input.002
             group_input_002 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_002.name = "Group Input.002"
             group_input_002.outputs[0].hide = True
             group_input_002.outputs[7].hide = True
-
+            
             #node Group.001
             group_001 = unwrap_in_place.nodes.new("GeometryNodeGroup")
             group_001.label = "Match Bounding Box"
             group_001.name = "Group.001"
-            #initialize deform_match_quads node group
-            def deform_match_quads_node_group():
-                deform_match_quads = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Deform Match Quads")
+            group_001.node_tree = match_bounding_box_node_group()
 
-                deform_match_quads.is_modifier = True
-
-                #initialize deform_match_quads nodes
-                #node Vector Math.001
-                vector_math_001 = deform_match_quads.nodes.new("ShaderNodeVectorMath")
-                vector_math_001.name = "Vector Math.001"
-                vector_math_001.operation = 'SUBTRACT'
-                #Vector_002
-                vector_math_001.inputs[2].default_value = (0.0, 0.0, 0.0)
-                #Scale
-                vector_math_001.inputs[3].default_value = 1.0
-
-                #node Vector Math
-                vector_math = deform_match_quads.nodes.new("ShaderNodeVectorMath")
-                vector_math.name = "Vector Math"
-                vector_math.operation = 'DIVIDE'
-                #Vector_002
-                vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
-                #Scale
-                vector_math.inputs[3].default_value = 1.0
-
-                #node Math
-                math = deform_match_quads.nodes.new("ShaderNodeMath")
-                math.name = "Math"
-                math.operation = 'ADD'
-                math.use_clamp = False
-                #Value
-                math.inputs[0].default_value = 2.0
-                #Value_001
-                math.inputs[1].default_value = 1.0
-                #Value_002
-                math.inputs[2].default_value = 0.5
-
-                #node Math.001
-                math_001 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_001.name = "Math.001"
-                math_001.operation = 'MODULO'
-                math_001.use_clamp = False
-                #Value_001
-                math_001.inputs[1].default_value = 3.0
-                #Value_002
-                math_001.inputs[2].default_value = 0.5
-
-                #node Math.002
-                math_002 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_002.name = "Math.002"
-                math_002.operation = 'ADD'
-                math_002.use_clamp = False
-                #Value
-                math_002.inputs[0].default_value = 2.0
-                #Value_001
-                math_002.inputs[1].default_value = 2.0
-                #Value_002
-                math_002.inputs[2].default_value = 0.5
-
-                #node Math.003
-                math_003 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_003.name = "Math.003"
-                math_003.operation = 'MODULO'
-                math_003.use_clamp = False
-                #Value_001
-                math_003.inputs[1].default_value = 3.0
-                #Value_002
-                math_003.inputs[2].default_value = 0.5
-
-                #node Position
-                position_1 = deform_match_quads.nodes.new("GeometryNodeInputPosition")
-                position_1.name = "Position"
-
-                #node Group Output
-                group_output_1 = deform_match_quads.nodes.new("NodeGroupOutput")
-                group_output_1.name = "Group Output"
-                group_output_1.is_active_output = True
-                #deform_match_quads outputs
-                #output Vector
-                vector_socket = deform_match_quads.interface.new_socket(name = "Vector", in_out='OUTPUT', socket_type = 'NodeSocketVector')
-                vector_socket.subtype = 'NONE'
-                vector_socket.min_value = -3.4028234663852886e+38
-                vector_socket.max_value = 3.4028234663852886e+38
-                vector_socket.attribute_domain = 'POINT'
-
-
-
-                #node Group Input
-                group_input_1 = deform_match_quads.nodes.new("NodeGroupInput")
-                group_input_1.name = "Group Input"
-                #deform_match_quads inputs
-                #input Geometry
-                geometry_socket = deform_match_quads.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-                geometry_socket.attribute_domain = 'POINT'
-
-                #input Target
-                target_socket = deform_match_quads.interface.new_socket(name = "Target", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-                target_socket.attribute_domain = 'POINT'
-
-
-
-                #node Mix
-                mix = deform_match_quads.nodes.new("ShaderNodeMix")
-                mix.name = "Mix"
-                mix.blend_type = 'MIX'
-                mix.clamp_factor = True
-                mix.clamp_result = False
-                mix.data_type = 'VECTOR'
-                mix.factor_mode = 'UNIFORM'
-                #Factor_Vector
-                mix.inputs[1].default_value = (0.5, 0.5, 0.5)
-                #A_Float
-                mix.inputs[2].default_value = 0.0
-                #B_Float
-                mix.inputs[3].default_value = 0.0
-                #A_Color
-                mix.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
-                #B_Color
-                mix.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
-                #A_Rotation
-                mix.inputs[8].default_value = (0.0, 0.0, 0.0)
-                #B_Rotation
-                mix.inputs[9].default_value = (0.0, 0.0, 0.0)
-
-                #node Mix.001
-                mix_001 = deform_match_quads.nodes.new("ShaderNodeMix")
-                mix_001.name = "Mix.001"
-                mix_001.blend_type = 'MIX'
-                mix_001.clamp_factor = True
-                mix_001.clamp_result = False
-                mix_001.data_type = 'VECTOR'
-                mix_001.factor_mode = 'UNIFORM'
-                #Factor_Vector
-                mix_001.inputs[1].default_value = (0.5, 0.5, 0.5)
-                #A_Float
-                mix_001.inputs[2].default_value = 0.0
-                #B_Float
-                mix_001.inputs[3].default_value = 0.0
-                #A_Color
-                mix_001.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
-                #B_Color
-                mix_001.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
-                #A_Rotation
-                mix_001.inputs[8].default_value = (0.0, 0.0, 0.0)
-                #B_Rotation
-                mix_001.inputs[9].default_value = (0.0, 0.0, 0.0)
-
-                #node Mix.002
-                mix_002 = deform_match_quads.nodes.new("ShaderNodeMix")
-                mix_002.name = "Mix.002"
-                mix_002.blend_type = 'MIX'
-                mix_002.clamp_factor = True
-                mix_002.clamp_result = False
-                mix_002.data_type = 'VECTOR'
-                mix_002.factor_mode = 'UNIFORM'
-                #Factor_Vector
-                mix_002.inputs[1].default_value = (0.5, 0.5, 0.5)
-                #A_Float
-                mix_002.inputs[2].default_value = 0.0
-                #B_Float
-                mix_002.inputs[3].default_value = 0.0
-                #A_Color
-                mix_002.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
-                #B_Color
-                mix_002.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
-                #A_Rotation
-                mix_002.inputs[8].default_value = (0.0, 0.0, 0.0)
-                #B_Rotation
-                mix_002.inputs[9].default_value = (0.0, 0.0, 0.0)
-
-                #node Bounding Box
-                bounding_box_1 = deform_match_quads.nodes.new("GeometryNodeBoundBox")
-                bounding_box_1.name = "Bounding Box"
-
-                #node Vector Math.004
-                vector_math_004 = deform_match_quads.nodes.new("ShaderNodeVectorMath")
-                vector_math_004.name = "Vector Math.004"
-                vector_math_004.operation = 'SUBTRACT'
-                #Vector_002
-                vector_math_004.inputs[2].default_value = (0.0, 0.0, 0.0)
-                #Scale
-                vector_math_004.inputs[3].default_value = 1.0
-
-                #node Reroute
-                reroute = deform_match_quads.nodes.new("NodeReroute")
-                reroute.name = "Reroute"
-                #node Separate XYZ
-                separate_xyz = deform_match_quads.nodes.new("ShaderNodeSeparateXYZ")
-                separate_xyz.name = "Separate XYZ"
-
-                #node Compare
-                compare = deform_match_quads.nodes.new("FunctionNodeCompare")
-                compare.name = "Compare"
-                compare.data_type = 'INT'
-                compare.mode = 'ELEMENT'
-                compare.operation = 'EQUAL'
-                #A
-                compare.inputs[0].default_value = 0.0
-                #B
-                compare.inputs[1].default_value = 0.0
-                #B_INT
-                compare.inputs[3].default_value = 0
-                #A_VEC3
-                compare.inputs[4].default_value = (0.0, 0.0, 0.0)
-                #B_VEC3
-                compare.inputs[5].default_value = (0.0, 0.0, 0.0)
-                #A_COL
-                compare.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
-                #B_COL
-                compare.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
-                #A_STR
-                compare.inputs[8].default_value = ""
-                #B_STR
-                compare.inputs[9].default_value = ""
-                #C
-                compare.inputs[10].default_value = 0.8999999761581421
-                #Angle
-                compare.inputs[11].default_value = 0.08726649731397629
-                #Epsilon
-                compare.inputs[12].default_value = 0.0010000000474974513
-
-                #node Math.004
-                math_004 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_004.name = "Math.004"
-                math_004.operation = 'MULTIPLY'
-                math_004.use_clamp = False
-                #Value_002
-                math_004.inputs[2].default_value = 0.5
-
-                #node Reroute.001
-                reroute_001 = deform_match_quads.nodes.new("NodeReroute")
-                reroute_001.name = "Reroute.001"
-                #node Separate XYZ.001
-                separate_xyz_001 = deform_match_quads.nodes.new("ShaderNodeSeparateXYZ")
-                separate_xyz_001.name = "Separate XYZ.001"
-
-                #node Compare.001
-                compare_001 = deform_match_quads.nodes.new("FunctionNodeCompare")
-                compare_001.name = "Compare.001"
-                compare_001.data_type = 'INT'
-                compare_001.mode = 'ELEMENT'
-                compare_001.operation = 'EQUAL'
-                #A
-                compare_001.inputs[0].default_value = 0.0
-                #B
-                compare_001.inputs[1].default_value = 0.0
-                #B_INT
-                compare_001.inputs[3].default_value = 0
-                #A_VEC3
-                compare_001.inputs[4].default_value = (0.0, 0.0, 0.0)
-                #B_VEC3
-                compare_001.inputs[5].default_value = (0.0, 0.0, 0.0)
-                #A_COL
-                compare_001.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
-                #B_COL
-                compare_001.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
-                #A_STR
-                compare_001.inputs[8].default_value = ""
-                #B_STR
-                compare_001.inputs[9].default_value = ""
-                #C
-                compare_001.inputs[10].default_value = 0.8999999761581421
-                #Angle
-                compare_001.inputs[11].default_value = 0.08726649731397629
-                #Epsilon
-                compare_001.inputs[12].default_value = 0.0010000000474974513
-
-                #node Math.007
-                math_007 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_007.name = "Math.007"
-                math_007.operation = 'MULTIPLY'
-                math_007.use_clamp = False
-                #Value_002
-                math_007.inputs[2].default_value = 0.5
-
-                #node Math.008
-                math_008 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_008.name = "Math.008"
-                math_008.operation = 'MULTIPLY'
-                math_008.use_clamp = False
-                #Value_002
-                math_008.inputs[2].default_value = 0.5
-
-                #node Math.009
-                math_009 = deform_match_quads.nodes.new("ShaderNodeMath")
-                math_009.name = "Math.009"
-                math_009.operation = 'ADD'
-                math_009.use_clamp = False
-                #Value_002
-                math_009.inputs[2].default_value = 0.5
-
-                #node Position.001
-                position_001 = deform_match_quads.nodes.new("GeometryNodeInputPosition")
-                position_001.name = "Position.001"
-
-                #node Vertex of Corner
-                vertex_of_corner = deform_match_quads.nodes.new("GeometryNodeVertexOfCorner")
-                vertex_of_corner.name = "Vertex of Corner"
-
-                #node Vertex of Corner.001
-                vertex_of_corner_001 = deform_match_quads.nodes.new("GeometryNodeVertexOfCorner")
-                vertex_of_corner_001.name = "Vertex of Corner.001"
-
-                #node Corners of Face.001
-                corners_of_face_001 = deform_match_quads.nodes.new("GeometryNodeCornersOfFace")
-                corners_of_face_001.name = "Corners of Face.001"
-                #Weights
-                corners_of_face_001.inputs[1].default_value = 0.0
-                #Sort Index
-                corners_of_face_001.inputs[2].default_value = 1
-
-                #node Vertex of Corner.002
-                vertex_of_corner_002 = deform_match_quads.nodes.new("GeometryNodeVertexOfCorner")
-                vertex_of_corner_002.name = "Vertex of Corner.002"
-
-                #node Corners of Face.002
-                corners_of_face_002 = deform_match_quads.nodes.new("GeometryNodeCornersOfFace")
-                corners_of_face_002.name = "Corners of Face.002"
-                #Weights
-                corners_of_face_002.inputs[1].default_value = 0.0
-                #Sort Index
-                corners_of_face_002.inputs[2].default_value = 2
-
-                #node Vertex of Corner.003
-                vertex_of_corner_003 = deform_match_quads.nodes.new("GeometryNodeVertexOfCorner")
-                vertex_of_corner_003.name = "Vertex of Corner.003"
-
-                #node Sample Index.002
-                sample_index_002 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_002.name = "Sample Index.002"
-                sample_index_002.clamp = False
-                sample_index_002.data_type = 'FLOAT_VECTOR'
-                sample_index_002.domain = 'POINT'
-
-                #node Sample Index.005
-                sample_index_005 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_005.name = "Sample Index.005"
-                sample_index_005.clamp = False
-                sample_index_005.data_type = 'FLOAT_VECTOR'
-                sample_index_005.domain = 'POINT'
-
-                #node Sample Index.004
-                sample_index_004 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_004.name = "Sample Index.004"
-                sample_index_004.clamp = False
-                sample_index_004.data_type = 'FLOAT_VECTOR'
-                sample_index_004.domain = 'POINT'
-
-                #node Sample Index.007
-                sample_index_007 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_007.name = "Sample Index.007"
-                sample_index_007.clamp = False
-                sample_index_007.data_type = 'FLOAT_VECTOR'
-                sample_index_007.domain = 'POINT'
-
-                #node Sample Index.001
-                sample_index_001 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_001.name = "Sample Index.001"
-                sample_index_001.clamp = False
-                sample_index_001.data_type = 'FLOAT_VECTOR'
-                sample_index_001.domain = 'FACE'
-                #Index
-                sample_index_001.inputs[2].default_value = 0
-
-                #node Sample Index.003
-                sample_index_003 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_003.name = "Sample Index.003"
-                sample_index_003.clamp = False
-                sample_index_003.data_type = 'FLOAT_VECTOR'
-                sample_index_003.domain = 'FACE'
-                #Index
-                sample_index_003.inputs[2].default_value = 0
-
-                #node Sample Index.008
-                sample_index_008 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_008.name = "Sample Index.008"
-                sample_index_008.clamp = False
-                sample_index_008.data_type = 'FLOAT_VECTOR'
-                sample_index_008.domain = 'FACE'
-                #Index
-                sample_index_008.inputs[2].default_value = 0
-
-                #node Sample Index.006
-                sample_index_006 = deform_match_quads.nodes.new("GeometryNodeSampleIndex")
-                sample_index_006.name = "Sample Index.006"
-                sample_index_006.clamp = False
-                sample_index_006.data_type = 'FLOAT_VECTOR'
-                sample_index_006.domain = 'FACE'
-                #Index
-                sample_index_006.inputs[2].default_value = 0
-
-                #node Corners of Face.003
-                corners_of_face_003 = deform_match_quads.nodes.new("GeometryNodeCornersOfFace")
-                corners_of_face_003.name = "Corners of Face.003"
-                #Weights
-                corners_of_face_003.inputs[1].default_value = 0.0
-                #Sort Index
-                corners_of_face_003.inputs[2].default_value = 3
-
-                #node Corners of Face
-                corners_of_face = deform_match_quads.nodes.new("GeometryNodeCornersOfFace")
-                corners_of_face.name = "Corners of Face"
-                #Weights
-                corners_of_face.inputs[1].default_value = 0.0
-                #Sort Index
-                corners_of_face.inputs[2].default_value = 0
-
-                #node Index
-                index = deform_match_quads.nodes.new("GeometryNodeInputIndex")
-                index.name = "Index"
-
-
-
-
-                #Set locations
-                vector_math_001.location = (671.8292846679688, -3.393566131591797)
-                vector_math.location = (905.0932006835938, 144.4541015625)
-                math.location = (565.4978637695312, -232.2760772705078)
-                math_001.location = (881.5574340820312, -204.1563720703125)
-                math_002.location = (590.8495483398438, -395.4056396484375)
-                math_003.location = (884.0984497070312, -376.4026184082031)
-                position_1.location = (393.37603759765625, -64.50838470458984)
-                group_output_1.location = (1984.5904541015625, 958.5203857421875)
-                group_input_1.location = (-385.03082275390625, 340.2637939453125)
-                mix.location = (1455.6461181640625, 951.1998291015625)
-                mix_001.location = (1458.203857421875, 762.4796142578125)
-                mix_002.location = (1741.3050537109375, 888.8538818359375)
-                bounding_box_1.location = (9.702392578125, 74.94915771484375)
-                vector_math_004.location = (424.3367919921875, 105.096923828125)
-                reroute.location = (816.8677978515625, -114.7408676147461)
-                separate_xyz.location = (987.7881469726562, 44.316226959228516)
-                compare.location = (882.8019409179688, -80.56271362304688)
-                math_004.location = (1067.386962890625, -60.907283782958984)
-                reroute_001.location = (1015.1231079101562, -369.200927734375)
-                separate_xyz_001.location = (1128.98388671875, -163.91058349609375)
-                compare_001.location = (1129.827880859375, -309.7416687011719)
-                math_007.location = (1451.3521728515625, 267.85394287109375)
-                math_008.location = (1450.5181884765625, 218.8677978515625)
-                math_009.location = (1588.9984130859375, 460.2774353027344)
-                position_001.location = (330.43988037109375, 1052.831298828125)
-                vertex_of_corner.location = (336.75323486328125, 979.8141479492188)
-                vertex_of_corner_001.location = (316.51531982421875, 770.7216186523438)
-                corners_of_face_001.location = (37.93927001953125, 766.745849609375)
-                vertex_of_corner_002.location = (296.0479736328125, 562.2384643554688)
-                corners_of_face_002.location = (17.47186279296875, 558.2626953125)
-                vertex_of_corner_003.location = (274.91302490234375, 347.5218505859375)
-                sample_index_002.location = (618.0657958984375, 1046.685546875)
-                sample_index_005.location = (577.3604736328125, 629.1099243164062)
-                sample_index_004.location = (597.827880859375, 837.5931396484375)
-                sample_index_007.location = (556.2257080078125, 414.3934326171875)
-                sample_index_001.location = (935.4558715820312, 1079.818603515625)
-                sample_index_003.location = (911.6384887695312, 866.556396484375)
-                sample_index_008.location = (864.8963012695312, 393.2352294921875)
-                sample_index_006.location = (889.1013793945312, 656.0769653320312)
-                corners_of_face_003.location = (-4.5345458984375, 349.69403076171875)
-                corners_of_face.location = (58.17718505859375, 975.83837890625)
-                index.location = (-164.66323852539062, 893.779296875)
-
-                #Set dimensions
-                vector_math_001.width, vector_math_001.height = 140.0, 100.0
-                vector_math.width, vector_math.height = 140.0, 100.0
-                math.width, math.height = 140.0, 100.0
-                math_001.width, math_001.height = 140.0, 100.0
-                math_002.width, math_002.height = 140.0, 100.0
-                math_003.width, math_003.height = 140.0, 100.0
-                position_1.width, position_1.height = 140.0, 100.0
-                group_output_1.width, group_output_1.height = 140.0, 100.0
-                group_input_1.width, group_input_1.height = 140.0, 100.0
-                mix.width, mix.height = 140.0, 100.0
-                mix_001.width, mix_001.height = 140.0, 100.0
-                mix_002.width, mix_002.height = 140.0, 100.0
-                bounding_box_1.width, bounding_box_1.height = 140.0, 100.0
-                vector_math_004.width, vector_math_004.height = 140.0, 100.0
-                reroute.width, reroute.height = 100.0, 100.0
-                separate_xyz.width, separate_xyz.height = 140.0, 100.0
-                compare.width, compare.height = 140.0, 100.0
-                math_004.width, math_004.height = 140.0, 100.0
-                reroute_001.width, reroute_001.height = 100.0, 100.0
-                separate_xyz_001.width, separate_xyz_001.height = 140.0, 100.0
-                compare_001.width, compare_001.height = 140.0, 100.0
-                math_007.width, math_007.height = 140.0, 100.0
-                math_008.width, math_008.height = 140.0, 100.0
-                math_009.width, math_009.height = 140.0, 100.0
-                position_001.width, position_001.height = 140.0, 100.0
-                vertex_of_corner.width, vertex_of_corner.height = 140.0, 100.0
-                vertex_of_corner_001.width, vertex_of_corner_001.height = 140.0, 100.0
-                corners_of_face_001.width, corners_of_face_001.height = 140.0, 100.0
-                vertex_of_corner_002.width, vertex_of_corner_002.height = 140.0, 100.0
-                corners_of_face_002.width, corners_of_face_002.height = 140.0, 100.0
-                vertex_of_corner_003.width, vertex_of_corner_003.height = 140.0, 100.0
-                sample_index_002.width, sample_index_002.height = 140.0, 100.0
-                sample_index_005.width, sample_index_005.height = 140.0, 100.0
-                sample_index_004.width, sample_index_004.height = 140.0, 100.0
-                sample_index_007.width, sample_index_007.height = 140.0, 100.0
-                sample_index_001.width, sample_index_001.height = 140.0, 100.0
-                sample_index_003.width, sample_index_003.height = 140.0, 100.0
-                sample_index_008.width, sample_index_008.height = 140.0, 100.0
-                sample_index_006.width, sample_index_006.height = 140.0, 100.0
-                corners_of_face_003.width, corners_of_face_003.height = 140.0, 100.0
-                corners_of_face.width, corners_of_face.height = 140.0, 100.0
-                index.width, index.height = 140.0, 100.0
-
-                #initialize deform_match_quads links
-                #mix.Result -> mix_002.A
-                deform_match_quads.links.new(mix.outputs[1], mix_002.inputs[4])
-                #mix_001.Result -> mix_002.B
-                deform_match_quads.links.new(mix_001.outputs[1], mix_002.inputs[5])
-                #position_1.Position -> vector_math_001.Vector
-                deform_match_quads.links.new(position_1.outputs[0], vector_math_001.inputs[0])
-                #vector_math_001.Vector -> vector_math.Vector
-                deform_match_quads.links.new(vector_math_001.outputs[0], vector_math.inputs[0])
-                #math.Value -> math_001.Value
-                deform_match_quads.links.new(math.outputs[0], math_001.inputs[0])
-                #math_002.Value -> math_003.Value
-                deform_match_quads.links.new(math_002.outputs[0], math_003.inputs[0])
-                #mix_002.Result -> group_output_1.Vector
-                deform_match_quads.links.new(mix_002.outputs[1], group_output_1.inputs[0])
-                #bounding_box_1.Max -> vector_math_004.Vector
-                deform_match_quads.links.new(bounding_box_1.outputs[2], vector_math_004.inputs[0])
-                #bounding_box_1.Min -> vector_math_004.Vector
-                deform_match_quads.links.new(bounding_box_1.outputs[1], vector_math_004.inputs[1])
-                #bounding_box_1.Min -> vector_math_001.Vector
-                deform_match_quads.links.new(bounding_box_1.outputs[1], vector_math_001.inputs[1])
-                #vector_math_004.Vector -> vector_math.Vector
-                deform_match_quads.links.new(vector_math_004.outputs[0], vector_math.inputs[1])
-                #group_input_1.Target -> bounding_box_1.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[1], bounding_box_1.inputs[0])
-                #reroute.Output -> compare.A
-                deform_match_quads.links.new(reroute.outputs[0], compare.inputs[2])
-                #separate_xyz.X -> math_004.Value
-                deform_match_quads.links.new(separate_xyz.outputs[0], math_004.inputs[0])
-                #compare.Result -> math_004.Value
-                deform_match_quads.links.new(compare.outputs[0], math_004.inputs[1])
-                #math_001.Value -> reroute.Input
-                deform_match_quads.links.new(math_001.outputs[0], reroute.inputs[0])
-                #vector_math.Vector -> separate_xyz.Vector
-                deform_match_quads.links.new(vector_math.outputs[0], separate_xyz.inputs[0])
-                #math_004.Value -> mix.Factor
-                deform_match_quads.links.new(math_004.outputs[0], mix.inputs[0])
-                #math_004.Value -> mix_001.Factor
-                deform_match_quads.links.new(math_004.outputs[0], mix_001.inputs[0])
-                #reroute_001.Output -> compare_001.A
-                deform_match_quads.links.new(reroute_001.outputs[0], compare_001.inputs[2])
-                #reroute_001.Output -> math_008.Value
-                deform_match_quads.links.new(reroute_001.outputs[0], math_008.inputs[1])
-                #separate_xyz_001.X -> math_007.Value
-                deform_match_quads.links.new(separate_xyz_001.outputs[0], math_007.inputs[0])
-                #compare_001.Result -> math_007.Value
-                deform_match_quads.links.new(compare_001.outputs[0], math_007.inputs[1])
-                #separate_xyz_001.Y -> math_008.Value
-                deform_match_quads.links.new(separate_xyz_001.outputs[1], math_008.inputs[0])
-                #math_007.Value -> math_009.Value
-                deform_match_quads.links.new(math_007.outputs[0], math_009.inputs[0])
-                #math_008.Value -> math_009.Value
-                deform_match_quads.links.new(math_008.outputs[0], math_009.inputs[1])
-                #math_003.Value -> reroute_001.Input
-                deform_match_quads.links.new(math_003.outputs[0], reroute_001.inputs[0])
-                #vector_math.Vector -> separate_xyz_001.Vector
-                deform_match_quads.links.new(vector_math.outputs[0], separate_xyz_001.inputs[0])
-                #math_009.Value -> mix_002.Factor
-                deform_match_quads.links.new(math_009.outputs[0], mix_002.inputs[0])
-                #vertex_of_corner_002.Vertex Index -> sample_index_005.Index
-                deform_match_quads.links.new(vertex_of_corner_002.outputs[0], sample_index_005.inputs[2])
-                #index.Index -> corners_of_face_002.Face Index
-                deform_match_quads.links.new(index.outputs[0], corners_of_face_002.inputs[0])
-                #vertex_of_corner_001.Vertex Index -> sample_index_004.Index
-                deform_match_quads.links.new(vertex_of_corner_001.outputs[0], sample_index_004.inputs[2])
-                #sample_index_007.Value -> sample_index_008.Value
-                deform_match_quads.links.new(sample_index_007.outputs[0], sample_index_008.inputs[1])
-                #vertex_of_corner.Vertex Index -> sample_index_002.Index
-                deform_match_quads.links.new(vertex_of_corner.outputs[0], sample_index_002.inputs[2])
-                #sample_index_004.Value -> sample_index_003.Value
-                deform_match_quads.links.new(sample_index_004.outputs[0], sample_index_003.inputs[1])
-                #corners_of_face_003.Corner Index -> vertex_of_corner_003.Corner Index
-                deform_match_quads.links.new(corners_of_face_003.outputs[0], vertex_of_corner_003.inputs[0])
-                #position_001.Position -> sample_index_005.Value
-                deform_match_quads.links.new(position_001.outputs[0], sample_index_005.inputs[1])
-                #corners_of_face_001.Corner Index -> vertex_of_corner_001.Corner Index
-                deform_match_quads.links.new(corners_of_face_001.outputs[0], vertex_of_corner_001.inputs[0])
-                #position_001.Position -> sample_index_002.Value
-                deform_match_quads.links.new(position_001.outputs[0], sample_index_002.inputs[1])
-                #position_001.Position -> sample_index_004.Value
-                deform_match_quads.links.new(position_001.outputs[0], sample_index_004.inputs[1])
-                #index.Index -> corners_of_face_003.Face Index
-                deform_match_quads.links.new(index.outputs[0], corners_of_face_003.inputs[0])
-                #index.Index -> corners_of_face_001.Face Index
-                deform_match_quads.links.new(index.outputs[0], corners_of_face_001.inputs[0])
-                #vertex_of_corner_003.Vertex Index -> sample_index_007.Index
-                deform_match_quads.links.new(vertex_of_corner_003.outputs[0], sample_index_007.inputs[2])
-                #sample_index_005.Value -> sample_index_006.Value
-                deform_match_quads.links.new(sample_index_005.outputs[0], sample_index_006.inputs[1])
-                #corners_of_face_002.Corner Index -> vertex_of_corner_002.Corner Index
-                deform_match_quads.links.new(corners_of_face_002.outputs[0], vertex_of_corner_002.inputs[0])
-                #index.Index -> corners_of_face.Face Index
-                deform_match_quads.links.new(index.outputs[0], corners_of_face.inputs[0])
-                #position_001.Position -> sample_index_007.Value
-                deform_match_quads.links.new(position_001.outputs[0], sample_index_007.inputs[1])
-                #corners_of_face.Corner Index -> vertex_of_corner.Corner Index
-                deform_match_quads.links.new(corners_of_face.outputs[0], vertex_of_corner.inputs[0])
-                #sample_index_002.Value -> sample_index_001.Value
-                deform_match_quads.links.new(sample_index_002.outputs[0], sample_index_001.inputs[1])
-                #group_input_1.Geometry -> sample_index_006.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_006.inputs[0])
-                #group_input_1.Geometry -> sample_index_002.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_002.inputs[0])
-                #group_input_1.Geometry -> sample_index_005.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_005.inputs[0])
-                #group_input_1.Geometry -> sample_index_001.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_001.inputs[0])
-                #group_input_1.Geometry -> sample_index_007.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_007.inputs[0])
-                #group_input_1.Geometry -> sample_index_003.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_003.inputs[0])
-                #group_input_1.Geometry -> sample_index_004.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_004.inputs[0])
-                #group_input_1.Geometry -> sample_index_008.Geometry
-                deform_match_quads.links.new(group_input_1.outputs[0], sample_index_008.inputs[0])
-                #sample_index_001.Value -> mix.A
-                deform_match_quads.links.new(sample_index_001.outputs[0], mix.inputs[4])
-                #sample_index_003.Value -> mix.B
-                deform_match_quads.links.new(sample_index_003.outputs[0], mix.inputs[5])
-                #sample_index_008.Value -> mix_001.A
-                deform_match_quads.links.new(sample_index_008.outputs[0], mix_001.inputs[4])
-                #sample_index_006.Value -> mix_001.B
-                deform_match_quads.links.new(sample_index_006.outputs[0], mix_001.inputs[5])
-                return deform_match_quads
-
-            deform_match_quads = deform_match_quads_node_group()
-
-            group_001.node_tree = bpy.data.node_groups["Deform Match Quads"]
-
+            
             #node Group Input.003
             group_input_003 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_003.name = "Group Input.003"
@@ -1461,7 +1480,7 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_003.outputs[5].hide = True
             group_input_003.outputs[6].hide = True
             group_input_003.outputs[7].hide = True
-
+            
             #node Group Input.004
             group_input_004 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_004.name = "Group Input.004"
@@ -1471,7 +1490,7 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_004.outputs[5].hide = True
             group_input_004.outputs[6].hide = True
             group_input_004.outputs[7].hide = True
-
+            
             #node Group Input.005
             group_input_005 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_005.name = "Group Input.005"
@@ -1480,49 +1499,49 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_005.outputs[5].hide = True
             group_input_005.outputs[6].hide = True
             group_input_005.outputs[7].hide = True
-
+            
             #node Store Named Attribute.006
             store_named_attribute_006 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_006.name = "Store Named Attribute.006"
             store_named_attribute_006.data_type = 'FLOAT2'
             store_named_attribute_006.domain = 'CORNER'
-
+            
             #node Named Attribute.001
             named_attribute_001 = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
             named_attribute_001.name = "Named Attribute.001"
             named_attribute_001.data_type = 'FLOAT_VECTOR'
-
+            
             #node Sample Index.001
             sample_index_001_1 = unwrap_in_place.nodes.new("GeometryNodeSampleIndex")
             sample_index_001_1.name = "Sample Index.001"
             sample_index_001_1.clamp = False
             sample_index_001_1.data_type = 'FLOAT_VECTOR'
             sample_index_001_1.domain = 'CORNER'
-
+            
             #node Index
             index_1 = unwrap_in_place.nodes.new("GeometryNodeInputIndex")
             index_1.name = "Index"
-
+            
             #node Duplicate Elements
             duplicate_elements = unwrap_in_place.nodes.new("GeometryNodeDuplicateElements")
             duplicate_elements.name = "Duplicate Elements"
             duplicate_elements.domain = 'POINT'
             #Amount
             duplicate_elements.inputs[2].default_value = 1
-
+            
             #node Duplicate Elements.001
             duplicate_elements_001 = unwrap_in_place.nodes.new("GeometryNodeDuplicateElements")
             duplicate_elements_001.name = "Duplicate Elements.001"
             duplicate_elements_001.domain = 'POINT'
             #Amount
             duplicate_elements_001.inputs[2].default_value = 1
-
+            
             #node Capture Attribute
             capture_attribute = unwrap_in_place.nodes.new("GeometryNodeCaptureAttribute")
             capture_attribute.name = "Capture Attribute"
             capture_attribute.data_type = 'FLOAT_VECTOR'
             capture_attribute.domain = 'POINT'
-
+            
             #node Group Input.006
             group_input_006 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_006.name = "Group Input.006"
@@ -1533,17 +1552,17 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_006.outputs[5].hide = True
             group_input_006.outputs[6].hide = True
             group_input_006.outputs[7].hide = True
-
+            
             #node Switch
             switch = unwrap_in_place.nodes.new("GeometryNodeSwitch")
             switch.name = "Switch"
             switch.input_type = 'VECTOR'
-
+            
             #node UV Unwrap.002
             uv_unwrap_002 = unwrap_in_place.nodes.new("GeometryNodeUVUnwrap")
             uv_unwrap_002.name = "UV Unwrap.002"
             uv_unwrap_002.method = 'CONFORMAL'
-
+            
             #node Group Input.007
             group_input_007 = unwrap_in_place.nodes.new("NodeGroupInput")
             group_input_007.name = "Group Input.007"
@@ -1554,31 +1573,31 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_007.outputs[5].hide = True
             group_input_007.outputs[6].hide = True
             group_input_007.outputs[7].hide = True
-
+            
             #node Remove Named Attribute
             remove_named_attribute = unwrap_in_place.nodes.new("GeometryNodeRemoveAttribute")
             remove_named_attribute.name = "Remove Named Attribute"
             #Name
             remove_named_attribute.inputs[1].default_value = "UV_Selection_Unwrap_In_Place"
-
+            
             #node Remove Named Attribute.001
             remove_named_attribute_001 = unwrap_in_place.nodes.new("GeometryNodeRemoveAttribute")
             remove_named_attribute_001.name = "Remove Named Attribute.001"
             #Name
             remove_named_attribute_001.inputs[1].default_value = "seam_Unwrap_In_Place"
-
-
-
-
+            
+            
+            
+            
             #Set locations
-            group_input.location = (-800.7864379882812, 35.97612380981445)
-            group_output.location = (4099.57080078125, 477.5541076660156)
+            group_input_1.location = (-800.7864379882812, 35.97612380981445)
+            group_output_1.location = (4099.57080078125, 477.5541076660156)
             set_position.location = (214.8248291015625, 100.59524536132812)
             named_attribute.location = (-501.1990051269531, -48.008819580078125)
-            position.location = (-502.5131530761719, 18.43531036376953)
+            position_1.location = (-502.5131530761719, 18.43531036376953)
             split_edges.location = (-96.95872497558594, 102.62326049804688)
             group_input_001.location = (1665.4072265625, -97.56024169921875)
-            bounding_box.location = (650.4869995117188, 218.11727905273438)
+            bounding_box_1.location = (650.4869995117188, 218.11727905273438)
             store_named_attribute_003.location = (1321.702880859375, 64.28227996826172)
             uv_unwrap_001.location = (687.408935546875, -168.5223388671875)
             store_named_attribute_004.location = (2545.86767578125, 203.36032104492188)
@@ -1603,16 +1622,16 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_007.location = (2735.8798828125, 252.25604248046875)
             remove_named_attribute.location = (3599.944091796875, 464.0772705078125)
             remove_named_attribute_001.location = (3849.999755859375, 470.94342041015625)
-
+            
             #Set dimensions
-            group_input.width, group_input.height = 140.0, 100.0
-            group_output.width, group_output.height = 140.0, 100.0
+            group_input_1.width, group_input_1.height = 140.0, 100.0
+            group_output_1.width, group_output_1.height = 140.0, 100.0
             set_position.width, set_position.height = 140.0, 100.0
             named_attribute.width, named_attribute.height = 140.0, 100.0
-            position.width, position.height = 140.0, 100.0
+            position_1.width, position_1.height = 140.0, 100.0
             split_edges.width, split_edges.height = 140.0, 100.0
             group_input_001.width, group_input_001.height = 140.0, 100.0
-            bounding_box.width, bounding_box.height = 140.0, 100.0
+            bounding_box_1.width, bounding_box_1.height = 140.0, 100.0
             store_named_attribute_003.width, store_named_attribute_003.height = 140.0, 100.0
             uv_unwrap_001.width, uv_unwrap_001.height = 140.0, 100.0
             store_named_attribute_004.width, store_named_attribute_004.height = 140.0, 100.0
@@ -1637,14 +1656,14 @@ class UnwrapInPlace(bpy.types.Operator):
             group_input_007.width, group_input_007.height = 140.0, 100.0
             remove_named_attribute.width, remove_named_attribute.height = 170.0, 100.0
             remove_named_attribute_001.width, remove_named_attribute_001.height = 170.0, 100.0
-
+            
             #initialize unwrap_in_place links
             #named_attribute.Attribute -> set_position.Position
             unwrap_in_place.links.new(named_attribute.outputs[0], set_position.inputs[2])
-            #group_input.UV -> named_attribute.Name
-            unwrap_in_place.links.new(group_input.outputs[1], named_attribute.inputs[0])
-            #group_input.Seam -> split_edges.Selection
-            unwrap_in_place.links.new(group_input.outputs[2], split_edges.inputs[1])
+            #group_input_1.UV -> named_attribute.Name
+            unwrap_in_place.links.new(group_input_1.outputs[1], named_attribute.inputs[0])
+            #group_input_1.Seam -> split_edges.Selection
+            unwrap_in_place.links.new(group_input_1.outputs[2], split_edges.inputs[1])
             #split_edges.Mesh -> set_position.Geometry
             unwrap_in_place.links.new(split_edges.outputs[0], set_position.inputs[0])
             #set_position.Geometry -> set_position_003.Geometry
@@ -1661,8 +1680,8 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place.links.new(group_input_002.outputs[3], set_position_003.inputs[1])
             #group_input_002.Selection -> set_position_001.Selection
             unwrap_in_place.links.new(group_input_002.outputs[3], set_position_001.inputs[1])
-            #bounding_box.Bounding Box -> group_001.Geometry
-            unwrap_in_place.links.new(bounding_box.outputs[0], group_001.inputs[0])
+            #bounding_box_1.Bounding Box -> group_001.Geometry
+            unwrap_in_place.links.new(bounding_box_1.outputs[0], group_001.inputs[0])
             #group_input_003.Selection -> set_position.Selection
             unwrap_in_place.links.new(group_input_003.outputs[3], set_position.inputs[1])
             #group_input_004.Selection -> store_named_attribute_004.Selection
@@ -1673,8 +1692,8 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place.links.new(group_input_002.outputs[3], uv_unwrap_001.inputs[0])
             #group_input_002.Seam -> uv_unwrap_001.Seam
             unwrap_in_place.links.new(group_input_002.outputs[2], uv_unwrap_001.inputs[1])
-            #remove_named_attribute_001.Geometry -> group_output.Geometry
-            unwrap_in_place.links.new(remove_named_attribute_001.outputs[0], group_output.inputs[0])
+            #remove_named_attribute_001.Geometry -> group_output_1.Geometry
+            unwrap_in_place.links.new(remove_named_attribute_001.outputs[0], group_output_1.inputs[0])
             #named_attribute_001.Attribute -> sample_index_001_1.Value
             unwrap_in_place.links.new(named_attribute_001.outputs[0], sample_index_001_1.inputs[1])
             #capture_attribute.Geometry -> split_edges.Mesh
@@ -1691,8 +1710,8 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place.links.new(set_position.outputs[0], duplicate_elements.inputs[0])
             #group_input_003.Selection -> duplicate_elements.Selection
             unwrap_in_place.links.new(group_input_003.outputs[3], duplicate_elements.inputs[1])
-            #duplicate_elements.Geometry -> bounding_box.Geometry
-            unwrap_in_place.links.new(duplicate_elements.outputs[0], bounding_box.inputs[0])
+            #duplicate_elements.Geometry -> bounding_box_1.Geometry
+            unwrap_in_place.links.new(duplicate_elements.outputs[0], bounding_box_1.inputs[0])
             #group_001.Vector -> store_named_attribute_004.Value
             unwrap_in_place.links.new(group_001.outputs[0], store_named_attribute_004.inputs[3])
             #set_position_001.Geometry -> duplicate_elements_001.Geometry
@@ -1703,10 +1722,10 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place.links.new(duplicate_elements_001.outputs[0], group_001.inputs[1])
             #group_input_005.Selection -> store_named_attribute_006.Selection
             unwrap_in_place.links.new(group_input_005.outputs[3], store_named_attribute_006.inputs[1])
-            #group_input.Geometry -> capture_attribute.Geometry
-            unwrap_in_place.links.new(group_input.outputs[0], capture_attribute.inputs[0])
-            #position.Position -> capture_attribute.Value
-            unwrap_in_place.links.new(position.outputs[0], capture_attribute.inputs[1])
+            #group_input_1.Geometry -> capture_attribute.Geometry
+            unwrap_in_place.links.new(group_input_1.outputs[0], capture_attribute.inputs[0])
+            #position_1.Position -> capture_attribute.Value
+            unwrap_in_place.links.new(position_1.outputs[0], capture_attribute.inputs[1])
             #capture_attribute.Attribute -> set_position_003.Position
             unwrap_in_place.links.new(capture_attribute.outputs[1], set_position_003.inputs[2])
             #group_input_002.Margin -> uv_unwrap_001.Margin
@@ -1744,44 +1763,38 @@ class UnwrapInPlace(bpy.types.Operator):
             #remove_named_attribute.Geometry -> remove_named_attribute_001.Geometry
             unwrap_in_place.links.new(remove_named_attribute.outputs[0], remove_named_attribute_001.inputs[0])
             return unwrap_in_place
-
+    
+        import time
+        total_time = time.time()
+        create_unwrap_in_place_node_group_time = time.time()
         if "Unwrap In Place" not in bpy.data.node_groups:
             unwrap_in_place_node_group()
+        print("Create Unwrap In Place Node Group Time: ", time.time() - create_unwrap_in_place_node_group_time)
+
+        start_op_time = time.time()
+
+        active_object = bpy.context.active_object
+        if active_object.modifiers.active is not None:
+            active_modifer_index = active_object.modifiers.find(context.object.modifiers.active.name)
 
         if bpy.app.version <= (4, 0, 2):
             self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
         else:
-            visibility_modifier_dict = {}
-
-            def toggle_all_modifiers(): 
-                active_object_name = bpy.context.view_layer.objects.active.name
-
-                if active_object_name not in visibility_modifier_dict:
-                    visibility_modifier_dict[active_object_name] = []
-
-                visibility_modifier_list = visibility_modifier_dict[active_object_name]
-
-                if len(visibility_modifier_list) <= 0:
-                    ml_act_ob = bpy.context.view_layer.objects.active
-                    for mod in ml_act_ob.modifiers:
-                        if mod.show_viewport:
-                            visibility_modifier_list.append(mod)
-                            mod.show_viewport = False
-                else:
-                    ml_act_ob = bpy.context.view_layer.objects.active
-                    hidden_modifiers = []
-                    for mod in ml_act_ob.modifiers:
-                        if mod in visibility_modifier_list:
-                            mod.show_viewport = True
-                            hidden_modifiers.append(mod)
-                    visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
-                    visibility_modifier_dict[active_object_name] = visibility_modifier_list
-     
+            print("Start Operator Time: ", time.time() - start_op_time)
+            cheack_time = time.time()
             has_toggled = False
             has_synced = False
+            angle_based = False
 
+            if self.uv_unwrap_method == 'ANGLE_BASED':
+                angle_based = True
+            print("Check Time: ", time.time() - cheack_time)
+
+            pre_prep_selection_time = time.time()
             if not self.selected_only:
-                bpy.ops.uv.select_linked()
+                #replace with geomtry nodes, way faster! can save at least 10% of the time
+                if self.select_islands:
+                    bpy.ops.mesh.select_linked()
             else:
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
                 if context.tool_settings.use_uv_select_sync == False:
@@ -1790,77 +1803,99 @@ class UnwrapInPlace(bpy.types.Operator):
                 bpy.ops.uv.seams_from_islands()
             
             if context.tool_settings.use_uv_select_sync == False:
+                for obj in bpy.context.selected_objects:
+                    if obj.type == 'MESH':
+                        context.view_layer.objects.active = obj
+                        obj.data.attributes.new(name='Currently_Visiable_Faces', type='BOOLEAN', domain='FACE')
+                        obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
+                        obj.data.update()
+                        bpy.ops.mesh.attribute_set(value_bool=True)
+                
                 has_synced = True
-                bpy.ops.uv.keyops_smart_uv_sync()
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
+                bpy.ops.uv.hide(unselected=True)
 
+            print("Prep Selection Time: ", time.time() - pre_prep_selection_time)
+            
+            add_modifier_time = time.time()
             for obj in bpy.context.selected_objects:
                 if obj.type == 'MESH':
                     context.view_layer.objects.active = obj
-                    toggle_all_modifiers()         
-                
-                    if "Unwrap In Place" not in obj.modifiers:
-                        obj.modifiers.new(name = "Unwrap In Place", type = 'NODES')
-                        obj.modifiers["Unwrap In Place"].node_group = bpy.data.node_groups["Unwrap In Place"]
-                        obj.modifiers["Unwrap In Place"].show_viewport = False
+                    modifier_toggle_visability_based()        
+
+                    if obj.data.total_vert_sel > 0:
+                        if "Unwrap In Place" not in obj.modifiers:
+                            obj.modifiers.new(name = "Unwrap In Place", type = 'NODES')
+                            obj.modifiers["Unwrap In Place"].node_group = bpy.data.node_groups["Unwrap In Place"]
+                            obj.modifiers["Unwrap In Place"].show_viewport = False
                                             
-                    get_active_uv_layer = obj.data.uv_layers.active
-                    mesh = obj.data
-                    mesh.attributes.new(name='UV_Selection_Unwrap_In_Place', type='BOOLEAN', domain='FACE')
-                    bpy.ops.mesh.attribute_set(value_bool=True)
-        
-                    bpy.data.node_groups["Unwrap In Place"].interface.items_tree[6].force_non_field = True
-                    bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Unwrap In Place")
-                    bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_3", modifier_name="Unwrap In Place")
+                            get_active_uv_layer = obj.data.uv_layers.active         
 
-                    context.object.modifiers["Unwrap In Place"]["Socket_1"] = get_active_uv_layer.name
-                    context.object.modifiers["Unwrap In Place"]["Socket_2_attribute_name"] = "seam_Unwrap_In_Place"
-                    bpy.context.object.modifiers["Unwrap In Place"]["Socket_3_attribute_name"] = "UV_Selection_Unwrap_In_Place"
+                            context.object.modifiers["Unwrap In Place"]["Socket_2"] = get_active_uv_layer.name
 
-                    context.object.modifiers["Unwrap In Place"]["Socket_4"] = self.margin
-                    context.object.modifiers["Unwrap In Place"]["Socket_5"] = self.fill_holes
-                    context.object.modifiers["Unwrap In Place"]["Socket_6"] = self.angle_based
+                            context.object.modifiers["Unwrap In Place"]["Socket_5"] = self.margin
+                            context.object.modifiers["Unwrap In Place"]["Socket_6"] = self.fill_holes
+                            context.object.modifiers["Unwrap In Place"]["Socket_7"] = angle_based
 
-                    context.object.modifiers["Unwrap In Place"]["Socket_4_attribute_name"] = "UV_Selection_Unwrap_In_Place"
-                    bpy.data.node_groups["Unwrap In Place"].interface.items_tree[6].force_non_field = False
+                            context.object.modifiers["Unwrap In Place"]["Socket_4_attribute_name"] = "UV_Selection_Unwrap_In_Place"
+            print("Add Modifier Time: ", time.time() - add_modifier_time)
 
-
+            switch_to_object_mode_time = time.time()
             if context.mode == 'EDIT_MESH':
                 bpy.ops.object.mode_set(mode='OBJECT')
+
                 for obj in bpy.context.selected_objects:
-                    def add_seam_attr(attributes):
-                        return attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
-
-                    mesh = obj.data
-                    seam = mesh.attributes.get('seam_Unwrap_In_Place')
-
-                    if seam:
-                        if seam.data_type != 'BOOLEAN' or seam.domain != 'EDGE':
-                            mesh.attributes.remove(seam)
-                            seam = add_seam_attr(mesh.attributes)
-                    else:
-                        seam = add_seam_attr(mesh.attributes)
-
-                    seam.data.foreach_set('value', [e.use_seam for e in mesh.edges])
-                    mesh.update()
-
+                    if "Unwrap In Place" in obj.modifiers:
+                        obj.data.attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
+                        seam = obj.data.attributes.get('seam_Unwrap_In_Place')
+                        seam.data.foreach_set('value', [e.use_seam for e in obj.data.edges])
+             
+                        obj.data.attributes.new(name='UV_Selection_Unwrap_In_Place', type='BOOLEAN', domain='FACE')
+                        selection = obj.data.attributes.get('UV_Selection_Unwrap_In_Place')
+                        selection.data.foreach_set('value', [f.select for f in obj.data.polygons])
+                        obj.data.update()
+                    
                 has_toggled = True
                 #if self.apply_modifier:
                 for obj in bpy.context.selected_objects:
-                    context.view_layer.objects.active = obj 
-                    bpy.ops.object.modifier_apply(modifier="Unwrap In Place")
+                    if "Unwrap In Place" in obj.modifiers:
+                        context.view_layer.objects.active = obj 
+                        bpy.ops.object.modifier_apply(modifier="Unwrap In Place")
+            print("Switch To Object Mode Time: ", time.time() - switch_to_object_mode_time)
 
+
+            edit_mode_time = time.time()
             if has_toggled:
                 bpy.ops.object.mode_set(mode='EDIT')  
                 bpy.ops.uv.average_islands_scale(scale_uv=True, shear=False)
                 if self.pack_uv_islands:
                     bpy.ops.uv.pack_islands(udim_source='ORIGINAL_AABB', margin=self.margin, shape_method='AABB', rotate_method= self.rotation_method, rotate=self.rotate)
             if has_synced:
-                bpy.ops.uv.keyops_smart_uv_sync()
+                bpy.context.scene.tool_settings.use_uv_select_sync = False
+            print("Edit Mode Time: ", time.time() - edit_mode_time)
 
+            retsore_modifier_visibility_time = time.time()
             #restore modifier visibility from current modifier visibility list depending on the object name and the modifier name
             for obj in bpy.context.selected_objects:
                 context.view_layer.objects.active = obj
-                toggle_all_modifiers()         
+                modifier_toggle_visability_based()         
+            print("Restore Modifier Visibility Time: ", time.time() - retsore_modifier_visibility_time)
+
+            restore_selection_time = time.time()
+            if has_synced:
+                for obj in bpy.context.selected_objects:
+                    if obj.type == 'MESH':
+                        context.view_layer.objects.active = obj
+                        obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
+                        bpy.ops.mesh.select_by_attribute()
+                        obj.data.attributes.remove(obj.data.attributes.get('Currently_Visiable_Faces'))
+                print("Restore Selection Time: ", time.time() - restore_selection_time)
+
+        #restore active modifier
+        if active_object is not None and 'active_modifer_index' in locals():
+            active_object.modifiers.active = active_object.modifiers[active_modifer_index]
+
+        print("Total Time: ", time.time() - total_time)
         return {'FINISHED'}
 
 class AutoSeam(bpy.types.Operator):
@@ -1968,6 +2003,7 @@ class OrientIslandToEdge(bpy.types.Operator):
 
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync:
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
             bpy.ops.uv.keyops_smart_uv_sync()
             bpy.ops.uv.select_more()
             bpy.ops.uv.select_less()
