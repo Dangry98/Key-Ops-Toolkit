@@ -105,6 +105,8 @@ class UtilitiesPanelOP(bpy.types.Operator):
     subdivide: bpy.props.IntProperty(name="Subdivide", default=6, min=0, max=10) # type: ignore
     try_deduplicate_materials: bpy.props.BoolProperty(name="Try Deduplicate Materials", default=True) # type: ignore
     triangulate: bpy.props.BoolProperty(name="Triangulate", default=True) # type: ignore
+    rename_uv_layer: bpy.props.BoolProperty(name="Rename UV Layer 0 To UVMap", default=True) # type: ignore
+    join_children: bpy.props.BoolProperty(name="Join Children", default=True) # type: ignore
 
     def draw(self, context):
         layout = self.layout
@@ -118,8 +120,10 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 layout.prop(self, "select_children")
         if self.type == "Apply_and_Join":
             layout.prop(self, "set_material_index")   
-            layout.prop(self, "join_objects")     
+            layout.prop(self, "join_objects")  
+            layout.prop(self, "join_children")   
             layout.prop(self, "apply_instances") 
+            layout.prop(self, "rename_uv_layer")
             layout.prop(self, "export_normals")
             layout.prop(self, "triangulate")
         if self.type == "set_sphere_normal":
@@ -346,13 +350,18 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     obj.select_set(True)
                     
         if self.type == "Apply_and_Join":
-            import time
-            operation_time = time.time()
+            if self.join_children:
+                bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
+
+            selected_objects = bpy.context.selected_objects
+
+            cursor_loc = context.scene.cursor.location
+            pos2 = (cursor_loc[0], cursor_loc[1], cursor_loc[2])
+            bpy.ops.view3d.snap_cursor_to_active()
 
             if self.apply_instances == True:
                 bpy.ops.object.duplicates_make_real()
-            
-            selected_objects = bpy.context.selected_objects
+
             selected_objects = [obj for obj in selected_objects if (obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'INSTANCE') and obj.display_type != 'WIRE']
             if bpy.context.mode == 'EDIT_MESH':                                                             
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -367,6 +376,10 @@ class UtilitiesPanelOP(bpy.types.Operator):
             bpy.ops.object.make_single_user(object=True, obdata=True, material=False, animation=False, obdata_animation=False)
             bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
             bpy.ops.object.convert(target='MESH')
+
+            if self.rename_uv_layer == True:
+                for selected_obj in selected_objects:
+                    selected_obj.data.uv_layers[0].name = "UVMap"
 
             for selected_obj in selected_objects:
                 selected_obj.select_set(True)
@@ -391,10 +404,9 @@ class UtilitiesPanelOP(bpy.types.Operator):
 
             if self.set_material_index == True and prefs.enable_material_index:
                 bpy.ops.keyops.material_index(type="Make_Material_Index")
+            bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+            context.scene.cursor.location = (pos2[0], pos2[1], pos2[2])
 
-            operation_time = time.time() - operation_time
-            print(f"Total Operation Time: {operation_time:.4f} seconds")
-     
             #perf_time = time.time() - perf_time
             #print(f"Total Selection Time: {perf_time:.4f} seconds")
             #can crash sometimes, dont know why, debug
@@ -517,13 +529,48 @@ class UtilitiesPanelOP(bpy.types.Operator):
     
     def register():
         bpy.utils.register_class(UtilitiesPanel)
+        bpy.utils.register_class(SmartExtrude)
     def unregister():
         bpy.utils.unregister_class(UtilitiesPanel)
+        bpy.utils.unregister_class(SmartExtrude)
+
+class SmartExtrude(bpy.types.Operator):
+    bl_description = "Smart Extrude, this is a slow and outdated operator, a way faster and better version is in the works"
+    bl_idname = "mesh.keyops_smart_extrude"
+    bl_label = "Smart Extrude (Slow, Outdated)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    offset: bpy.props.FloatProperty(name="Offset", default=0.1, min=0.0) # type: ignore
+    even_offset: bpy.props.BoolProperty(name="Even Offset", default=True) # type: ignore
+    scale_offset: bpy.props.FloatProperty(name="Scale Offset", default=1.001, min=0.0, max=2.0) # type: ignore
+    remove_doubles: bpy.props.FloatProperty(name="Remove Doubles", default=0.001, min=0.0, max=0.1) # type: ignore
+
+    def execute(self, context):
+        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+        bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
+        bpy.ops.mesh.flip_normals()
+        bpy.ops.transform.shrink_fatten(value=-0.00318323, use_even_offset=self.even_offset, mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False)
+        bpy.ops.transform.resize(value=(self.scale_offset, self.scale_offset, self.scale_offset), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
+        bpy.ops.mesh.extrude_region_shrink_fatten(MESH_OT_extrude_region={"use_normal_flip":False, "use_dissolve_ortho_edges":False, "mirror":False}, TRANSFORM_OT_shrink_fatten={"value":self.offset, "use_even_offset":self.even_offset, "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "release_confirm":False, "use_accurate":False})
+        bpy.ops.mesh.select_linked(delimit={'NORMAL'})
+        bpy.ops.mesh.intersect_boolean(operation='DIFFERENCE', use_swap=False, use_self=False, solver='FAST')
+        bpy.ops.mesh.remove_doubles(threshold=self.remove_doubles, use_unselected=False)
+
+        return {'FINISHED'}
+    
+    def register():
+        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_func)
+    def unregister():
+        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_func)
+def menu_func(self, context):
+    layout = self.layout
+    layout.operator(SmartExtrude.bl_idname, text="Smart Extrude (Slow, Outdated)")
+
 
 
 class UtilitiesPanel(bpy.types.Panel):
     bl_description = "Utilities Panel"
-    bl_label = "Utilities"
+    bl_label = "Modifiers Utilities"
     bl_idname = "KEYOPS_PT_utilities_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -584,6 +631,12 @@ class UtilitiesPanel(bpy.types.Panel):
         row.prop(context.scene, "compensate_for_scale", text="Scale")
         row.prop(context.scene, "bevel_offset", text="")
 
+        if context.mode == 'EDIT_MESH':
+            row = layout.row()
+            row.label(text="Meshe")
+            row = layout.row()
+            row.operator("mesh.keyops_smart_extrude", text="Smart Extrude (Outdated)")
+
         def change_meshes_draw():
             row = layout.row(align=True)
             row.operator("keyops.utilities_panel_op", text="Marke", icon="SEQUENCE_COLOR_01").type = "Marke_Changed"
@@ -616,3 +669,4 @@ class UtilitiesPanel(bpy.types.Panel):
         del bpy.types.Scene.bevel_offset
         del bpy.types.Scene.compensate_for_scale
         del bpy.types.Scene.bevel_segments_type
+
