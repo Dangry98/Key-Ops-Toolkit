@@ -60,54 +60,85 @@ class ModiKey(Operator):
                         bpy.ops.ed.undo_push()
                         obj.modifiers.remove(active_modifier)
                         bpy.ops.object.mode_set(mode=current_mode)
+
+                elif self.type == 'delete_named_modi_on_all_selected':
+                    delete_modi_name = active_modifier.name
+
+                    for obj in bpy.context.selected_objects:
+                        if obj.type == 'MESH':
+                            for mod in obj.modifiers:
+                                if mod.name == delete_modi_name:
+                                    obj.modifiers.remove(mod)
+
+                elif self.type == "Copy_Modifier_to_Selected":
+                    if len(bpy.context.selected_objects) > 1:                       
+                        bpy.ops.object.modifier_copy_to_selected(modifier = active_modifier.name)
+         
                 elif self.type == 'Apply':
                     name = active_modifier.name
                     apply_time = time.time()
 
-                    if modifier_list:
-                        visibility_modifier_dict_list = {}
+                    visibility_modifier_dict_list = {}
 
-                        def modifier_toggle_visability_based2(): 
-                            active_object_name = bpy.context.view_layer.objects.active.name
+                    def modifier_toggle_visability_based2(): 
+                        active_object_name = bpy.context.view_layer.objects.active.name
 
-                            if active_object_name not in visibility_modifier_dict_list:
-                                visibility_modifier_dict_list[active_object_name] = []
+                        if active_object_name not in visibility_modifier_dict_list:
+                            visibility_modifier_dict_list[active_object_name] = []
 
-                            visibility_modifier_list = visibility_modifier_dict_list[active_object_name]
+                        visibility_modifier_list = visibility_modifier_dict_list[active_object_name]
 
-                            if len(visibility_modifier_list) <= 0:
-                                ml_act_ob = bpy.context.view_layer.objects.active
-                                for mod in ml_act_ob.modifiers:
-                                    if mod.show_viewport:
-                                        visibility_modifier_list.append(mod)
-                                        mod.show_viewport = False
-                            else:
-                                ml_act_ob = bpy.context.view_layer.objects.active
-                                hidden_modifiers = []
-                                for mod in ml_act_ob.modifiers:
-                                    if mod in visibility_modifier_list:
-                                        mod.show_viewport = True
-                                        hidden_modifiers.append(mod)
-                                visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
-                                visibility_modifier_dict_list[active_object_name] = visibility_modifier_list
-                                
-                        if bpy.context.mode == 'EDIT_MESH':
-                            modifier_toggle_visability_based2()        
-                        bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
-                        if bpy.context.mode == 'EDIT_MESH':
-                            modifier_toggle_visability_based2()   
+                        if len(visibility_modifier_list) <= 0:
+                            ml_act_ob = bpy.context.view_layer.objects.active
+                            for mod in ml_act_ob.modifiers:
+                                if mod.show_viewport:
+                                    visibility_modifier_list.append(mod)
+                                    mod.show_viewport = False
+                        else:
+                            ml_act_ob = bpy.context.view_layer.objects.active
+                            hidden_modifiers = []
+                            for mod in ml_act_ob.modifiers:
+                                if mod in visibility_modifier_list:
+                                    mod.show_viewport = True
+                                    hidden_modifiers.append(mod)
+                            visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
+                            visibility_modifier_dict_list[active_object_name] = visibility_modifier_list
+
+                    if modifier_list:     
+                        if bpy.context.mode == 'OBJECT':   
+                            bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
+                        else:
+                            if bpy.context.mode == 'EDIT_MESH':
+                                modifier_toggle_visability_based2()        
+                            bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
+                            if bpy.context.mode == 'EDIT_MESH':
+                                modifier_toggle_visability_based2()   
                     else:
                         if bpy.context.mode == 'OBJECT':
-                            bpy.ops.object.modifier_apply(modifier=active_modifier.name)
+                            instances = [o for o in bpy.data.objects if o.data == obj.data]
+
+                            if instances and len(instances) > 1:
+                                bpy.ops.object.modifier_apply("INVOKE_DEFAULT", modifier=active_modifier.name)
+
+                                self.report({'WARNING'}, f"Object has many users, can't apply modifier, consider making it single user")
+                                return {'FINISHED'}
+                            else:
+                                bpy.ops.object.modifier_apply(modifier=active_modifier.name)
+                          
                         else:
                             modifier_toggle_visability_based2()        
-                            current_mode = bpy.context.object.mode
                             bpy.ops.object.mode_set(mode='OBJECT')
                             bpy.ops.ed.undo_push()
                             bpy.ops.object.modifier_apply(modifier=active_modifier.name)
-                            bpy.ops.object.mode_set(mode=current_mode)
+                            bpy.ops.object.mode_set(mode='EDIT')
                             modifier_toggle_visability_based2()        
-                    self.report({'INFO'}, f"Applied {name} in {time.time() - apply_time:.3f} seconds")
+
+                    apply_time = time.time() - apply_time
+                    if apply_time > 1:
+                        self.report({'INFO'}, f"Applied {name} in {apply_time:.2f} seconds")
+                    else:
+                        self.report({'INFO'}, f"Applied {name} in {apply_time * 1000:.2f} ms") 
+                    return {'FINISHED'}
 
                 elif self.type == 'Apply_All':
                     bpy.ops.object.convert(target='MESH')

@@ -51,19 +51,19 @@ class QuickExport(bpy.types.Operator):
     def unregister():
         bpy.utils.unregister_class(QuickExportPanel)
                                 
-
 class QuickExportPanel(bpy.types.Panel):
     bl_description = "Quick Export Panel"
     bl_label = "Quick Export"
     bl_idname = "KEYOPS_PT_quick_export_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_quick_export
+        if context.mode == "OBJECT":
+            return True
     
     def draw(self, context):
         layout = self.layout

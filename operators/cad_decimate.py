@@ -43,13 +43,11 @@ class CADDecimate(bpy.types.Operator):
         bpy.utils.register_class(ExportCADDecimate)
         bpy.utils.register_class(ImportCADDecimate)
         bpy.utils.register_class(ImportAllCADDecimate)
-        bpy.utils.register_class(UnlockNormalsOnSelected)
         bpy.utils.register_class(CADDecimatePanel)
     def unregister():
         bpy.utils.unregister_class(ExportCADDecimate)
         bpy.utils.unregister_class(ImportCADDecimate)
         bpy.utils.unregister_class(ImportAllCADDecimate)
-        bpy.utils.unregister_class(UnlockNormalsOnSelected)
         bpy.utils.unregister_class(CADDecimatePanel)
 
 class ExportCADDecimate(bpy.types.Operator):
@@ -224,30 +222,13 @@ class ImportAllCADDecimate(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class UnlockNormalsOnSelected(bpy.types.Operator):
-    bl_description = "Unlock Normals On Selected"
-    bl_idname = "keyops.unlock_normals"
-    bl_label = "Unlock Normals On Selected"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-
-        selection = bpy.context.selected_objects
-
-        for obj in selection:
-            if obj.type == 'MESH':
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.mesh.customdata_custom_splitnormals_clear()
-
-        return {'FINISHED'}
-
 
 class KEYOPS_PT_cad_decimate_panel_manual(bpy.types.Panel):
     bl_parent_id = "KEYOPS_PT_cad_decimate_panel"
     bl_label = "Manual Decimation"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -266,12 +247,13 @@ class CADDecimatePanel(bpy.types.Panel):
     bl_idname = "KEYOPS_PT_cad_decimate_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_cad_decimate
+        if context.mode == "OBJECT":
+            return True
 
     def draw(self, context):
         layout = self.layout
@@ -294,8 +276,6 @@ class CADDecimatePanel(bpy.types.Panel):
             row = layout.row()
             row.operator("keyops.cad_decimate", text="AutoDecimate")
             row.scale_y = 1.5
-
-            layout.operator("keyops.unlock_normals", text="Unlock Normals")
 
     def register():
         bpy.utils.register_class(KEYOPS_PT_cad_decimate_panel_manual)

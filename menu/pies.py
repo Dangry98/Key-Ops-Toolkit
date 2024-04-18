@@ -437,9 +437,9 @@ class StreightenSelection(bpy.types.Operator):
     def execute(self, context):
             if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                bpy.ops.uv.keyops_smart_uv_sync()
+                bpy.ops.keyops.smart_uv_sync()
                 bpy.ops.uv.toolkit_straighten(gridify=False)
-                bpy.ops.uv.keyops_smart_uv_sync()
+                bpy.ops.keyops.smart_uv_sync()
 
             else:
                 bpy.ops.uv.toolkit_straighten(gridify=False)
@@ -458,9 +458,9 @@ class StreightenAfterEdge(bpy.types.Operator):
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             bpy.ops.uv.toolkit_straighten_island()
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
 
         else:
             bpy.ops.uv.toolkit_straighten_island()
@@ -522,7 +522,7 @@ class SelectSimilarIslands(bpy.types.Operator):
         else:
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
             if bpy.context.tool_settings.use_uv_select_sync:
-                bpy.ops.uv.keyops_smart_uv_sync()
+                bpy.ops.keyops.smart_uv_sync()
 
             bpy.ops.uv.select_mode(type='ISLAND')
 

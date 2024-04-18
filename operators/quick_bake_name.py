@@ -184,12 +184,14 @@ class QuickBakeNamePanel(bpy.types.Panel):
     bl_idname = "KEYOPS_PT_quick_bake_name_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_quick_bake_name
+        if context.mode == "OBJECT":
+            return True
+        
     def draw(self, context):
         layout = self.layout
         row = layout.row()

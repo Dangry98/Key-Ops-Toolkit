@@ -9,7 +9,7 @@ from ..utils.mesh_utils import modifier_toggle_visability_based
 #Its the only way to get the UV editor in Blender to not be a horrible slow mess to work in and its a must have for anyone who works with UVs.
 
 class SmartUVSync(bpy.types.Operator):
-    bl_idname = "uv.keyops_smart_uv_sync"
+    bl_idname = "keyops.smart_uv_sync"
     bl_label = "KeyOps: Smart UV Sync"
     bl_description = "Toggle Sync Mode and UV Selection while preserving selection and selection mode"
     bl_options = {'REGISTER'}
@@ -120,33 +120,6 @@ class SmartUVSync(bpy.types.Operator):
             
                 bmesh.update_edit_mesh(me)
 
-    def register():
-        bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Enable", default=True, description="Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes")
-        bpy.utils.register_class(UVCut)
-        bpy.utils.register_class(SharpFromUVIslands)
-        bpy.utils.register_class(UnwrapInPlace)
-        bpy.utils.register_class(AutoSeam)
-        bpy.utils.register_class(ToggleSmoothSharp)
-        bpy.utils.register_class(OrientIslandToEdge)
-        bpy.utils.register_class(UnwrapSelected)
-        bpy.utils.register_class(QuickPack)
-        bpy.utils.register_class(IsolateUVIsland)
-
-
-    def unregister():
-        bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        del bpy.types.Scene.smart_uv_sync_enable
-        bpy.utils.unregister_class(UVCut)
-        bpy.utils.unregister_class(SharpFromUVIslands)
-        bpy.utils.unregister_class(UnwrapInPlace)
-        bpy.utils.unregister_class(AutoSeam)
-        bpy.utils.unregister_class(ToggleSmoothSharp)
-        bpy.utils.unregister_class(OrientIslandToEdge)
-        bpy.utils.unregister_class(UnwrapSelected)
-        bpy.utils.unregister_class(QuickPack)
-        bpy.utils.unregister_class(IsolateUVIsland)
-
 
     def execute(self, context):
         tool_settings = context.tool_settings
@@ -162,6 +135,38 @@ class SmartUVSync(bpy.types.Operator):
 
         return {'FINISHED'}
 
+    def register():
+        bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
+        bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Enable", default=True, description="Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes")
+        bpy.utils.register_class(UVCut)
+        bpy.utils.register_class(SharpFromUVIslands)
+        bpy.utils.register_class(UnwrapInPlace)
+        bpy.utils.register_class(AutoSeam)
+        bpy.utils.register_class(ToggleSmoothSharp)
+        bpy.utils.register_class(OrientIslandToEdge)
+        bpy.utils.register_class(UnwrapSelected)
+        bpy.utils.register_class(QuickPack)
+        bpy.utils.register_class(IsolateUVIsland)
+        bpy.utils.register_class(RemoveSeam)
+        bpy.utils.register_class(SelectSimilarUVIsland)
+        bpy.utils.register_class(RemoveAllPins)
+
+    def unregister():
+        bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
+        del bpy.types.Scene.smart_uv_sync_enable
+        bpy.utils.unregister_class(UVCut)
+        bpy.utils.unregister_class(SharpFromUVIslands)
+        bpy.utils.unregister_class(UnwrapInPlace)
+        bpy.utils.unregister_class(AutoSeam)
+        bpy.utils.unregister_class(ToggleSmoothSharp)
+        bpy.utils.unregister_class(OrientIslandToEdge)
+        bpy.utils.unregister_class(UnwrapSelected)
+        bpy.utils.unregister_class(QuickPack)
+        bpy.utils.unregister_class(IsolateUVIsland)
+        bpy.utils.unregister_class(RemoveSeam)
+        bpy.utils.unregister_class(SelectSimilarUVIsland)
+        bpy.utils.unregister_class(RemoveAllPins)
+
 class UVCut(bpy.types.Operator):
     bl_idname = "uv.keyops_uv_cut"
     bl_label = "KeyOps: UV Cut"
@@ -174,7 +179,7 @@ class UVCut(bpy.types.Operator):
 
     def execute(self, context):
         if context.tool_settings.use_uv_select_sync:
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             self.report({'WARNING'}, "UV Sync needs to be disabled for this operation")
             bpy.ops.uv.select_mode(type='EDGE')
 
@@ -672,11 +677,11 @@ class UnwrapInPlace(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     selected_only: bpy.props.BoolProperty(name="Selected Only", default=False, description="Selected Only") # type: ignore
-    select_islands: bpy.props.BoolProperty(name="Select Islands (Slow)", default=True, description="Select Islands") # type: ignore
+    ignore_pin: bpy.props.BoolProperty(name="Ignore Pin", default=True, description="Ignore Pin") # type: ignore
+    select_islands: bpy.props.BoolProperty(name="Select Islands (Slow)", default=False, description="Select Islands") # type: ignore
     uv_unwrap_method: bpy.props.EnumProperty(name="Method", items=(('ANGLE_BASED', "Angle Based", "Angle Based"), ('CONFORMAL', "Conformal", "Conformal")), default='CONFORMAL', description="UV Unwrap Method") # type: ignore
-    fill_holes: bpy.props.BoolProperty(name="Fill Holes", default=True, description="Fill Holes") # type: ignore
     pack_uv_islands: bpy.props.BoolProperty(name="Pack UV Islands", default=True, description="Pack UV Islands") # type: ignore
-    margin: bpy.props.FloatProperty(name="Margin", default=0.01, min=0.0, max=1.0, description="Margin") # type: ignore
+    margin: bpy.props.FloatProperty(name="Margin", default=0.001, description="Margin") # type: ignore
     rotate: bpy.props.BoolProperty(name="Rotate", default=True, description="Rotate") # type: ignore
     rotation_method: bpy.props.EnumProperty(name="Rotation Method", items=(('ANY', "Any", "Any"), ('CARDINAL', "Cardinal", "Cardinal"), ('AXIS_ALIGNED', "Axis Aligned", "Axis Aligned")), default='CARDINAL', description="Rotation Method") # type: ignore
     #apply_modifier: bpy.props.BoolProperty(name="(Debug) No Apply", default=True, description="Apply Modifier") # type: ignore
@@ -690,9 +695,8 @@ class UnwrapInPlace(bpy.types.Operator):
         layout.use_property_split = True
         layout.use_property_decorate = False
         layout.prop(self, "selected_only")
-        layout.prop(self, "select_islands")
+        layout.prop(self, "ignore_pin")
         layout.prop(self, "uv_unwrap_method")
-        layout.prop(self, "fill_holes")
         layout.label(text="Pack Islands:")
         layout.prop(self, "pack_uv_islands")
         if self.pack_uv_islands:
@@ -1158,49 +1162,6 @@ class UnwrapInPlace(bpy.types.Operator):
             corners_of_face.location = (58.17718505859375, 975.83837890625)
             index.location = (-164.66323852539062, 893.779296875)
             
-            #Set dimensions
-            vector_math_001.width, vector_math_001.height = 140.0, 100.0
-            vector_math.width, vector_math.height = 140.0, 100.0
-            math.width, math.height = 140.0, 100.0
-            math_001.width, math_001.height = 140.0, 100.0
-            math_002.width, math_002.height = 140.0, 100.0
-            math_003.width, math_003.height = 140.0, 100.0
-            position.width, position.height = 140.0, 100.0
-            group_output.width, group_output.height = 140.0, 100.0
-            group_input.width, group_input.height = 140.0, 100.0
-            mix.width, mix.height = 140.0, 100.0
-            mix_001.width, mix_001.height = 140.0, 100.0
-            mix_002.width, mix_002.height = 140.0, 100.0
-            bounding_box.width, bounding_box.height = 140.0, 100.0
-            vector_math_004.width, vector_math_004.height = 140.0, 100.0
-            reroute.width, reroute.height = 100.0, 100.0
-            separate_xyz.width, separate_xyz.height = 140.0, 100.0
-            compare.width, compare.height = 140.0, 100.0
-            math_004.width, math_004.height = 140.0, 100.0
-            reroute_001.width, reroute_001.height = 100.0, 100.0
-            separate_xyz_001.width, separate_xyz_001.height = 140.0, 100.0
-            compare_001.width, compare_001.height = 140.0, 100.0
-            math_007.width, math_007.height = 140.0, 100.0
-            math_008.width, math_008.height = 140.0, 100.0
-            math_009.width, math_009.height = 140.0, 100.0
-            position_001.width, position_001.height = 140.0, 100.0
-            vertex_of_corner.width, vertex_of_corner.height = 140.0, 100.0
-            vertex_of_corner_001.width, vertex_of_corner_001.height = 140.0, 100.0
-            corners_of_face_001.width, corners_of_face_001.height = 140.0, 100.0
-            vertex_of_corner_002.width, vertex_of_corner_002.height = 140.0, 100.0
-            corners_of_face_002.width, corners_of_face_002.height = 140.0, 100.0
-            vertex_of_corner_003.width, vertex_of_corner_003.height = 140.0, 100.0
-            sample_index_002.width, sample_index_002.height = 140.0, 100.0
-            sample_index_005.width, sample_index_005.height = 140.0, 100.0
-            sample_index_004.width, sample_index_004.height = 140.0, 100.0
-            sample_index_007.width, sample_index_007.height = 140.0, 100.0
-            sample_index_001.width, sample_index_001.height = 140.0, 100.0
-            sample_index_003.width, sample_index_003.height = 140.0, 100.0
-            sample_index_008.width, sample_index_008.height = 140.0, 100.0
-            sample_index_006.width, sample_index_006.height = 140.0, 100.0
-            corners_of_face_003.width, corners_of_face_003.height = 140.0, 100.0
-            corners_of_face.width, corners_of_face.height = 140.0, 100.0
-            index.width, index.height = 140.0, 100.0
             
             #initialize match_bounding_box links
             #mix.Result -> mix_002.A
@@ -1327,470 +1288,562 @@ class UnwrapInPlace(bpy.types.Operator):
             match_bounding_box.links.new(sample_index_006.outputs[0], mix_001.inputs[5])
             return match_bounding_box
 
-        def unwrap_in_place_node_group():
-            unwrap_in_place = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Unwrap In Place")
+        def unwrap_in_place_tool_node_group():
+            unwrap_in_place_tool = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Unwrap In Place Tool")
 
-            unwrap_in_place.is_modifier = True
+            unwrap_in_place_tool.is_tool = True
+            unwrap_in_place_tool.is_mode_edit = True
+            unwrap_in_place_tool.is_mode_sculpt = False
+            unwrap_in_place_tool.is_type_curve = False
+            unwrap_in_place_tool.is_type_mesh = True
+            unwrap_in_place_tool.is_type_point_cloud = False
             
-            #initialize unwrap_in_place nodes
-            #unwrap_in_place interface
+            #initialize unwrap_in_place_tool nodes
+            #unwrap_in_place_tool interface
             #Socket Geometry
-            geometry_socket_1 = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
+            geometry_socket_1 = unwrap_in_place_tool.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
             geometry_socket_1.attribute_domain = 'POINT'
             
             #Socket Geometry
-            geometry_socket_2 = unwrap_in_place.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+            geometry_socket_2 = unwrap_in_place_tool.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
             geometry_socket_2.attribute_domain = 'POINT'
             
-            #Socket UV
-            uv_socket = unwrap_in_place.interface.new_socket(name = "UV", in_out='INPUT', socket_type = 'NodeSocketString')
-            uv_socket.attribute_domain = 'POINT'
             
-            #Socket Seam
-            seam_socket = unwrap_in_place.interface.new_socket(name = "Seam", in_out='INPUT', socket_type = 'NodeSocketBool')
-            seam_socket.default_attribute_name = "seam_Unwrap_In_Place"
-            seam_socket.attribute_domain = 'POINT'
-            seam_socket.hide_value = True
+            #node Group Input.001
+            group_input_001 = unwrap_in_place_tool.nodes.new("NodeGroupInput")
+            group_input_001.name = "Group Input.001"
+            group_input_001.outputs[1].hide = True
             
-            #Socket Selection
-            selection_socket = unwrap_in_place.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
-            selection_socket.default_attribute_name = "UV_Selection_Unwrap_In_Place"
-            selection_socket.attribute_domain = 'POINT'
-            selection_socket.hide_value = True
-            
-            #Socket Margin
-            margin_socket = unwrap_in_place.interface.new_socket(name = "Margin", in_out='INPUT', socket_type = 'NodeSocketFloat')
-            margin_socket.subtype = 'NONE'
-            margin_socket.default_value = 0.0010000000474974513
-            margin_socket.min_value = 0.0
-            margin_socket.max_value = 1.0
-            margin_socket.attribute_domain = 'POINT'
-            
-            #Socket Fill Holes
-            fill_holes_socket = unwrap_in_place.interface.new_socket(name = "Fill Holes", in_out='INPUT', socket_type = 'NodeSocketBool')
-            fill_holes_socket.attribute_domain = 'POINT'
-            
-            #Socket Angle Based
-            angle_based_socket = unwrap_in_place.interface.new_socket(name = "Angle Based", in_out='INPUT', socket_type = 'NodeSocketBool')
-            angle_based_socket.attribute_domain = 'POINT'
-            
-            
-            #node Group Input
-            group_input_1 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_1.name = "Group Input"
-            group_input_1.outputs[3].hide = True
-            group_input_1.outputs[4].hide = True
-            group_input_1.outputs[5].hide = True
-            group_input_1.outputs[6].hide = True
-            group_input_1.outputs[7].hide = True
-            
-            #node Group Output
-            group_output_1 = unwrap_in_place.nodes.new("NodeGroupOutput")
-            group_output_1.name = "Group Output"
-            group_output_1.is_active_output = True
+            #node Group Output.001
+            group_output_001 = unwrap_in_place_tool.nodes.new("NodeGroupOutput")
+            group_output_001.name = "Group Output.001"
+            group_output_001.is_active_output = True
             
             #node Set Position
-            set_position = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
+            set_position = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
             set_position.name = "Set Position"
             #Offset
             set_position.inputs[3].default_value = (0.0, 0.0, 0.0)
             
             #node Named Attribute
-            named_attribute = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
             named_attribute.name = "Named Attribute"
             named_attribute.data_type = 'FLOAT_VECTOR'
             
             #node Position
-            position_1 = unwrap_in_place.nodes.new("GeometryNodeInputPosition")
+            position_1 = unwrap_in_place_tool.nodes.new("GeometryNodeInputPosition")
             position_1.name = "Position"
             
             #node Split Edges
-            split_edges = unwrap_in_place.nodes.new("GeometryNodeSplitEdges")
+            split_edges = unwrap_in_place_tool.nodes.new("GeometryNodeSplitEdges")
             split_edges.name = "Split Edges"
             
-            #node Group Input.001
-            group_input_001 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_001.name = "Group Input.001"
-            group_input_001.outputs[0].hide = True
-            group_input_001.outputs[1].hide = True
-            group_input_001.outputs[2].hide = True
-            group_input_001.outputs[4].hide = True
-            group_input_001.outputs[5].hide = True
-            group_input_001.outputs[6].hide = True
-            group_input_001.outputs[7].hide = True
-            
-            #node Bounding Box
-            bounding_box_1 = unwrap_in_place.nodes.new("GeometryNodeBoundBox")
-            bounding_box_1.name = "Bounding Box"
-            
             #node Store Named Attribute.003
-            store_named_attribute_003 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
+            store_named_attribute_003 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_003.name = "Store Named Attribute.003"
             store_named_attribute_003.data_type = 'FLOAT2'
             store_named_attribute_003.domain = 'CORNER'
             
             #node UV Unwrap.001
-            uv_unwrap_001 = unwrap_in_place.nodes.new("GeometryNodeUVUnwrap")
+            uv_unwrap_001 = unwrap_in_place_tool.nodes.new("GeometryNodeUVUnwrap")
             uv_unwrap_001.name = "UV Unwrap.001"
             uv_unwrap_001.method = 'ANGLE_BASED'
             
             #node Store Named Attribute.004
-            store_named_attribute_004 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
+            store_named_attribute_004 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_004.name = "Store Named Attribute.004"
             store_named_attribute_004.data_type = 'FLOAT2'
             store_named_attribute_004.domain = 'CORNER'
+            #Selection
+            store_named_attribute_004.inputs[1].default_value = True
             
             #node Set Position.003
-            set_position_003 = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
+            set_position_003 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
             set_position_003.name = "Set Position.003"
             #Offset
             set_position_003.inputs[3].default_value = (0.0, 0.0, 0.0)
             
             #node Set Position.001
-            set_position_001 = unwrap_in_place.nodes.new("GeometryNodeSetPosition")
+            set_position_001 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
             set_position_001.name = "Set Position.001"
+            set_position_001.inputs[3].hide = True
             #Offset
             set_position_001.inputs[3].default_value = (0.0, 0.0, 0.0)
             
-            #node Named Attribute.005
-            named_attribute_005 = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
-            named_attribute_005.name = "Named Attribute.005"
-            named_attribute_005.data_type = 'FLOAT_VECTOR'
-            
-            #node Group Input.002
-            group_input_002 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_002.name = "Group Input.002"
-            group_input_002.outputs[0].hide = True
-            group_input_002.outputs[7].hide = True
-            
             #node Group.001
-            group_001 = unwrap_in_place.nodes.new("GeometryNodeGroup")
+            group_001 = unwrap_in_place_tool.nodes.new("GeometryNodeGroup")
             group_001.label = "Match Bounding Box"
             group_001.name = "Group.001"
             group_001.node_tree = match_bounding_box_node_group()
-
             
-            #node Group Input.003
-            group_input_003 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_003.name = "Group Input.003"
-            group_input_003.outputs[0].hide = True
-            group_input_003.outputs[1].hide = True
-            group_input_003.outputs[2].hide = True
-            group_input_003.outputs[4].hide = True
-            group_input_003.outputs[5].hide = True
-            group_input_003.outputs[6].hide = True
-            group_input_003.outputs[7].hide = True
-            
-            #node Group Input.004
-            group_input_004 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_004.name = "Group Input.004"
-            group_input_004.outputs[0].hide = True
-            group_input_004.outputs[2].hide = True
-            group_input_004.outputs[4].hide = True
-            group_input_004.outputs[5].hide = True
-            group_input_004.outputs[6].hide = True
-            group_input_004.outputs[7].hide = True
-            
-            #node Group Input.005
-            group_input_005 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_005.name = "Group Input.005"
-            group_input_005.outputs[2].hide = True
-            group_input_005.outputs[4].hide = True
-            group_input_005.outputs[5].hide = True
-            group_input_005.outputs[6].hide = True
-            group_input_005.outputs[7].hide = True
+            #node Group Input.006
+            group_input_006 = unwrap_in_place_tool.nodes.new("NodeGroupInput")
+            group_input_006.name = "Group Input.006"
+            group_input_006.outputs[1].hide = True
             
             #node Store Named Attribute.006
-            store_named_attribute_006 = unwrap_in_place.nodes.new("GeometryNodeStoreNamedAttribute")
+            store_named_attribute_006 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
             store_named_attribute_006.name = "Store Named Attribute.006"
             store_named_attribute_006.data_type = 'FLOAT2'
             store_named_attribute_006.domain = 'CORNER'
             
             #node Named Attribute.001
-            named_attribute_001 = unwrap_in_place.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute_001 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
             named_attribute_001.name = "Named Attribute.001"
             named_attribute_001.data_type = 'FLOAT_VECTOR'
             
             #node Sample Index.001
-            sample_index_001_1 = unwrap_in_place.nodes.new("GeometryNodeSampleIndex")
+            sample_index_001_1 = unwrap_in_place_tool.nodes.new("GeometryNodeSampleIndex")
             sample_index_001_1.name = "Sample Index.001"
             sample_index_001_1.clamp = False
             sample_index_001_1.data_type = 'FLOAT_VECTOR'
             sample_index_001_1.domain = 'CORNER'
             
             #node Index
-            index_1 = unwrap_in_place.nodes.new("GeometryNodeInputIndex")
+            index_1 = unwrap_in_place_tool.nodes.new("GeometryNodeInputIndex")
             index_1.name = "Index"
             
             #node Duplicate Elements
-            duplicate_elements = unwrap_in_place.nodes.new("GeometryNodeDuplicateElements")
+            duplicate_elements = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
             duplicate_elements.name = "Duplicate Elements"
-            duplicate_elements.domain = 'POINT'
+            duplicate_elements.domain = 'FACE'
             #Amount
             duplicate_elements.inputs[2].default_value = 1
             
-            #node Duplicate Elements.001
-            duplicate_elements_001 = unwrap_in_place.nodes.new("GeometryNodeDuplicateElements")
-            duplicate_elements_001.name = "Duplicate Elements.001"
-            duplicate_elements_001.domain = 'POINT'
-            #Amount
-            duplicate_elements_001.inputs[2].default_value = 1
-            
             #node Capture Attribute
-            capture_attribute = unwrap_in_place.nodes.new("GeometryNodeCaptureAttribute")
+            capture_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeCaptureAttribute")
             capture_attribute.name = "Capture Attribute"
             capture_attribute.data_type = 'FLOAT_VECTOR'
             capture_attribute.domain = 'POINT'
             
-            #node Group Input.006
-            group_input_006 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_006.name = "Group Input.006"
-            group_input_006.outputs[0].hide = True
-            group_input_006.outputs[2].hide = True
-            group_input_006.outputs[3].hide = True
-            group_input_006.outputs[4].hide = True
-            group_input_006.outputs[5].hide = True
-            group_input_006.outputs[6].hide = True
-            group_input_006.outputs[7].hide = True
-            
             #node Switch
-            switch = unwrap_in_place.nodes.new("GeometryNodeSwitch")
+            switch = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
             switch.name = "Switch"
             switch.input_type = 'VECTOR'
+            #Switch
+            switch.inputs[0].default_value = True
             
             #node UV Unwrap.002
-            uv_unwrap_002 = unwrap_in_place.nodes.new("GeometryNodeUVUnwrap")
+            uv_unwrap_002 = unwrap_in_place_tool.nodes.new("GeometryNodeUVUnwrap")
             uv_unwrap_002.name = "UV Unwrap.002"
             uv_unwrap_002.method = 'CONFORMAL'
             
-            #node Group Input.007
-            group_input_007 = unwrap_in_place.nodes.new("NodeGroupInput")
-            group_input_007.name = "Group Input.007"
-            group_input_007.outputs[0].hide = True
-            group_input_007.outputs[2].hide = True
-            group_input_007.outputs[3].hide = True
-            group_input_007.outputs[4].hide = True
-            group_input_007.outputs[5].hide = True
-            group_input_007.outputs[6].hide = True
-            group_input_007.outputs[7].hide = True
+            #node Selection
+            selection = unwrap_in_place_tool.nodes.new("GeometryNodeToolSelection")
+            selection.name = "Selection"
+            
+            #node Evaluate on Domain
+            evaluate_on_domain = unwrap_in_place_tool.nodes.new("GeometryNodeFieldOnDomain")
+            evaluate_on_domain.name = "Evaluate on Domain"
+            evaluate_on_domain.data_type = 'BOOLEAN'
+            evaluate_on_domain.domain = 'FACE'
+            
+            #node Named Attribute.002
+            named_attribute_002 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute_002.name = "Named Attribute.002"
+            named_attribute_002.data_type = 'BOOLEAN'
+            
+            #node Named Attribute.003
+            named_attribute_003 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute_003.name = "Named Attribute.003"
+            named_attribute_003.data_type = 'BOOLEAN'
             
             #node Remove Named Attribute
-            remove_named_attribute = unwrap_in_place.nodes.new("GeometryNodeRemoveAttribute")
+            remove_named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeRemoveAttribute")
             remove_named_attribute.name = "Remove Named Attribute"
             #Name
-            remove_named_attribute.inputs[1].default_value = "UV_Selection_Unwrap_In_Place"
+            remove_named_attribute.inputs[1].default_value = "seam_Unwrap_In_Place"
             
-            #node Remove Named Attribute.001
-            remove_named_attribute_001 = unwrap_in_place.nodes.new("GeometryNodeRemoveAttribute")
-            remove_named_attribute_001.name = "Remove Named Attribute.001"
-            #Name
-            remove_named_attribute_001.inputs[1].default_value = "seam_Unwrap_In_Place"
+            #node String
+            string = unwrap_in_place_tool.nodes.new("FunctionNodeInputString")
+            string.name = "String"
+            string.string = "UVMap"
+            
+            #node Value
+            value = unwrap_in_place_tool.nodes.new("ShaderNodeValue")
+            value.name = "Value"
+            
+            value.outputs[0].default_value = 0.0010000000474974513
+            #node Boolean
+            boolean = unwrap_in_place_tool.nodes.new("FunctionNodeInputBool")
+            boolean.name = "Boolean"
+            boolean.boolean = True
+            
+            #node String.001
+            string_001 = unwrap_in_place_tool.nodes.new("FunctionNodeInputString")
+            string_001.name = "String.001"
+            string_001.string = "seam_Unwrap_In_Place"
+            
+            #node Bounding Box
+            bounding_box_1 = unwrap_in_place_tool.nodes.new("GeometryNodeBoundBox")
+            bounding_box_1.name = "Bounding Box"
+            
+            #node Vector Math
+            vector_math_1 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
+            vector_math_1.name = "Vector Math"
+            vector_math_1.operation = 'SUBTRACT'
+            #Vector_002
+            vector_math_1.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_1.inputs[3].default_value = 1.0
+            
+            #node Grid
+            grid = unwrap_in_place_tool.nodes.new("GeometryNodeMeshGrid")
+            grid.name = "Grid"
+            grid.inputs[2].hide = True
+            grid.inputs[3].hide = True
+            grid.outputs[1].hide = True
+            #Vertices X
+            grid.inputs[2].default_value = 2
+            #Vertices Y
+            grid.inputs[3].default_value = 2
+            
+            #node Transform Geometry
+            transform_geometry = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
+            transform_geometry.name = "Transform Geometry"
+            #Rotation
+            transform_geometry.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            transform_geometry.inputs[3].default_value = (1.0, 1.0, 1.0)
+            
+            #node Switch.003
+            switch_003 = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
+            switch_003.name = "Switch.003"
+            switch_003.input_type = 'GEOMETRY'
+            
+            #node Vector Math.001
+            vector_math_001_1 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
+            vector_math_001_1.name = "Vector Math.001"
+            vector_math_001_1.operation = 'ADD'
+            #Vector_002
+            vector_math_001_1.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_001_1.inputs[3].default_value = 1.0
+            
+            #node Vector Math.002
+            vector_math_002 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
+            vector_math_002.name = "Vector Math.002"
+            vector_math_002.operation = 'SCALE'
+            #Vector_001
+            vector_math_002.inputs[1].default_value = (0.0, 0.0, 0.0)
+            #Vector_002
+            vector_math_002.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_002.inputs[3].default_value = 0.5
+            
+            #node Compare.002
+            compare_002 = unwrap_in_place_tool.nodes.new("FunctionNodeCompare")
+            compare_002.name = "Compare.002"
+            compare_002.data_type = 'FLOAT'
+            compare_002.mode = 'ELEMENT'
+            compare_002.operation = 'LESS_EQUAL'
+            #B
+            compare_002.inputs[1].default_value = 2.0
+            #A_INT
+            compare_002.inputs[2].default_value = 0
+            #B_INT
+            compare_002.inputs[3].default_value = 0
+            #A_VEC3
+            compare_002.inputs[4].default_value = (0.0, 0.0, 0.0)
+            #B_VEC3
+            compare_002.inputs[5].default_value = (0.0, 0.0, 0.0)
+            #A_COL
+            compare_002.inputs[6].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+            #B_COL
+            compare_002.inputs[7].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+            #A_STR
+            compare_002.inputs[8].default_value = ""
+            #B_STR
+            compare_002.inputs[9].default_value = ""
+            #C
+            compare_002.inputs[10].default_value = 0.8999999761581421
+            #Angle
+            compare_002.inputs[11].default_value = 0.08726649731397629
+            #Epsilon
+            compare_002.inputs[12].default_value = 0.0010000000474974513
+            
+            #node Vector Math.003
+            vector_math_003 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
+            vector_math_003.name = "Vector Math.003"
+            vector_math_003.operation = 'LENGTH'
+            #Vector_001
+            vector_math_003.inputs[1].default_value = (0.0, 0.0, 0.0)
+            #Vector_002
+            vector_math_003.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            vector_math_003.inputs[3].default_value = 1.0
+            
+            #node Domain Size
+            domain_size = unwrap_in_place_tool.nodes.new("GeometryNodeAttributeDomainSize")
+            domain_size.name = "Domain Size"
+            domain_size.component = 'MESH'
+            domain_size.outputs[1].hide = True
+            domain_size.outputs[2].hide = True
+            domain_size.outputs[3].hide = True
+            domain_size.outputs[4].hide = True
+            domain_size.outputs[5].hide = True
+            domain_size.outputs[6].hide = True
+            
+            #node Merge by Distance.002
+            merge_by_distance_002 = unwrap_in_place_tool.nodes.new("GeometryNodeMergeByDistance")
+            merge_by_distance_002.name = "Merge by Distance.002"
+            merge_by_distance_002.mode = 'CONNECTED'
+            #Selection
+            merge_by_distance_002.inputs[1].default_value = True
+            #Distance
+            merge_by_distance_002.inputs[2].default_value = 9.999999747378752e-05
+            
+            #node Named Attribute.004
+            named_attribute_004 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute_004.name = "Named Attribute.004"
+            named_attribute_004.data_type = 'FLOAT_VECTOR'
+            
+            #node Duplicate Elements.002
+            duplicate_elements_002 = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
+            duplicate_elements_002.name = "Duplicate Elements.002"
+            duplicate_elements_002.domain = 'FACE'
+            #Selection
+            duplicate_elements_002.inputs[1].default_value = True
+            #Amount
+            duplicate_elements_002.inputs[2].default_value = 1
+            
+            #node Set Position.002
+            set_position_002 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
+            set_position_002.name = "Set Position.002"
+            #Selection
+            set_position_002.inputs[1].default_value = True
+            #Offset
+            set_position_002.inputs[3].default_value = (0.0, 0.0, 0.0)
+            
+            #node Duplicate Elements.003
+            duplicate_elements_003 = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
+            duplicate_elements_003.name = "Duplicate Elements.003"
+            duplicate_elements_003.domain = 'POINT'
+            #Amount
+            duplicate_elements_003.inputs[2].default_value = 1
             
             
             
             
             #Set locations
-            group_input_1.location = (-800.7864379882812, 35.97612380981445)
-            group_output_1.location = (4099.57080078125, 477.5541076660156)
-            set_position.location = (214.8248291015625, 100.59524536132812)
-            named_attribute.location = (-501.1990051269531, -48.008819580078125)
-            position_1.location = (-502.5131530761719, 18.43531036376953)
-            split_edges.location = (-96.95872497558594, 102.62326049804688)
-            group_input_001.location = (1665.4072265625, -97.56024169921875)
-            bounding_box_1.location = (650.4869995117188, 218.11727905273438)
-            store_named_attribute_003.location = (1321.702880859375, 64.28227996826172)
-            uv_unwrap_001.location = (687.408935546875, -168.5223388671875)
-            store_named_attribute_004.location = (2545.86767578125, 203.36032104492188)
-            set_position_003.location = (991.2513427734375, 3.479095458984375)
-            set_position_001.location = (1640.371337890625, 197.32843017578125)
-            named_attribute_005.location = (1165.9384765625, 229.28451538085938)
-            group_input_002.location = (457.1207275390625, -139.79605102539062)
-            group_001.location = (2039.508544921875, 121.41050720214844)
-            group_input_003.location = (44.42805480957031, -118.64273834228516)
-            group_input_004.location = (2284.73046875, 75.13125610351562)
-            group_input_005.location = (3044.12744140625, 401.8300476074219)
-            store_named_attribute_006.location = (3362.724853515625, 451.0467224121094)
-            named_attribute_001.location = (2945.66357421875, 292.0354309082031)
-            sample_index_001_1.location = (3136.79248046875, 300.9219970703125)
-            index_1.location = (2951.22607421875, 152.07904052734375)
-            duplicate_elements.location = (424.14581298828125, 157.6721649169922)
-            duplicate_elements_001.location = (1877.373291015625, -8.011474609375)
-            capture_attribute.location = (-329.465576171875, 159.68740844726562)
-            group_input_006.location = (988.124267578125, 157.46710205078125)
-            switch.location = (952.72705078125, -221.255859375)
-            uv_unwrap_002.location = (696.1859130859375, -342.7801208496094)
-            group_input_007.location = (2735.8798828125, 252.25604248046875)
-            remove_named_attribute.location = (3599.944091796875, 464.0772705078125)
-            remove_named_attribute_001.location = (3849.999755859375, 470.94342041015625)
-            
-            #Set dimensions
-            group_input_1.width, group_input_1.height = 140.0, 100.0
-            group_output_1.width, group_output_1.height = 140.0, 100.0
-            set_position.width, set_position.height = 140.0, 100.0
-            named_attribute.width, named_attribute.height = 140.0, 100.0
-            position_1.width, position_1.height = 140.0, 100.0
-            split_edges.width, split_edges.height = 140.0, 100.0
-            group_input_001.width, group_input_001.height = 140.0, 100.0
-            bounding_box_1.width, bounding_box_1.height = 140.0, 100.0
-            store_named_attribute_003.width, store_named_attribute_003.height = 140.0, 100.0
-            uv_unwrap_001.width, uv_unwrap_001.height = 140.0, 100.0
-            store_named_attribute_004.width, store_named_attribute_004.height = 140.0, 100.0
-            set_position_003.width, set_position_003.height = 140.0, 100.0
-            set_position_001.width, set_position_001.height = 140.0, 100.0
-            named_attribute_005.width, named_attribute_005.height = 140.0, 100.0
-            group_input_002.width, group_input_002.height = 140.0, 100.0
-            group_001.width, group_001.height = 189.59912109375, 100.0
-            group_input_003.width, group_input_003.height = 140.0, 100.0
-            group_input_004.width, group_input_004.height = 140.0, 100.0
-            group_input_005.width, group_input_005.height = 140.0, 100.0
-            store_named_attribute_006.width, store_named_attribute_006.height = 140.0, 100.0
-            named_attribute_001.width, named_attribute_001.height = 140.0, 100.0
-            sample_index_001_1.width, sample_index_001_1.height = 140.0, 100.0
-            index_1.width, index_1.height = 140.0, 100.0
-            duplicate_elements.width, duplicate_elements.height = 140.0, 100.0
-            duplicate_elements_001.width, duplicate_elements_001.height = 140.0, 100.0
-            capture_attribute.width, capture_attribute.height = 140.0, 100.0
-            group_input_006.width, group_input_006.height = 140.0, 100.0
-            switch.width, switch.height = 140.0, 100.0
-            uv_unwrap_002.width, uv_unwrap_002.height = 140.0, 100.0
-            group_input_007.width, group_input_007.height = 140.0, 100.0
-            remove_named_attribute.width, remove_named_attribute.height = 170.0, 100.0
-            remove_named_attribute_001.width, remove_named_attribute_001.height = 170.0, 100.0
-            
-            #initialize unwrap_in_place links
+            group_input_001.location = (-709.258056640625, -436.9896545410156)
+            group_output_001.location = (3731.859130859375, 158.48330688476562)
+            set_position.location = (318.9644775390625, -283.7413330078125)
+            named_attribute.location = (80.46863555908203, -529.8975219726562)
+            position_1.location = (-673.3154296875, -530.0293579101562)
+            split_edges.location = (-120.47317504882812, -364.7484130859375)
+            store_named_attribute_003.location = (1425.8426513671875, -320.0542907714844)
+            uv_unwrap_001.location = (527.5487670898438, -552.85888671875)
+            store_named_attribute_004.location = (2704.843505859375, -123.15985870361328)
+            set_position_003.location = (1095.3909912109375, -380.85748291015625)
+            set_position_001.location = (1895.7034912109375, -326.86370849609375)
+            group_001.location = (2464.648681640625, -262.9260559082031)
+            group_input_006.location = (2762.777587890625, 57.02855682373047)
+            store_named_attribute_006.location = (3302.553955078125, 132.36138916015625)
+            named_attribute_001.location = (2545.10546875, -31.51673126220703)
+            sample_index_001_1.location = (3076.62158203125, -17.763328552246094)
+            index_1.location = (2562.821533203125, -172.6898193359375)
+            duplicate_elements.location = (528.2855224609375, -266.8842468261719)
+            capture_attribute.location = (-500.2677917480469, -388.77728271484375)
+            switch.location = (792.8668212890625, -605.5924072265625)
+            uv_unwrap_002.location = (536.3257446289062, -727.11669921875)
+            selection.location = (-229.96835327148438, -541.886474609375)
+            evaluate_on_domain.location = (65.70108032226562, -397.25653076171875)
+            named_attribute_002.location = (-63.35287857055664, -780.0927734375)
+            named_attribute_003.location = (241.72677612304688, -737.4782104492188)
+            remove_named_attribute.location = (3498.46875, 160.91714477539062)
+            string.location = (-354.9782409667969, -717.7208862304688)
+            value.location = (9.28640365600586, -693.0759887695312)
+            boolean.location = (246.69219970703125, -943.7881469726562)
+            string_001.location = (-314.5406188964844, -848.703857421875)
+            bounding_box_1.location = (967.7250366210938, -92.2804946899414)
+            vector_math_1.location = (1259.5888671875, 26.084964752197266)
+            grid.location = (1657.582763671875, 73.90567016601562)
+            transform_geometry.location = (2003.52880859375, -109.94488525390625)
+            switch_003.location = (2211.86767578125, -5.061500549316406)
+            vector_math_001_1.location = (1624.822509765625, -196.11776733398438)
+            vector_math_002.location = (1750.199462890625, -194.54443359375)
+            compare_002.location = (1649.615234375, -30.162660598754883)
+            vector_math_003.location = (1419.9462890625, 72.43637084960938)
+            domain_size.location = (1467.27392578125, -97.00637817382812)
+            merge_by_distance_002.location = (1302.48974609375, -80.48823547363281)
+            named_attribute_004.location = (1445.475341796875, -579.6399536132812)
+            duplicate_elements_002.location = (1675.232421875, -348.19586181640625)
+            set_position_002.location = (747.9999389648438, -118.56639099121094)
+            duplicate_elements_003.location = (2244.999755859375, -351.35821533203125)
+         
+            #initialize unwrap_in_place_tool links
             #named_attribute.Attribute -> set_position.Position
-            unwrap_in_place.links.new(named_attribute.outputs[0], set_position.inputs[2])
-            #group_input_1.UV -> named_attribute.Name
-            unwrap_in_place.links.new(group_input_1.outputs[1], named_attribute.inputs[0])
-            #group_input_1.Seam -> split_edges.Selection
-            unwrap_in_place.links.new(group_input_1.outputs[2], split_edges.inputs[1])
+            unwrap_in_place_tool.links.new(named_attribute.outputs[0], set_position.inputs[2])
             #split_edges.Mesh -> set_position.Geometry
-            unwrap_in_place.links.new(split_edges.outputs[0], set_position.inputs[0])
+            unwrap_in_place_tool.links.new(split_edges.outputs[0], set_position.inputs[0])
             #set_position.Geometry -> set_position_003.Geometry
-            unwrap_in_place.links.new(set_position.outputs[0], set_position_003.inputs[0])
+            unwrap_in_place_tool.links.new(set_position.outputs[0], set_position_003.inputs[0])
             #set_position_003.Geometry -> store_named_attribute_003.Geometry
-            unwrap_in_place.links.new(set_position_003.outputs[0], store_named_attribute_003.inputs[0])
-            #store_named_attribute_003.Geometry -> set_position_001.Geometry
-            unwrap_in_place.links.new(store_named_attribute_003.outputs[0], set_position_001.inputs[0])
-            #named_attribute_005.Attribute -> set_position_001.Position
-            unwrap_in_place.links.new(named_attribute_005.outputs[0], set_position_001.inputs[2])
-            #group_input_002.Selection -> store_named_attribute_003.Selection
-            unwrap_in_place.links.new(group_input_002.outputs[3], store_named_attribute_003.inputs[1])
-            #group_input_002.Selection -> set_position_003.Selection
-            unwrap_in_place.links.new(group_input_002.outputs[3], set_position_003.inputs[1])
-            #group_input_002.Selection -> set_position_001.Selection
-            unwrap_in_place.links.new(group_input_002.outputs[3], set_position_001.inputs[1])
-            #bounding_box_1.Bounding Box -> group_001.Geometry
-            unwrap_in_place.links.new(bounding_box_1.outputs[0], group_001.inputs[0])
-            #group_input_003.Selection -> set_position.Selection
-            unwrap_in_place.links.new(group_input_003.outputs[3], set_position.inputs[1])
-            #group_input_004.Selection -> store_named_attribute_004.Selection
-            unwrap_in_place.links.new(group_input_004.outputs[3], store_named_attribute_004.inputs[1])
+            unwrap_in_place_tool.links.new(set_position_003.outputs[0], store_named_attribute_003.inputs[0])
+            #duplicate_elements_002.Geometry -> set_position_001.Geometry
+            unwrap_in_place_tool.links.new(duplicate_elements_002.outputs[0], set_position_001.inputs[0])
             #set_position_001.Geometry -> store_named_attribute_004.Geometry
-            unwrap_in_place.links.new(set_position_001.outputs[0], store_named_attribute_004.inputs[0])
-            #group_input_002.Selection -> uv_unwrap_001.Selection
-            unwrap_in_place.links.new(group_input_002.outputs[3], uv_unwrap_001.inputs[0])
-            #group_input_002.Seam -> uv_unwrap_001.Seam
-            unwrap_in_place.links.new(group_input_002.outputs[2], uv_unwrap_001.inputs[1])
-            #remove_named_attribute_001.Geometry -> group_output_1.Geometry
-            unwrap_in_place.links.new(remove_named_attribute_001.outputs[0], group_output_1.inputs[0])
+            unwrap_in_place_tool.links.new(set_position_001.outputs[0], store_named_attribute_004.inputs[0])
             #named_attribute_001.Attribute -> sample_index_001_1.Value
-            unwrap_in_place.links.new(named_attribute_001.outputs[0], sample_index_001_1.inputs[1])
+            unwrap_in_place_tool.links.new(named_attribute_001.outputs[0], sample_index_001_1.inputs[1])
             #capture_attribute.Geometry -> split_edges.Mesh
-            unwrap_in_place.links.new(capture_attribute.outputs[0], split_edges.inputs[0])
+            unwrap_in_place_tool.links.new(capture_attribute.outputs[0], split_edges.inputs[0])
             #sample_index_001_1.Value -> store_named_attribute_006.Value
-            unwrap_in_place.links.new(sample_index_001_1.outputs[0], store_named_attribute_006.inputs[3])
+            unwrap_in_place_tool.links.new(sample_index_001_1.outputs[0], store_named_attribute_006.inputs[3])
             #store_named_attribute_004.Geometry -> sample_index_001_1.Geometry
-            unwrap_in_place.links.new(store_named_attribute_004.outputs[0], sample_index_001_1.inputs[0])
-            #group_input_005.Geometry -> store_named_attribute_006.Geometry
-            unwrap_in_place.links.new(group_input_005.outputs[0], store_named_attribute_006.inputs[0])
+            unwrap_in_place_tool.links.new(store_named_attribute_004.outputs[0], sample_index_001_1.inputs[0])
             #index_1.Index -> sample_index_001_1.Index
-            unwrap_in_place.links.new(index_1.outputs[0], sample_index_001_1.inputs[2])
+            unwrap_in_place_tool.links.new(index_1.outputs[0], sample_index_001_1.inputs[2])
             #set_position.Geometry -> duplicate_elements.Geometry
-            unwrap_in_place.links.new(set_position.outputs[0], duplicate_elements.inputs[0])
-            #group_input_003.Selection -> duplicate_elements.Selection
-            unwrap_in_place.links.new(group_input_003.outputs[3], duplicate_elements.inputs[1])
-            #duplicate_elements.Geometry -> bounding_box_1.Geometry
-            unwrap_in_place.links.new(duplicate_elements.outputs[0], bounding_box_1.inputs[0])
+            unwrap_in_place_tool.links.new(set_position.outputs[0], duplicate_elements.inputs[0])
             #group_001.Vector -> store_named_attribute_004.Value
-            unwrap_in_place.links.new(group_001.outputs[0], store_named_attribute_004.inputs[3])
-            #set_position_001.Geometry -> duplicate_elements_001.Geometry
-            unwrap_in_place.links.new(set_position_001.outputs[0], duplicate_elements_001.inputs[0])
-            #group_input_001.Selection -> duplicate_elements_001.Selection
-            unwrap_in_place.links.new(group_input_001.outputs[3], duplicate_elements_001.inputs[1])
-            #duplicate_elements_001.Geometry -> group_001.Target
-            unwrap_in_place.links.new(duplicate_elements_001.outputs[0], group_001.inputs[1])
-            #group_input_005.Selection -> store_named_attribute_006.Selection
-            unwrap_in_place.links.new(group_input_005.outputs[3], store_named_attribute_006.inputs[1])
-            #group_input_1.Geometry -> capture_attribute.Geometry
-            unwrap_in_place.links.new(group_input_1.outputs[0], capture_attribute.inputs[0])
+            unwrap_in_place_tool.links.new(group_001.outputs[0], store_named_attribute_004.inputs[3])
+            #duplicate_elements_003.Geometry -> group_001.Target
+            unwrap_in_place_tool.links.new(duplicate_elements_003.outputs[0], group_001.inputs[1])
             #position_1.Position -> capture_attribute.Value
-            unwrap_in_place.links.new(position_1.outputs[0], capture_attribute.inputs[1])
+            unwrap_in_place_tool.links.new(position_1.outputs[0], capture_attribute.inputs[1])
             #capture_attribute.Attribute -> set_position_003.Position
-            unwrap_in_place.links.new(capture_attribute.outputs[1], set_position_003.inputs[2])
-            #group_input_002.Margin -> uv_unwrap_001.Margin
-            unwrap_in_place.links.new(group_input_002.outputs[4], uv_unwrap_001.inputs[2])
-            #group_input_002.Fill Holes -> uv_unwrap_001.Fill Holes
-            unwrap_in_place.links.new(group_input_002.outputs[5], uv_unwrap_001.inputs[3])
-            #group_input_006.UV -> named_attribute_005.Name
-            unwrap_in_place.links.new(group_input_006.outputs[1], named_attribute_005.inputs[0])
+            unwrap_in_place_tool.links.new(capture_attribute.outputs[1], set_position_003.inputs[2])
             #uv_unwrap_001.UV -> switch.True
-            unwrap_in_place.links.new(uv_unwrap_001.outputs[0], switch.inputs[2])
-            #group_input_002.Selection -> uv_unwrap_002.Selection
-            unwrap_in_place.links.new(group_input_002.outputs[3], uv_unwrap_002.inputs[0])
-            #group_input_002.Seam -> uv_unwrap_002.Seam
-            unwrap_in_place.links.new(group_input_002.outputs[2], uv_unwrap_002.inputs[1])
-            #group_input_002.Margin -> uv_unwrap_002.Margin
-            unwrap_in_place.links.new(group_input_002.outputs[4], uv_unwrap_002.inputs[2])
-            #group_input_002.Fill Holes -> uv_unwrap_002.Fill Holes
-            unwrap_in_place.links.new(group_input_002.outputs[5], uv_unwrap_002.inputs[3])
+            unwrap_in_place_tool.links.new(uv_unwrap_001.outputs[0], switch.inputs[2])
             #uv_unwrap_002.UV -> switch.False
-            unwrap_in_place.links.new(uv_unwrap_002.outputs[0], switch.inputs[1])
-            #group_input_002.Angle Based -> switch.Switch
-            unwrap_in_place.links.new(group_input_002.outputs[6], switch.inputs[0])
+            unwrap_in_place_tool.links.new(uv_unwrap_002.outputs[0], switch.inputs[1])
             #switch.Output -> store_named_attribute_003.Value
-            unwrap_in_place.links.new(switch.outputs[0], store_named_attribute_003.inputs[3])
-            #group_input_004.UV -> store_named_attribute_004.Name
-            unwrap_in_place.links.new(group_input_004.outputs[1], store_named_attribute_004.inputs[2])
-            #group_input_002.UV -> store_named_attribute_003.Name
-            unwrap_in_place.links.new(group_input_002.outputs[1], store_named_attribute_003.inputs[2])
-            #group_input_007.UV -> named_attribute_001.Name
-            unwrap_in_place.links.new(group_input_007.outputs[1], named_attribute_001.inputs[0])
-            #group_input_005.UV -> store_named_attribute_006.Name
-            unwrap_in_place.links.new(group_input_005.outputs[1], store_named_attribute_006.inputs[2])
+            unwrap_in_place_tool.links.new(switch.outputs[0], store_named_attribute_003.inputs[3])
+            #group_input_001.Geometry -> capture_attribute.Geometry
+            unwrap_in_place_tool.links.new(group_input_001.outputs[0], capture_attribute.inputs[0])
+            #group_input_006.Geometry -> store_named_attribute_006.Geometry
+            unwrap_in_place_tool.links.new(group_input_006.outputs[0], store_named_attribute_006.inputs[0])
+            #remove_named_attribute.Geometry -> group_output_001.Geometry
+            unwrap_in_place_tool.links.new(remove_named_attribute.outputs[0], group_output_001.inputs[0])
+            #selection.Selection -> evaluate_on_domain.Value
+            unwrap_in_place_tool.links.new(selection.outputs[0], evaluate_on_domain.inputs[0])
+            #evaluate_on_domain.Value -> set_position.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], set_position.inputs[1])
+            #evaluate_on_domain.Value -> duplicate_elements.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], duplicate_elements.inputs[1])
+            #named_attribute_002.Attribute -> split_edges.Selection
+            unwrap_in_place_tool.links.new(named_attribute_002.outputs[0], split_edges.inputs[1])
+            #named_attribute_003.Attribute -> uv_unwrap_001.Seam
+            unwrap_in_place_tool.links.new(named_attribute_003.outputs[0], uv_unwrap_001.inputs[1])
+            #named_attribute_003.Attribute -> uv_unwrap_002.Seam
+            unwrap_in_place_tool.links.new(named_attribute_003.outputs[0], uv_unwrap_002.inputs[1])
             #store_named_attribute_006.Geometry -> remove_named_attribute.Geometry
-            unwrap_in_place.links.new(store_named_attribute_006.outputs[0], remove_named_attribute.inputs[0])
-            #remove_named_attribute.Geometry -> remove_named_attribute_001.Geometry
-            unwrap_in_place.links.new(remove_named_attribute.outputs[0], remove_named_attribute_001.inputs[0])
-            return unwrap_in_place
-    
-        import time
-        total_time = time.time()
-        create_unwrap_in_place_node_group_time = time.time()
-        if "Unwrap In Place" not in bpy.data.node_groups:
-            unwrap_in_place_node_group()
-        print("Create Unwrap In Place Node Group Time: ", time.time() - create_unwrap_in_place_node_group_time)
+            unwrap_in_place_tool.links.new(store_named_attribute_006.outputs[0], remove_named_attribute.inputs[0])
+            #evaluate_on_domain.Value -> uv_unwrap_001.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], uv_unwrap_001.inputs[0])
+            #evaluate_on_domain.Value -> uv_unwrap_002.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], uv_unwrap_002.inputs[0])
+            #evaluate_on_domain.Value -> set_position_003.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], set_position_003.inputs[1])
+            #evaluate_on_domain.Value -> set_position_001.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], set_position_001.inputs[1])
+            #evaluate_on_domain.Value -> store_named_attribute_003.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], store_named_attribute_003.inputs[1])
+            #evaluate_on_domain.Value -> store_named_attribute_006.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], store_named_attribute_006.inputs[1])
+            #string.String -> named_attribute.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], named_attribute.inputs[0])
+            #string.String -> store_named_attribute_003.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], store_named_attribute_003.inputs[2])
+            #string.String -> store_named_attribute_004.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], store_named_attribute_004.inputs[2])
+            #string.String -> store_named_attribute_006.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], store_named_attribute_006.inputs[2])
+            #string.String -> named_attribute_001.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], named_attribute_001.inputs[0])
+            #value.Value -> uv_unwrap_001.Margin
+            unwrap_in_place_tool.links.new(value.outputs[0], uv_unwrap_001.inputs[2])
+            #value.Value -> uv_unwrap_002.Margin
+            unwrap_in_place_tool.links.new(value.outputs[0], uv_unwrap_002.inputs[2])
+            #boolean.Boolean -> uv_unwrap_002.Fill Holes
+            unwrap_in_place_tool.links.new(boolean.outputs[0], uv_unwrap_002.inputs[3])
+            #boolean.Boolean -> uv_unwrap_001.Fill Holes
+            unwrap_in_place_tool.links.new(boolean.outputs[0], uv_unwrap_001.inputs[3])
+            #string_001.String -> named_attribute_002.Name
+            unwrap_in_place_tool.links.new(string_001.outputs[0], named_attribute_002.inputs[0])
+            #string_001.String -> named_attribute_003.Name
+            unwrap_in_place_tool.links.new(string_001.outputs[0], named_attribute_003.inputs[0])
+            #bounding_box_1.Min -> vector_math_1.Vector
+            unwrap_in_place_tool.links.new(bounding_box_1.outputs[1], vector_math_1.inputs[0])
+            #bounding_box_1.Max -> vector_math_1.Vector
+            unwrap_in_place_tool.links.new(bounding_box_1.outputs[2], vector_math_1.inputs[1])
+            #grid.Mesh -> transform_geometry.Geometry
+            unwrap_in_place_tool.links.new(grid.outputs[0], transform_geometry.inputs[0])
+            #transform_geometry.Geometry -> switch_003.True
+            unwrap_in_place_tool.links.new(transform_geometry.outputs[0], switch_003.inputs[2])
+            #vector_math_001_1.Vector -> vector_math_002.Vector
+            unwrap_in_place_tool.links.new(vector_math_001_1.outputs[0], vector_math_002.inputs[0])
+            #bounding_box_1.Min -> vector_math_001_1.Vector
+            unwrap_in_place_tool.links.new(bounding_box_1.outputs[1], vector_math_001_1.inputs[0])
+            #bounding_box_1.Max -> vector_math_001_1.Vector
+            unwrap_in_place_tool.links.new(bounding_box_1.outputs[2], vector_math_001_1.inputs[1])
+            #vector_math_002.Vector -> transform_geometry.Translation
+            unwrap_in_place_tool.links.new(vector_math_002.outputs[0], transform_geometry.inputs[1])
+            #vector_math_1.Vector -> vector_math_003.Vector
+            unwrap_in_place_tool.links.new(vector_math_1.outputs[0], vector_math_003.inputs[0])
+            #vector_math_003.Value -> grid.Size X
+            unwrap_in_place_tool.links.new(vector_math_003.outputs[1], grid.inputs[0])
+            #vector_math_003.Value -> grid.Size Y
+            unwrap_in_place_tool.links.new(vector_math_003.outputs[1], grid.inputs[1])
+            #domain_size.Point Count -> compare_002.A
+            unwrap_in_place_tool.links.new(domain_size.outputs[0], compare_002.inputs[0])
+            #merge_by_distance_002.Geometry -> switch_003.False
+            unwrap_in_place_tool.links.new(merge_by_distance_002.outputs[0], switch_003.inputs[1])
+            #compare_002.Result -> switch_003.Switch
+            unwrap_in_place_tool.links.new(compare_002.outputs[0], switch_003.inputs[0])
+            #bounding_box_1.Bounding Box -> merge_by_distance_002.Geometry
+            unwrap_in_place_tool.links.new(bounding_box_1.outputs[0], merge_by_distance_002.inputs[0])
+            #merge_by_distance_002.Geometry -> domain_size.Geometry
+            unwrap_in_place_tool.links.new(merge_by_distance_002.outputs[0], domain_size.inputs[0])
+            #set_position_002.Geometry -> bounding_box_1.Geometry
+            unwrap_in_place_tool.links.new(set_position_002.outputs[0], bounding_box_1.inputs[0])
+            #switch_003.Output -> group_001.Geometry
+            unwrap_in_place_tool.links.new(switch_003.outputs[0], group_001.inputs[0])
+            #string.String -> named_attribute_004.Name
+            unwrap_in_place_tool.links.new(string.outputs[0], named_attribute_004.inputs[0])
+            #named_attribute_004.Attribute -> set_position_001.Position
+            unwrap_in_place_tool.links.new(named_attribute_004.outputs[0], set_position_001.inputs[2])
+            #store_named_attribute_003.Geometry -> duplicate_elements_002.Geometry
+            unwrap_in_place_tool.links.new(store_named_attribute_003.outputs[0], duplicate_elements_002.inputs[0])
+            #duplicate_elements.Geometry -> set_position_002.Geometry
+            unwrap_in_place_tool.links.new(duplicate_elements.outputs[0], set_position_002.inputs[0])
+            #named_attribute.Attribute -> set_position_002.Position
+            unwrap_in_place_tool.links.new(named_attribute.outputs[0], set_position_002.inputs[2])
+            #set_position_001.Geometry -> duplicate_elements_003.Geometry
+            unwrap_in_place_tool.links.new(set_position_001.outputs[0], duplicate_elements_003.inputs[0])
+            #evaluate_on_domain.Value -> duplicate_elements_003.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], duplicate_elements_003.inputs[1])
+            return unwrap_in_place_tool
 
-        start_op_time = time.time()
+        #import time
+        #total_time = time.time()
+        #create_unwrap_in_place_node_group_time = time.time()
+        if "Unwrap In Place Tool" not in bpy.data.node_groups:
+            unwrap_in_place_tool_node_group()
+        #print("Create Unwrap In Place Node Group Time: ", time.time() - create_unwrap_in_place_node_group_time)
 
-        active_object = bpy.context.active_object
-        if active_object.modifiers.active is not None:
-            active_modifer_index = active_object.modifiers.find(context.object.modifiers.active.name)
+        #start_op_time = time.time()
 
         if bpy.app.version <= (4, 0, 2):
             self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
         else:
-            print("Start Operator Time: ", time.time() - start_op_time)
-            cheack_time = time.time()
-            has_toggled = False
+            #print("Start Operator Time: ", time.time() - start_op_time)
+            #cheack_time = time.time()
             has_synced = False
             angle_based = False
 
             if self.uv_unwrap_method == 'ANGLE_BASED':
                 angle_based = True
-            print("Check Time: ", time.time() - cheack_time)
+            #print("Check Time: ", time.time() - cheack_time)
+            
+            bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = True
 
-            pre_prep_selection_time = time.time()
+            selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH' and obj.data.total_vert_sel > 0]
+            
+            #pre_prep_selection_time = time.time()
+
             if not self.selected_only:
                 #replace with geomtry nodes, way faster! can save at least 10% of the time
                 if self.select_islands:
@@ -1803,8 +1856,8 @@ class UnwrapInPlace(bpy.types.Operator):
                 bpy.ops.uv.seams_from_islands()
             
             if context.tool_settings.use_uv_select_sync == False:
-                for obj in bpy.context.selected_objects:
-                    if obj.type == 'MESH':
+                for obj in selected_objects:
+                    if obj.data.total_vert_sel > 0:
                         context.view_layer.objects.active = obj
                         obj.data.attributes.new(name='Currently_Visiable_Faces', type='BOOLEAN', domain='FACE')
                         obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
@@ -1815,87 +1868,109 @@ class UnwrapInPlace(bpy.types.Operator):
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
                 bpy.ops.uv.hide(unselected=True)
 
-            print("Prep Selection Time: ", time.time() - pre_prep_selection_time)
+            #print("Prep Selection Time: ", time.time() - pre_prep_selection_time)
             
-            add_modifier_time = time.time()
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':
+            #set_seam_atri = time.time()
+     
+            for obj in selected_objects:
+                if obj.data.total_vert_sel > 0:
+                    me = obj.data
+                    bm = bmesh.from_edit_mesh(me)
+
+                    intial_selection = [face for face in bm.faces if face.select]
+                    intial_selection_edges = [edge for edge in bm.edges if edge.select]
+
+                    for edge in intial_selection_edges:
+                        edge.select = False
+                        if edge.seam:
+                            edge.select = True
+            if obj.data.total_vert_sel > 0:
+                bmesh.update_edit_mesh(me)
+
+            for obj in selected_objects:
+                if obj.data.total_vert_sel > 0:
+
                     context.view_layer.objects.active = obj
-                    modifier_toggle_visability_based()        
 
-                    if obj.data.total_vert_sel > 0:
-                        if "Unwrap In Place" not in obj.modifiers:
-                            obj.modifiers.new(name = "Unwrap In Place", type = 'NODES')
-                            obj.modifiers["Unwrap In Place"].node_group = bpy.data.node_groups["Unwrap In Place"]
-                            obj.modifiers["Unwrap In Place"].show_viewport = False
-                                            
-                            get_active_uv_layer = obj.data.uv_layers.active         
+                    obj.data.attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
+                    obj.data.attributes.active = obj.data.attributes.get('seam_Unwrap_In_Place')
+                    obj.data.update()
+                    bpy.ops.mesh.attribute_set(value_bool=True)
 
-                            context.object.modifiers["Unwrap In Place"]["Socket_2"] = get_active_uv_layer.name
-
-                            context.object.modifiers["Unwrap In Place"]["Socket_5"] = self.margin
-                            context.object.modifiers["Unwrap In Place"]["Socket_6"] = self.fill_holes
-                            context.object.modifiers["Unwrap In Place"]["Socket_7"] = angle_based
-
-                            context.object.modifiers["Unwrap In Place"]["Socket_4_attribute_name"] = "UV_Selection_Unwrap_In_Place"
-            print("Add Modifier Time: ", time.time() - add_modifier_time)
-
-            switch_to_object_mode_time = time.time()
-            if context.mode == 'EDIT_MESH':
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-                for obj in bpy.context.selected_objects:
-                    if "Unwrap In Place" in obj.modifiers:
-                        obj.data.attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
-                        seam = obj.data.attributes.get('seam_Unwrap_In_Place')
-                        seam.data.foreach_set('value', [e.use_seam for e in obj.data.edges])
-             
-                        obj.data.attributes.new(name='UV_Selection_Unwrap_In_Place', type='BOOLEAN', domain='FACE')
-                        selection = obj.data.attributes.get('UV_Selection_Unwrap_In_Place')
-                        selection.data.foreach_set('value', [f.select for f in obj.data.polygons])
-                        obj.data.update()
+            if obj.data.total_vert_sel > 0:
+                for face in intial_selection:
+                    face.select = True
+            if obj.data.total_vert_sel > 0:
+                bmesh.update_edit_mesh(me)
                     
-                has_toggled = True
-                #if self.apply_modifier:
-                for obj in bpy.context.selected_objects:
-                    if "Unwrap In Place" in obj.modifiers:
-                        context.view_layer.objects.active = obj 
-                        bpy.ops.object.modifier_apply(modifier="Unwrap In Place")
-            print("Switch To Object Mode Time: ", time.time() - switch_to_object_mode_time)
+            #print("Set Seam Atri ", time.time() - set_seam_atri)
+            
+            #get_uvmap_name_time = time.time()
+            uv_name_list_and_object = []
+            for obj in selected_objects:
+                if obj.data.uv_layers.active.name != 'UVMap':
+                    if len(obj.data.uv_layers) > 0:
+                        uv_name_list_and_object.append([obj.data.uv_layers.active.name, obj])
+                        obj.data.uv_layers.active.name = 'UVMap'
+            #print("Get UVMap Name Time: ", time.time() - get_uvmap_name_time)
+
+            #add_modifier_time = time.time()
+            # context_override = context.copy()
+            # context_override["area"].type = 'VIEW_3D'
+            # bpy.ops.geometry.execute_node_group(asset_library_type='LOCAL', asset_library_identifier="", relative_asset_identifier="NodeTree\\Unwrap In Place Tool")
+            # bpy.context.area.ui_type = 'UV'
+            if angle_based:
+                bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = True
+            else:
+                bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = False
+
+            if self.ignore_pin == False:
+                for obj in selected_objects:
+                    if obj.data.total_vert_sel > 0:
+                        me = obj.data
+                        bm = bmesh.from_edit_mesh(me)
+                        uv = bm.loops.layers.uv.verify()
+
+                        for f in bm.faces:
+                            for l in f.loops:
+                                if l[uv].pin_uv:
+                                    f.select = False 
+                        bmesh.update_edit_mesh(me)
+
+            areas = bpy.context.screen.areas
+            area = [a for a in areas if a.type == 'VIEW_3D'][0]
+            
+            with bpy.context.temp_override(area=area):
+                bpy.ops.geometry.execute_node_group(name="Unwrap In Place Tool")
+            #print("Unwrap Time ", time.time() - add_modifier_time)
+
+            #restore_uvmap_name_time = time.time()
+            for uv_name in uv_name_list_and_object:
+                uv_name[1].data.uv_layers.active.name = uv_name[0]
+            #print("Restore UVMap Name Time: ", time.time() - restore_uvmap_name_time)
 
 
-            edit_mode_time = time.time()
-            if has_toggled:
-                bpy.ops.object.mode_set(mode='EDIT')  
-                bpy.ops.uv.average_islands_scale(scale_uv=True, shear=False)
-                if self.pack_uv_islands:
-                    bpy.ops.uv.pack_islands(udim_source='ORIGINAL_AABB', margin=self.margin, shape_method='AABB', rotate_method= self.rotation_method, rotate=self.rotate)
+            #edit_mode_time = time.time()
+            bpy.ops.uv.average_islands_scale(scale_uv=True, shear=False)
+            if self.pack_uv_islands:
+                bpy.ops.uv.pack_islands(udim_source='ORIGINAL_AABB', margin=self.margin, shape_method='AABB', rotate_method= self.rotation_method, rotate=self.rotate)
             if has_synced:
                 bpy.context.scene.tool_settings.use_uv_select_sync = False
-            print("Edit Mode Time: ", time.time() - edit_mode_time)
+            #print("Edit Mode Time: ", time.time() - edit_mode_time)
 
-            retsore_modifier_visibility_time = time.time()
-            #restore modifier visibility from current modifier visibility list depending on the object name and the modifier name
-            for obj in bpy.context.selected_objects:
-                context.view_layer.objects.active = obj
-                modifier_toggle_visability_based()         
-            print("Restore Modifier Visibility Time: ", time.time() - retsore_modifier_visibility_time)
-
-            restore_selection_time = time.time()
+            #restore_selection_time = time.time()
             if has_synced:
-                for obj in bpy.context.selected_objects:
-                    if obj.type == 'MESH':
+                for obj in selected_objects:
+                    if obj.data.attributes.get('Currently_Visiable_Faces'):
                         context.view_layer.objects.active = obj
                         obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
                         bpy.ops.mesh.select_by_attribute()
                         obj.data.attributes.remove(obj.data.attributes.get('Currently_Visiable_Faces'))
-                print("Restore Selection Time: ", time.time() - restore_selection_time)
+                #print("Restore Selection Time: ", time.time() - restore_selection_time)
+            
+            bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = False
 
-        #restore active modifier
-        if active_object is not None and 'active_modifer_index' in locals():
-            active_object.modifiers.active = active_object.modifiers[active_modifer_index]
-
-        print("Total Time: ", time.time() - total_time)
+        #print("Total Time: ", time.time() - total_time)
         return {'FINISHED'}
 
 class AutoSeam(bpy.types.Operator):
@@ -2003,16 +2078,53 @@ class OrientIslandToEdge(bpy.types.Operator):
 
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync:
+            edge_mode = False
+            if bpy.context.tool_settings.mesh_select_mode[1]:
+                edge_mode = True
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             bpy.ops.uv.select_more()
             bpy.ops.uv.select_less()
             bpy.ops.uv.align_rotation(method='EDGE')
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
+            if edge_mode:
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
         else:
             bpy.ops.uv.align_rotation(method='EDGE')
         return {'FINISHED'}
     
+class RemoveSeam(bpy.types.Operator):
+    bl_idname = "keyops.remove_seam"
+    bl_label = "KeyOps: Remove Seam"
+    bl_options = {'REGISTER', 'UNDO'}
+    @classmethod
+    def poll(cls, context):
+        return context.active_object.type == 'MESH'
+    
+    def execute(self, context):
+        bpy.ops.mesh.mark_seam(clear=True)
+        bpy.ops.mesh.mark_sharp(clear=True)
+        return {'FINISHED'}
+    
+class RemoveAllPins(bpy.types.Operator):
+    bl_idname = "uv.remove_all_pins"
+    bl_label = "KeyOps: Clear All Pins"
+    bl_options = {'REGISTER', 'UNDO'}
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+    
+    def execute(self, context):
+        for ob in context.objects_in_mode_unique_data:
+            me = ob.data
+            bm = bmesh.from_edit_mesh(me)
+            uv = bm.loops.layers.uv.verify()
+
+            for f in bm.faces:
+                for l in f.loops:
+                    l[uv].pin_uv = False
+            bmesh.update_edit_mesh(me)
+        return {'FINISHED'}
     
 class UnwrapSelected(bpy.types.Operator):
     bl_description = "Unwrap Selected"
@@ -2043,9 +2155,9 @@ class UnwrapSelected(bpy.types.Operator):
                 bpy.context.scene.smart_uv_sync_enable = True
                 self.reset_uv_sync = True
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             bpy.ops.uv.unwrap(method=self.method, margin=0.001, correct_aspect=self.corret_aspect, use_subsurf_data=self.use_subsurf_data, fill_holes=self.fill_holes)
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             if self.reset_uv_sync:
                 bpy.context.scene.smart_uv_sync_enable = False
         else:
@@ -2109,8 +2221,44 @@ class IsolateUVIsland(bpy.types.Operator):
             bpy.context.scene.tool_settings.use_uv_select_sync = False
         else:
             bpy.ops.uv.select_linked()
-            bpy.ops.uv.keyops_smart_uv_sync()
+            bpy.ops.keyops.smart_uv_sync()
             bpy.context.scene.tool_settings.use_uv_select_sync = False
+
+        return {'FINISHED'}
+
+class SelectSimilarUVIsland(bpy.types.Operator):
+    bl_description = "Select Similar UV Island"
+    bl_idname = "uv.keyops_select_similar_uv_island"
+    bl_label = "Select Similar UV Island"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    treshold: bpy.props.FloatProperty(name="Treshold",description="Treshold",default=0.001, min=0.0, max=1.0, precision=3) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        """ Validate context """
+        active_object = context.active_object
+        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH' and not context.tool_settings.use_uv_select_sync
+    
+    def execute(self, context):
+        has_synced = False
+        # if context.tool_settings.use_uv_select_sync:
+        #     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+
+        #     bpy.context.scene.tool_settings.use_uv_select_sync = False
+        #     bpy.ops.uv.select_all(action='SELECT')
+
+        #     bpy.ops.mesh.select_all(action='SELECT')
+        #     bpy.ops.uv.select_mode(type='ISLAND')
+        #     has_synced = True
+
+
+        bpy.ops.uv.select_mode(type='FACE')
+        bpy.ops.uv.select_mode(type='ISLAND')
+        bpy.ops.uv.select_similar(type='AREA_3D', threshold=self.treshold)
+
+        if has_synced:
+            bpy.ops.keyops.smart_uv_sync()
 
         return {'FINISHED'}
 
@@ -2118,6 +2266,7 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
     prefs = get_keyops_prefs()
     category_name = prefs.uv_tools_panel_name
     bl_label = "Key Ops: Toolkit - UV Tools"
+    bl_idname = "UVEDITORSMARTUVSYNC_PT_Panel"
     bl_space_type = 'IMAGE_EDITOR'
     bl_region_type = 'UI'
     bl_category = category_name
@@ -2131,7 +2280,7 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.split(factor=0.65, align=True)
 
         row.scale_y = 1.5
-        row.operator("uv.keyops_smart_uv_sync", text="Smart UV Sync", icon='UV_SYNC_SELECT')
+        row.operator("keyops.smart_uv_sync", text="Smart UV Sync", icon='UV_SYNC_SELECT')
         row.prop(context.scene, "smart_uv_sync_enable", toggle=True, text="Enable")
 
         #uv islands    
@@ -2141,13 +2290,20 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row.operator("uv.keyops_isolate_uv_island", text="Isolate UV")
         row.operator("uv.reveal", text="Unhide UV")
         row = layout.row()
-        row.operator("keyops.sharp_from_uv_islands", text="Sharp Edges From UV Islands")
+        row.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
         row = layout.row()
         row.operator("uv.seams_from_islands", text="Seams from UV Islands")
+        row = layout.row()
+        row.operator("uv.average_islands_scale", text="Average Island Scale")
 
         #unwrap
         def draw_unwrap(self, context):
             row = layout.separator()
+            row = layout.row()
+            row.label(text="Enable Live")
+            row = layout.row(align=True)
+            row.prop(context.scene.tool_settings, "use_edge_path_live_unwrap", text="Unwrap")
+            row.prop(context.space_data.uv_editor, "use_live_unwrap", text="Live Pin")
             row = layout.row()
             row.label(text="Unwrap")
             row = layout.row(align=True)
@@ -2155,7 +2311,6 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
             row.operator("keyops.unwrap_selected", icon='UV_VERTEXSEL', text="Selected")
             row = layout.row()
             row.operator("uv.keyops_unwrap_in_place", text="Unwrap Island in Place", icon='STICKY_UVS_VERT')
-        
         draw_unwrap(self, context)
 
         #seams
@@ -2163,8 +2318,8 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Seams")
         row = layout.row(align=True)
-        row.operator("uv.mark_seam", icon='EDGESEL', text="Mark Seam").clear = False
-        row.operator("uv.mark_seam", icon='X', text="Clear Seam").clear = True
+        row.operator("uv.mark_seam", icon='EDGESEL', text="Mark").clear = False
+        row.operator("uv.mark_seam", icon='X', text="Clear").clear = True
         row = layout.row(align=True)
         if bpy.app.version >= (4, 1, 0):
             icon_uv_cut = 'AREA_SWAP'
@@ -2173,8 +2328,10 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
             icon_uv_cut = 'UV_EDGESEL'
             icon_stitch = 'UV_FACESEL'
         row.operator("uv.keyops_uv_cut", icon=icon_uv_cut, text="UV Cut")
+        row.operator_context = 'EXEC_DEFAULT'
         row.operator("uv.stitch", icon=icon_stitch, text="UV Stitch")
         row = layout.row()
+        row.operator_context = 'INVOKE_DEFAULT'
         row.operator("keyops.seam_by_angle", icon='MOD_EDGESPLIT', text="Seam by Angle")
 
         #pack
@@ -2192,12 +2349,46 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("uv.pin", icon='PINNED', text="Pin").clear = False
         row.operator("uv.pin", icon='UNPINNED', text="Unpin").clear = True
-
+        row = layout.row(align=True)
+        row.operator("uv.pin", text="Invert Pin").invert = True
+        row.operator("uv.remove_all_pins", text="Clear All Pins")
+        row = layout.row(align=True)
+        
         #align
         row = layout.separator()
         row = layout.row()
         row.label(text="Align")
         row = layout.row(align=False)
         row.operator("keyops.orient_island_to_edge", text="Orient Island to Edge")
+        row = layout.row(align=True)
+        row.operator("uv.align_rotation", text="Align Islands"). method='AUTO'
+
+        #select
+        row = layout.separator()
+        row = layout.row()
+        row.label(text="Select")
+        row = layout.row(align=True)
+        row.operator("uv.keyops_select_similar_uv_island", text="Similar")
+        row.operator("uv.select_overlap", text="Overlap")
+        row.operator("uv.select_pinned", text="Pin")
+
+        #transform
+        row = layout.separator()
+        row = layout.row()
+        row.label(text="Transform")
+        row = layout.row(align=True)
+        row.operator_context = 'EXEC_DEFAULT'
+        row.operator("transform.mirror", text="Flip X").constraint_axis = (True, False, False)
+        row.operator("transform.mirror", text="Flip Y").constraint_axis = (False, True, False)
+
+        #copy paste
+        row = layout.separator()
+        row = layout.row()
+        row.label(text="Copy/Paste UVs")
+        row = layout.row(align=True)
+        row.operator("uv.copy", text="Copy")
+        row.operator("uv.paste", text="Paste")
+
+
 
 

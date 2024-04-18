@@ -123,8 +123,10 @@ class ToggleRetopology(bpy.types.Operator):
         return {'FINISHED'}
     def register():
         bpy.utils.register_class(Retopolgy_Panel)
+        bpy.utils.register_class(RETOPOLOGY_PT_Settings)
     def unregister():
         bpy.utils.unregister_class(Retopolgy_Panel)
+        bpy.utils.unregister_class(RETOPOLOGY_PT_Settings)
 
 
 class Retopolgy_Panel(bpy.types.Panel):
@@ -132,8 +134,7 @@ class Retopolgy_Panel(bpy.types.Panel):
     bl_idname = "RETOPOLOGY_PT_Panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_category = 'Toolkit'
     
     def draw(self, context):
         layout = self.layout
@@ -144,38 +145,55 @@ class Retopolgy_Panel(bpy.types.Panel):
         if overlay.show_retopology == True:
             layout.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
         else:
-            layout.operator("keyops.toggle_retopology", text="Toggle Retopology", icon="GREASEPENCIL").type = ""
+            row = layout.row(align=True)
+            row.operator("keyops.toggle_retopology", text="Toggle Retopology", icon="GREASEPENCIL").type = ""
+            row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
 
         row = layout.row()
         row.scale_y = 0.7
-        
         row.operator("keyops.toggle_retopology", text="New Retopology at Active", icon="ADD").type = "new_target"
+
+        if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt"):
+            row = layout.row()
+            row.label(text="Poly Quilt Tool is not installed", icon="ERROR")
+            row = layout.row()
+            row.scale_y = 0.8
+            row.operator("wm.url_open", text="Download").url = "https://github.com/Dangry98/PolyQuilt-for-Blender-4.0/releases"
+
         
+class RETOPOLOGY_PT_Settings(bpy.types.Panel):
+    bl_label = "Retopology Settings"
+    bl_idname = "RETOPOLOGY_PT_Settings"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        prefs = get_keyops_prefs()
+
         row = layout.row()
         row.label(text="Settings:")
         row = layout.row()
-        row.scale_y = 0.7
 
         row.prop(prefs, "toggle_retopology_tool_type")
         if prefs.toggle_retopology_tool_type == "custom":
+            row = layout.row()
             row.prop(prefs, "toggle_retopology_custom_tool")
         row = layout.row()
-        row.scale_y = 0.7
 
         row.prop(prefs, "toggle_retopology_color_enum")
         if prefs.toggle_retopology_color_enum == "custom_color":
             row.prop(prefs, "toggle_retopology_custom_color")
         row = layout.row()
-        row.scale_y = 0.7
 
         if prefs.toggle_retopology_color_enum == "custom_color":
             row.prop(prefs, "toggle_retopology_face_alpha")
         row.prop(prefs, "toggle_retopology_edge_width")
 
         prefs = get_keyops_prefs()
-        
 
-        if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled ("PolyQuilt"):
+        if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt"):
             row = layout.row()
             row.label(text="Poly Quilt Tool is not installed", icon="ERROR")
             row = layout.row()
