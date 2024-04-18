@@ -17,8 +17,8 @@
 
 bl_info = {
     "name": "Key Ops: Toolkit",
-    "author": "DanGry, MACHIN3",
-    "version": (0, 1, 81),
+    "author": "Dan Gry, MACHIN3",
+    "version": (0, 1, 82),
     "blender": (4, 0, 0),
     "description": "Adds new tools, shortcuts and operations to Blender",
     "category": "3D View"

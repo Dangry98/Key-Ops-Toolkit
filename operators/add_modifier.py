@@ -68,12 +68,14 @@ class AddModifier(bpy.types.Operator):
             for obj in [o for o in context.selected_objects if o.type == 'MESH']:
                 if bpy.app.version >= (4, 1, 0):
                     mod = obj.modifiers.new(type='WEIGHTED_NORMAL', name='Weighted Normal')
+                    mod.keep_sharp = self.keep_sharp
                 else:
                     obj.data.use_auto_smooth = True
                     for f in obj.data.polygons:
                         f.use_smooth = True
                     mod = obj.modifiers.new(type='WEIGHTED_NORMAL', name='Weighted Normal')
                     mod.keep_sharp = self.keep_sharp
+                    
 
         if self.type == 'WELD':
             for obj in [o for o in context.selected_objects if o.type == 'MESH']:

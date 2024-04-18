@@ -84,17 +84,28 @@ class AutoSmooth(bpy.types.Operator):
 
                     if "Smooth by Angle" in [m.name for m in obj.modifiers]:
                         obj.modifiers.remove(obj.modifiers.get("Smooth by Angle"))
+                        
+                if "Smooth by Angle" in [m.name for m in obj.modifiers]:
+                    context.view_layer.objects.active = obj
+                    if self.move_to_bottom:
+                        if obj.modifiers[-1].name != "Smooth by Angle":
+                            obj.modifiers.move(obj.modifiers.find("Smooth by Angle"), len(obj.modifiers)-1)
+                    context.object.modifiers["Smooth by Angle"]["Input_1"] = self.angle
+                    context.object.modifiers["Smooth by Angle"]["Socket_1"] = self.ignore_sharp
+                    context.object.modifiers["Smooth by Angle"].show_group_selector = False
 
                 elif "Smooth by Angle" not in [m.name for m in obj.modifiers] and "!!Auto Smooth" not in [m.name for m in obj.modifiers]:
                     context.view_layer.objects.active = obj
                     obj.modifiers.new ("Smooth by Angle", 'NODES')
                     context.object.modifiers["Smooth by Angle"].node_group = bpy.data.node_groups["Smooth by Angle"]
+                    bpy.context.object.modifiers["Smooth by Angle"].show_group_selector = False
                     
                     if self.move_to_bottom:
                         if obj.modifiers[-1].name != "Smooth by Angle":
                             obj.modifiers.move(obj.modifiers.find("Smooth by Angle"), len(obj.modifiers)-1)
                     context.object.modifiers["Smooth by Angle"]["Input_1"] = self.angle
                     context.object.modifiers["Smooth by Angle"]["Socket_1"] = self.ignore_sharp
+                                
 
             for obj in selected_objects:
                 add_smooth_modifier(obj)

@@ -87,9 +87,10 @@ class FastMerge(bpy.types.Operator):
                 return {'FINISHED'}
             
             else:
-                active_vert = bm.select_history.active
+                selected_history = bm.select_history.active
+                active_vert = selected_history if selected_history in selected_verts else []
 
-                if active_vert is not None:
+                if active_vert:
                     if self.preserve_uvs:
                         amount_of_verts_merged = len(selected_verts)
                         bpy.ops.mesh.merge(uvs=True, type='LAST')

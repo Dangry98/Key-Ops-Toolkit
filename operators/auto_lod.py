@@ -400,18 +400,18 @@ class RemovePreserveThinShapesOperator(bpy.types.Operator):
         bpy.ops.object.vertex_group_remove_from()
         return {'FINISHED'}
 
-
 class GenerateLODPanel(bpy.types.Panel):
     bl_idname = "OBJECT_PT_generate_lod"
     bl_label = "Generate LOD"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_auto_lod
+        if context.mode == "OBJECT":
+            return True
     
     def draw(self, context):
         layout = self.layout

@@ -160,9 +160,7 @@ def get_extension():
                  get_toggle_retopology,
                  get_maya_pivot,
                  get_maya_navigation,
-                 get_maya_shortcuts,
                  get_double_click_select_island,
-                 get_smart_seam,
                  get_uv_tools,
                  get_add_objects_pie,
                  get_view_camera_pie,
@@ -201,14 +199,8 @@ def get_maya_pivot(): pass
 @operator("Maya Navigation")
 def get_maya_navigation(): pass
 
-@operator("Maya Shortcuts")
-def get_maya_shortcuts(): pass
-
 @operator("Double Click Select Island")
 def get_double_click_select_island(): pass
-
-@operator("Smart Seam")
-def get_smart_seam(): pass
 
 @operator("UV Tools")
 def get_uv_tools(): pass

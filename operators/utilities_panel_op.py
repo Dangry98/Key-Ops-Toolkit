@@ -1,6 +1,7 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
 import tempfile
+import bmesh
 
 #fix attribute toggle in edit mode/objet mode
 
@@ -70,6 +71,410 @@ def offset_uv():
 	offset_uv.links.new(group_input.outputs[3], combine_xyz.inputs[1])
 	return offset_uv
 
+def triplanar_uv_mapping_node_group():
+	triplanar_uv_mapping = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Triplanar UV Mapping")
+
+	triplanar_uv_mapping.is_modifier = True
+	
+	#initialize triplanar_uv_mapping nodes
+	#triplanar_uv_mapping interface
+	#Socket Geometry
+	geometry_socket = triplanar_uv_mapping.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
+	geometry_socket.attribute_domain = 'POINT'
+	
+	#Socket Geometry
+	geometry_socket_1 = triplanar_uv_mapping.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+	geometry_socket_1.attribute_domain = 'POINT'
+	
+	#Socket Selection
+	selection_socket = triplanar_uv_mapping.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
+	selection_socket.attribute_domain = 'POINT'
+	selection_socket.hide_value = True
+	
+	#Socket Name
+	name_socket = triplanar_uv_mapping.interface.new_socket(name = "Name", in_out='INPUT', socket_type = 'NodeSocketString')
+	name_socket.attribute_domain = 'POINT'
+	
+	#Socket X
+	x_socket = triplanar_uv_mapping.interface.new_socket(name = "X", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	x_socket.subtype = 'NONE'
+	x_socket.default_value = 0.5
+	x_socket.min_value = -10000.0
+	x_socket.max_value = 10000.0
+	x_socket.attribute_domain = 'POINT'
+	
+	#Socket Y
+	y_socket = triplanar_uv_mapping.interface.new_socket(name = "Y", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	y_socket.subtype = 'NONE'
+	y_socket.default_value = 0.5
+	y_socket.min_value = -10000.0
+	y_socket.max_value = 10000.0
+	y_socket.attribute_domain = 'POINT'
+	
+	#Socket Scale
+	scale_socket = triplanar_uv_mapping.interface.new_socket(name = "Scale", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	scale_socket.subtype = 'NONE'
+	scale_socket.default_value = 0.5
+	scale_socket.min_value = -10000.0
+	scale_socket.max_value = 10000.0
+	scale_socket.attribute_domain = 'POINT'
+	
+	#Socket Angle
+	angle_socket = triplanar_uv_mapping.interface.new_socket(name = "Angle", in_out='INPUT', socket_type = 'NodeSocketFloat')
+	angle_socket.subtype = 'ANGLE'
+	angle_socket.default_value = 0.0
+	angle_socket.min_value = -360.0
+	angle_socket.max_value = 360.0
+	angle_socket.attribute_domain = 'POINT'
+	
+	
+	#node Group Input
+	group_input = triplanar_uv_mapping.nodes.new("NodeGroupInput")
+	group_input.name = "Group Input"
+	group_input.outputs[7].hide = True
+	
+	#node Group Output
+	group_output = triplanar_uv_mapping.nodes.new("NodeGroupOutput")
+	group_output.name = "Group Output"
+	group_output.is_active_output = True
+	group_output.inputs[1].hide = True
+	
+	#node Store Named Attribute
+	store_named_attribute = triplanar_uv_mapping.nodes.new("GeometryNodeStoreNamedAttribute")
+	store_named_attribute.name = "Store Named Attribute"
+	store_named_attribute.data_type = 'FLOAT2'
+	store_named_attribute.domain = 'CORNER'
+	
+	#node Vector Math.002
+	vector_math_002 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
+	vector_math_002.name = "Vector Math.002"
+	vector_math_002.operation = 'SCALE'
+	vector_math_002.inputs[1].hide = True
+	vector_math_002.inputs[2].hide = True
+	vector_math_002.outputs[1].hide = True
+	#Vector_001
+	vector_math_002.inputs[1].default_value = (0.0, 0.0, 0.0)
+	#Vector_002
+	vector_math_002.inputs[2].default_value = (0.0, 0.0, 0.0)
+	
+	#node Vector Math.003
+	vector_math_003 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
+	vector_math_003.name = "Vector Math.003"
+	vector_math_003.operation = 'ADD'
+	vector_math_003.inputs[2].hide = True
+	vector_math_003.inputs[3].hide = True
+	vector_math_003.outputs[1].hide = True
+	#Vector_002
+	vector_math_003.inputs[2].default_value = (0.0, 0.0, 0.0)
+	#Scale
+	vector_math_003.inputs[3].default_value = 1.0
+	
+	#node Combine XYZ
+	combine_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
+	combine_xyz.name = "Combine XYZ"
+	combine_xyz.inputs[2].hide = True
+	#Z
+	combine_xyz.inputs[2].default_value = 0.0
+	
+	#node Vector Rotate.001
+	vector_rotate_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
+	vector_rotate_001.name = "Vector Rotate.001"
+	vector_rotate_001.invert = False
+	vector_rotate_001.rotation_type = 'AXIS_ANGLE'
+	vector_rotate_001.inputs[2].hide = True
+	vector_rotate_001.inputs[4].hide = True
+	#Axis
+	vector_rotate_001.inputs[2].default_value = (0.0, 0.0, 1.0)
+	#Rotation
+	vector_rotate_001.inputs[4].default_value = (0.0, 0.0, 0.0)
+	
+	#node Separate XYZ.001
+	separate_xyz_001 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
+	separate_xyz_001.name = "Separate XYZ.001"
+	
+	#node Compare.002
+	compare_002 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
+	compare_002.name = "Compare.002"
+	compare_002.data_type = 'FLOAT'
+	compare_002.mode = 'ELEMENT'
+	compare_002.operation = 'GREATER_THAN'
+	#A_INT
+	compare_002.inputs[2].default_value = 0
+	#B_INT
+	compare_002.inputs[3].default_value = 0
+	#A_VEC3
+	compare_002.inputs[4].default_value = (0.0, 0.0, 0.0)
+	#B_VEC3
+	compare_002.inputs[5].default_value = (0.0, 0.0, 0.0)
+	#A_COL
+	compare_002.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	#B_COL
+	compare_002.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	#A_STR
+	compare_002.inputs[8].default_value = ""
+	#B_STR
+	compare_002.inputs[9].default_value = ""
+	#C
+	compare_002.inputs[10].default_value = 0.8999999761581421
+	#Angle
+	compare_002.inputs[11].default_value = 0.08726649731397629
+	#Epsilon
+	compare_002.inputs[12].default_value = 0.0010000000474974513
+	
+	#node Compare.003
+	compare_003 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
+	compare_003.name = "Compare.003"
+	compare_003.data_type = 'FLOAT'
+	compare_003.mode = 'ELEMENT'
+	compare_003.operation = 'GREATER_THAN'
+	#A_INT
+	compare_003.inputs[2].default_value = 0
+	#B_INT
+	compare_003.inputs[3].default_value = 0
+	#A_VEC3
+	compare_003.inputs[4].default_value = (0.0, 0.0, 0.0)
+	#B_VEC3
+	compare_003.inputs[5].default_value = (0.0, 0.0, 0.0)
+	#A_COL
+	compare_003.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	#B_COL
+	compare_003.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	#A_STR
+	compare_003.inputs[8].default_value = ""
+	#B_STR
+	compare_003.inputs[9].default_value = ""
+	#C
+	compare_003.inputs[10].default_value = 0.8999999761581421
+	#Angle
+	compare_003.inputs[11].default_value = 0.08726649731397629
+	#Epsilon
+	compare_003.inputs[12].default_value = 0.0010000000474974513
+	
+	#node Position
+	position = triplanar_uv_mapping.nodes.new("GeometryNodeInputPosition")
+	position.name = "Position"
+	
+	#node Vector Math
+	vector_math = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
+	vector_math.name = "Vector Math"
+	vector_math.operation = 'MULTIPLY'
+	#Vector_002
+	vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
+	#Scale
+	vector_math.inputs[3].default_value = 1.0
+	
+	#node Switch
+	switch = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
+	switch.name = "Switch"
+	switch.input_type = 'VECTOR'
+	#True
+	switch.inputs[2].default_value = (1.0, 0.0, 1.0)
+	
+	#node Switch.001
+	switch_001 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
+	switch_001.name = "Switch.001"
+	switch_001.input_type = 'VECTOR'
+	#False
+	switch_001.inputs[1].default_value = (1.0, 1.0, 0.0)
+	#True
+	switch_001.inputs[2].default_value = (0.0, 1.0, 1.0)
+	
+	#node Switch.003
+	switch_003 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
+	switch_003.name = "Switch.003"
+	switch_003.input_type = 'VECTOR'
+	#False
+	switch_003.inputs[1].default_value = (0.0, 0.0, 0.0)
+	#True
+	switch_003.inputs[2].default_value = (0.0, -1.5707963705062866, 0.0)
+	
+	#node Switch.002
+	switch_002 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
+	switch_002.name = "Switch.002"
+	switch_002.input_type = 'VECTOR'
+	#True
+	switch_002.inputs[2].default_value = (-1.5707999467849731, 0.0, 0.0)
+	
+	#node Normal
+	normal = triplanar_uv_mapping.nodes.new("GeometryNodeInputNormal")
+	normal.name = "Normal"
+	
+	#node Vector Math.001
+	vector_math_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
+	vector_math_001.name = "Vector Math.001"
+	vector_math_001.operation = 'ABSOLUTE'
+	#Vector_001
+	vector_math_001.inputs[1].default_value = (0.0, 0.0, 0.0)
+	#Vector_002
+	vector_math_001.inputs[2].default_value = (0.0, 0.0, 0.0)
+	#Scale
+	vector_math_001.inputs[3].default_value = 1.0
+	
+	#node Separate XYZ
+	separate_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
+	separate_xyz.name = "Separate XYZ"
+	
+	#node Compare
+	compare = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
+	compare.name = "Compare"
+	compare.data_type = 'FLOAT'
+	compare.mode = 'ELEMENT'
+	compare.operation = 'GREATER_THAN'
+	#A_INT
+	compare.inputs[2].default_value = 0
+	#B_INT
+	compare.inputs[3].default_value = 0
+	#A_VEC3
+	compare.inputs[4].default_value = (0.0, 0.0, 0.0)
+	#B_VEC3
+	compare.inputs[5].default_value = (0.0, 0.0, 0.0)
+	#A_COL
+	compare.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	#B_COL
+	compare.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	#A_STR
+	compare.inputs[8].default_value = ""
+	#B_STR
+	compare.inputs[9].default_value = ""
+	#C
+	compare.inputs[10].default_value = 0.8999999761581421
+	#Angle
+	compare.inputs[11].default_value = 0.08726649731397629
+	#Epsilon
+	compare.inputs[12].default_value = 0.0010000000474974513
+	
+	#node Compare.001
+	compare_001 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
+	compare_001.name = "Compare.001"
+	compare_001.data_type = 'FLOAT'
+	compare_001.mode = 'ELEMENT'
+	compare_001.operation = 'GREATER_THAN'
+	#A_INT
+	compare_001.inputs[2].default_value = 0
+	#B_INT
+	compare_001.inputs[3].default_value = 0
+	#A_VEC3
+	compare_001.inputs[4].default_value = (0.0, 0.0, 0.0)
+	#B_VEC3
+	compare_001.inputs[5].default_value = (0.0, 0.0, 0.0)
+	#A_COL
+	compare_001.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	#B_COL
+	compare_001.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	#A_STR
+	compare_001.inputs[8].default_value = ""
+	#B_STR
+	compare_001.inputs[9].default_value = ""
+	#C
+	compare_001.inputs[10].default_value = 0.8999999761581421
+	#Angle
+	compare_001.inputs[11].default_value = 0.08726649731397629
+	#Epsilon
+	compare_001.inputs[12].default_value = 0.0010000000474974513
+	
+	#node Boolean Math
+	boolean_math = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
+	boolean_math.name = "Boolean Math"
+	boolean_math.operation = 'AND'
+	
+	#node Boolean Math.001
+	boolean_math_001 = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
+	boolean_math_001.name = "Boolean Math.001"
+	boolean_math_001.operation = 'AND'
+	
+	#node Vector Rotate
+	vector_rotate = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
+	vector_rotate.name = "Vector Rotate"
+	vector_rotate.invert = False
+	vector_rotate.rotation_type = 'EULER_XYZ'
+	#Center
+	vector_rotate.inputs[1].default_value = (0.0, 0.0, 0.0)
+	#Axis
+	vector_rotate.inputs[2].default_value = (0.0, 0.0, 1.0)
+	#Angle
+	vector_rotate.inputs[3].default_value = 0.0
+	
+	#initialize triplanar_uv_mapping links
+	#store_named_attribute.Geometry -> group_output.Geometry
+	triplanar_uv_mapping.links.new(store_named_attribute.outputs[0], group_output.inputs[0])
+	#group_input.Geometry -> store_named_attribute.Geometry
+	triplanar_uv_mapping.links.new(group_input.outputs[0], store_named_attribute.inputs[0])
+	#group_input.Selection -> store_named_attribute.Selection
+	triplanar_uv_mapping.links.new(group_input.outputs[1], store_named_attribute.inputs[1])
+	#group_input.Name -> store_named_attribute.Name
+	triplanar_uv_mapping.links.new(group_input.outputs[2], store_named_attribute.inputs[2])
+	#group_input.Scale -> vector_math_002.Scale
+	triplanar_uv_mapping.links.new(group_input.outputs[5], vector_math_002.inputs[3])
+	#vector_math_002.Vector -> vector_math_003.Vector
+	triplanar_uv_mapping.links.new(vector_math_002.outputs[0], vector_math_003.inputs[0])
+	#group_input.X -> combine_xyz.X
+	triplanar_uv_mapping.links.new(group_input.outputs[3], combine_xyz.inputs[0])
+	#group_input.Y -> combine_xyz.Y
+	triplanar_uv_mapping.links.new(group_input.outputs[4], combine_xyz.inputs[1])
+	#combine_xyz.Vector -> vector_math_003.Vector
+	triplanar_uv_mapping.links.new(combine_xyz.outputs[0], vector_math_003.inputs[1])
+	#vector_math_003.Vector -> vector_rotate_001.Vector
+	triplanar_uv_mapping.links.new(vector_math_003.outputs[0], vector_rotate_001.inputs[0])
+	#vector_rotate_001.Vector -> store_named_attribute.Value
+	triplanar_uv_mapping.links.new(vector_rotate_001.outputs[0], store_named_attribute.inputs[3])
+	#combine_xyz.Vector -> vector_rotate_001.Center
+	triplanar_uv_mapping.links.new(combine_xyz.outputs[0], vector_rotate_001.inputs[1])
+	#group_input.Angle -> vector_rotate_001.Angle
+	triplanar_uv_mapping.links.new(group_input.outputs[6], vector_rotate_001.inputs[3])
+	#normal.Normal -> vector_math_001.Vector
+	triplanar_uv_mapping.links.new(normal.outputs[0], vector_math_001.inputs[0])
+	#vector_math_001.Vector -> separate_xyz.Vector
+	triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz.inputs[0])
+	#separate_xyz.X -> compare.A
+	triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare.inputs[0])
+	#separate_xyz.Y -> compare.B
+	triplanar_uv_mapping.links.new(separate_xyz.outputs[1], compare.inputs[1])
+	#separate_xyz.X -> compare_001.A
+	triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare_001.inputs[0])
+	#separate_xyz.Z -> compare_001.B
+	triplanar_uv_mapping.links.new(separate_xyz.outputs[2], compare_001.inputs[1])
+	#compare.Result -> boolean_math.Boolean
+	triplanar_uv_mapping.links.new(compare.outputs[0], boolean_math.inputs[0])
+	#compare_001.Result -> boolean_math.Boolean
+	triplanar_uv_mapping.links.new(compare_001.outputs[0], boolean_math.inputs[1])
+	#vector_math_001.Vector -> separate_xyz_001.Vector
+	triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz_001.inputs[0])
+	#separate_xyz_001.Z -> compare_003.B
+	triplanar_uv_mapping.links.new(separate_xyz_001.outputs[2], compare_003.inputs[1])
+	#compare_002.Result -> boolean_math_001.Boolean
+	triplanar_uv_mapping.links.new(compare_002.outputs[0], boolean_math_001.inputs[0])
+	#compare_003.Result -> boolean_math_001.Boolean
+	triplanar_uv_mapping.links.new(compare_003.outputs[0], boolean_math_001.inputs[1])
+	#separate_xyz_001.Y -> compare_002.A
+	triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_002.inputs[0])
+	#separate_xyz_001.X -> compare_002.B
+	triplanar_uv_mapping.links.new(separate_xyz_001.outputs[0], compare_002.inputs[1])
+	#separate_xyz_001.Y -> compare_003.A
+	triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_003.inputs[0])
+	#position.Position -> vector_math.Vector
+	triplanar_uv_mapping.links.new(position.outputs[0], vector_math.inputs[0])
+	#switch.Output -> vector_math.Vector
+	triplanar_uv_mapping.links.new(switch.outputs[0], vector_math.inputs[1])
+	#switch_001.Output -> switch.False
+	triplanar_uv_mapping.links.new(switch_001.outputs[0], switch.inputs[1])
+	#boolean_math.Boolean -> switch_001.Switch
+	triplanar_uv_mapping.links.new(boolean_math.outputs[0], switch_001.inputs[0])
+	#boolean_math_001.Boolean -> switch.Switch
+	triplanar_uv_mapping.links.new(boolean_math_001.outputs[0], switch.inputs[0])
+	#switch_003.Output -> switch_002.False
+	triplanar_uv_mapping.links.new(switch_003.outputs[0], switch_002.inputs[1])
+	#boolean_math.Boolean -> switch_003.Switch
+	triplanar_uv_mapping.links.new(boolean_math.outputs[0], switch_003.inputs[0])
+	#boolean_math_001.Boolean -> switch_002.Switch
+	triplanar_uv_mapping.links.new(boolean_math_001.outputs[0], switch_002.inputs[0])
+	#vector_math.Vector -> vector_rotate.Vector
+	triplanar_uv_mapping.links.new(vector_math.outputs[0], vector_rotate.inputs[0])
+	#switch_002.Output -> vector_rotate.Rotation
+	triplanar_uv_mapping.links.new(switch_002.outputs[0], vector_rotate.inputs[4])
+	#vector_rotate.Vector -> vector_math_002.Vector
+	triplanar_uv_mapping.links.new(vector_rotate.outputs[0], vector_math_002.inputs[0])
+	return triplanar_uv_mapping
+
 def select_atribute(attribute_name):
     C = bpy.context
     ip_name = attribute_name
@@ -104,15 +509,28 @@ class UtilitiesPanelOP(bpy.types.Operator):
     set_orgin_to_geometry: bpy.props.BoolProperty(name="Set Origin to Geometry", default=True) # type: ignore
     subdivide: bpy.props.IntProperty(name="Subdivide", default=6, min=0, max=10) # type: ignore
     try_deduplicate_materials: bpy.props.BoolProperty(name="Try Deduplicate Materials", default=True) # type: ignore
-    triangulate: bpy.props.BoolProperty(name="Triangulate", default=True) # type: ignore
+    triangulate: bpy.props.BoolProperty(name="Triangulate", default=False) # type: ignore
     rename_uv_layer: bpy.props.BoolProperty(name="Rename UV Layer 0 To UVMap", default=True) # type: ignore
     join_children: bpy.props.BoolProperty(name="Join Children", default=True) # type: ignore
+    scale_triplanar: bpy.props.FloatProperty(name="Scale", default=0.5) # type: ignore
+    rotation_triplanar: bpy.props.FloatProperty(name="Rotation", default=0.0) # type: ignore
+    axis_x: bpy.props.FloatProperty(name="X", default=0.5) # type: ignore
+    axis_y: bpy.props.FloatProperty(name="Y", default=0.5 ) # type: ignore
+    appy_triplanar: bpy.props.BoolProperty(name="Apply Triplanar", default=False) # type: ignore
+    recalculate_normals: bpy.props.BoolProperty(name="Recalculate Normals", default=False) # type: ignore
 
     def draw(self, context):
         layout = self.layout
         if self.type == "offset_uv":
             if context.mode == 'EDIT_MESH':
                 layout.prop(self, "true_false")
+        if self.type == "Triplanar_UV_Mapping":
+            layout.prop(self, "axis_x")
+            layout.prop(self, "axis_y")
+            layout.prop(self, "scale_triplanar")
+            layout.prop(self, "rotation_triplanar")
+            layout.prop(self, "appy_triplanar")
+            
         if self.type == "Select_Changed":
             layout.prop(self, "select_parent")
             if self.select_parent == True:
@@ -125,6 +543,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
             layout.prop(self, "apply_instances") 
             layout.prop(self, "rename_uv_layer")
             layout.prop(self, "export_normals")
+            layout.prop(self, "recalculate_normals")
             layout.prop(self, "triangulate")
         if self.type == "set_sphere_normal":
             layout.prop(self, "mix_factor")
@@ -140,28 +559,117 @@ class UtilitiesPanelOP(bpy.types.Operator):
 
     def execute(self, context):
         prefs = get_keyops_prefs()
-        if self.type == "offset_uv":
-            if bpy.data.node_groups.get("Offset UV") is None:
-                offset_uv()
+        if self.type == "Triplanar_UV_Mapping":
+            active_object = bpy.context.active_object
+            if bpy.data.node_groups.get("Triplanar UV Mapping") is None:
+                triplanar_uv_mapping_node_group()
+            for obj in bpy.context.selected_objects:
+                if obj.type == 'MESH':         
+                    bpy.context.view_layer.objects.active = obj
+
+                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
+                        bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
+                        bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
+                  
+                    if obj.data.uv_layers.active is not None:
+                        active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
+
+                    if context.mode == 'EDIT_MESH':
+                        bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
+                        bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
+                        named_attributes = bpy.context.object.data.attributes
+                        attribute_name = "Triplanar_UV_Mapping"
+                        set_act = named_attributes.get(attribute_name)
+                        if set_act is not None:
+                            select_atribute(attribute_name)
+                        else:
+                            mesh = bpy.context.object.data
+                            mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
+                            select_atribute(attribute_name)
+                    else:
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
+
+                    context.object.modifiers["Triplanar UV Mapping"]["Socket_3"] = active_uv_layer_name
+                    context.object.modifiers["Triplanar UV Mapping"]["Socket_4"] = self.axis_x
+                    context.object.modifiers["Triplanar UV Mapping"]["Socket_5"] = self.axis_y
+                    context.object.modifiers["Triplanar UV Mapping"]["Socket_6"] = self.scale_triplanar
+                    context.object.modifiers["Triplanar UV Mapping"]["Socket_7"] = self.rotation_triplanar
+                    bpy.context.object.data.update()
+                
+                    bpy.context.object.modifiers["Triplanar UV Mapping"].show_group_selector = False
+
+                    if context.mode == 'EDIT_MESH':
+                        bpy.ops.mesh.attribute_set(value_bool=True)
+
+            if self.appy_triplanar == True:
+                for obj in bpy.context.selected_objects:
+                    bpy.context.view_layer.objects.active = obj
+                    bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
+
+            bpy.context.view_layer.objects.active = active_object
+
+        if self.type == "Remove_Triplanar_UV_Mapping":
+            active_object = bpy.context.active_object
+
+            for obj in bpy.context.selected_objects:
+                if obj.type == 'MESH':
+                    bpy.context.view_layer.objects.active = obj
+                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is not None:
+                        bpy.context.object.modifiers.remove(bpy.context.object.modifiers['Triplanar UV Mapping'])
+            bpy.context.view_layer.objects.active = active_object
+
+        def add_UV_offset_modifier():
+            bpy.context.view_layer.objects.active = obj
+            
             if bpy.context.object.modifiers.get("Offset UV") is None:
                 bpy.context.object.modifiers.new('Offset UV', 'NODES')
                 bpy.context.object.modifiers['Offset UV'].node_group = bpy.data.node_groups['Offset UV']
+                if bpy.context.mode == 'OBJECT':
+                    bpy.context.object.modifiers["Offset UV"]["Socket_2"] = True
+
                 if bpy.context.mode == 'EDIT_MESH': 
                     bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Offset UV")
                     bpy.context.object.modifiers["Offset UV"]["Socket_2_attribute_name"] = "Offset_UV"
 
-            if bpy.context.mode == 'EDIT_MESH':
-                named_attributes = bpy.context.object.data.attributes
-                attribute_name = "Offset_UV"
-                set_act = named_attributes.get(attribute_name)
-                if set_act is not None:
-                    select_atribute(attribute_name)
-                else:
-                    mesh = bpy.context.object.data
-                    mesh.attributes.new(name="Offset_UV", domain='FACE', type='BOOLEAN')
-                    select_atribute(attribute_name)
+        if self.type == "offset_uv":
+                active_object = bpy.context.active_object
+                if bpy.data.node_groups.get("Offset UV") is None:
+                    offset_uv()
+                for obj in bpy.context.selected_objects:
+                    if obj.type == 'MESH':
+                        if bpy.context.mode == 'OBJECT':
+                            add_UV_offset_modifier()
+                        if bpy.context.mode == 'EDIT_MESH':
+                            if obj.data.total_vert_sel > 0:
+                                add_UV_offset_modifier()
 
-                bpy.ops.mesh.attribute_set(value_bool=self.true_false)
+                            if bpy.context.mode == 'EDIT_MESH':
+                                if obj.data.total_vert_sel > 0:
+                                    named_attributes = bpy.context.object.data.attributes
+                                    attribute_name = "Offset_UV"
+                                    set_act = named_attributes.get(attribute_name)
+                                    if set_act is not None:
+                                        select_atribute(attribute_name)
+                                    else:
+                                        mesh = bpy.context.object.data
+                                        mesh.attributes.new(name="Offset_UV", domain='FACE', type='BOOLEAN')
+                                        select_atribute(attribute_name)
+
+                                    bpy.ops.mesh.attribute_set(value_bool=self.true_false)
+                                    
+                        bpy.context.object.modifiers["Offset UV"].show_group_selector = False
+                bpy.context.view_layer.objects.active = active_object
+
+        if self.type == "Remove_Offset_UV":
+            active_object = bpy.context.active_object
+
+            for obj in bpy.context.selected_objects:
+                if obj.type == 'MESH':
+                    bpy.context.view_layer.objects.active = obj
+                    if bpy.context.object.modifiers.get("Offset UV") is not None:
+                        bpy.context.object.modifiers.remove(bpy.context.object.modifiers['Offset UV'])
+            bpy.context.view_layer.objects.active = active_object
+
         if self.type == "set_sphere_normal":
             current_selectded_objects = bpy.context.selected_objects
             if bpy.context.mode == 'EDIT_MESH':
@@ -180,7 +688,10 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 sphere_object = bpy.context.active_object
 
                 bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.shade_smooth(use_auto_smooth=True)
+                if bpy.app.version >= (4, 1, 0):
+                        pass
+                else:
+                    bpy.ops.object.shade_smooth(use_auto_smooth=True)
                 bpy.ops.object.modifier_add(type='DATA_TRANSFER')
                 data_transfer_modifier = bpy.context.object.modifiers[-1]
                 data_transfer_modifier.use_loop_data = True
@@ -191,7 +702,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
         if self.type == "set_normal_from_selection":
             if bpy.context.mode == 'OBJECT':
                 bpy.ops.object.editmode_toggle()
-            bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "alt_navigation":False, "use_automerge_and_split":False})
+            bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
             bpy.ops.mesh.separate(type='SELECTED')
             duplicated_object = bpy.context.selected_objects[1]
             duplicated_object.modifiers.clear()
@@ -201,7 +712,10 @@ class UtilitiesPanelOP(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
 
             bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
-            bpy.ops.object.shade_smooth(use_auto_smooth=True)
+            if bpy.app.version >= (4, 1, 0):
+                pass
+            else:
+                bpy.ops.object.shade_smooth(use_auto_smooth=True)
             bpy.ops.object.modifier_add(type='DATA_TRANSFER')
             data_transfer_modifier = bpy.context.object.modifiers[-1]
             data_transfer_modifier.use_loop_data = True
@@ -229,6 +743,15 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     elif bpy.context.scene.bevel_segments_type == 'BOTTOM':
                         if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
                             modifiers[-1].segments = bpy.context.scene.bevel_segment_amount
+                    elif bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
+                        if bpy.context.scene.compensate_for_scale == True:
+                            bevel_offset = bpy.context.scene.bevel_offset / get_scale(selected_obj)
+                        else:
+                            bevel_offset = bpy.context.scene.bevel_offset
+                        for modifier in selected_obj.modifiers:  
+                            if modifier.type == 'BEVEL':
+                                if modifier.width < bevel_offset:
+                                    modifier.segments = bpy.context.scene.bevel_segment_amount
 
         if self.type == "bevel_segment_amount_by_%":
             selected_objects = bpy.context.selected_objects
@@ -251,7 +774,17 @@ class UtilitiesPanelOP(bpy.types.Operator):
                         if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
                             segment_amount = modifiers[-1].segments + (modifiers[-1].segments * bpy.context.scene.bevel_segment_by_percent / 100)
                             modifiers[-1].segments = int(segment_amount)
-
+                    if bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
+                        if bpy.context.scene.compensate_for_scale == True:
+                            bevel_offset = bpy.context.scene.bevel_offset / get_scale(selected_obj)
+                        else:
+                            bevel_offset = bpy.context.scene.bevel_offset
+                        for modifier in selected_obj.modifiers:  
+                            if modifier.type == 'BEVEL':
+                                if modifier.width < bevel_offset:
+                                    segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.bevel_segment_by_percent / 100)
+                                    modifier.segments = int(segment_amount)
+                                                            
         if self.type == "hide_bevels_by_offset":
             selected_objects = bpy.context.selected_objects
 
@@ -277,6 +810,9 @@ class UtilitiesPanelOP(bpy.types.Operator):
                                 if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
                                     if modifiers[-1].width < bevel_offset:
                                         modifiers[-1].show_viewport = False
+                            if bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
+                                if modifier.width < bevel_offset:
+                                    modifier.show_viewport = False
                                                                              
         if self.type == "Marke_Changed":
             for obj in bpy.context.selected_objects:
@@ -354,7 +890,14 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
 
             selected_objects = bpy.context.selected_objects
-
+            if len(selected_objects) == 0:
+                self.report({'WARNING'}, "No Objects Selected")
+                return {'CANCELLED'}
+        
+            selected_objects = [obj for obj in selected_objects if (obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'INSTANCE') and obj.display_type != 'WIRE']
+            if bpy.context.mode == 'EDIT_MESH':                                                             
+                bpy.ops.object.mode_set(mode='OBJECT')
+            
             cursor_loc = context.scene.cursor.location
             pos2 = (cursor_loc[0], cursor_loc[1], cursor_loc[2])
             bpy.ops.view3d.snap_cursor_to_active()
@@ -362,9 +905,6 @@ class UtilitiesPanelOP(bpy.types.Operator):
             if self.apply_instances == True:
                 bpy.ops.object.duplicates_make_real()
 
-            selected_objects = [obj for obj in selected_objects if (obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'INSTANCE') and obj.display_type != 'WIRE']
-            if bpy.context.mode == 'EDIT_MESH':                                                             
-                bpy.ops.object.mode_set(mode='OBJECT')
 
             bpy.ops.object.select_all(action='DESELECT')
 
@@ -379,7 +919,8 @@ class UtilitiesPanelOP(bpy.types.Operator):
 
             if self.rename_uv_layer == True:
                 for selected_obj in selected_objects:
-                    selected_obj.data.uv_layers[0].name = "UVMap"
+                    if selected_obj.data.uv_layers.active is not None:
+                        selected_obj.data.uv_layers[0].name = "UVMap"
 
             for selected_obj in selected_objects:
                 selected_obj.select_set(True)
@@ -407,6 +948,12 @@ class UtilitiesPanelOP(bpy.types.Operator):
             bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
             context.scene.cursor.location = (pos2[0], pos2[1], pos2[2])
 
+            if self.recalculate_normals == True:
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+                bpy.ops.mesh.normals_make_consistent(inside=False)
+                bpy.ops.object.mode_set(mode='OBJECT')
+
             #perf_time = time.time() - perf_time
             #print(f"Total Selection Time: {perf_time:.4f} seconds")
             #can crash sometimes, dont know why, debug
@@ -415,6 +962,9 @@ class UtilitiesPanelOP(bpy.types.Operator):
         if self.type == "Quick_Apply_All_Modifiers":
             #nice when modifiers are very slow to apply, but the final result is not that high-poly - test decmiation modifier 32 seconds to 1.5 seconds
             selected_objects = bpy.context.selected_objects
+            if len(selected_objects) == 0:
+                self.report({'WARNING'}, "No Objects Selected")
+                return {'CANCELLED'}
         
             was_edit_mode = False
             if bpy.context.mode == 'EDIT_MESH':
@@ -524,13 +1074,74 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 get_index_of_low = bpy.context.scene.collection.children.find("low") + 1
                 bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
 
+        if self.type == "un_subdivide_cylinder":
+            for obj in bpy.context.selected_objects:
+                if obj.data.total_vert_sel > 0:
+                    context.view_layer.objects.active = obj
+                    obj.data.attributes.new(name='Edge_Un_Subdivied_Cylinder', type='BOOLEAN', domain='EDGE')
+                    obj.data.attributes.active = obj.data.attributes.get('Edge_Un_Subdivied_Cylinder')
+                    obj.data.update()
+                    bpy.ops.mesh.attribute_set(value_bool=True)
+
+            for obj in bpy.context.selected_objects:
+                if obj.data.total_vert_sel > 0:    
+                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                    bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=0)
+                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=False)
+                    bpy.ops.mesh.dissolve_mode('EXEC_DEFAULT', True, use_verts=True)
+
+            for obj in bpy.context.selected_objects:
+                if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is not None:
+                    context.view_layer.objects.active = obj
+                    bpy.ops.mesh.select_by_attribute()
+                    obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
+                    
+        if self.type == "subdivide_cylinder":
+            bpy.ops.mesh.loop_multi_select(ring=False)
+            bpy.ops.mesh.loop_multi_select(ring=True)
+            for obj in bpy.context.selected_objects:
+                if obj.data.total_vert_sel > 0:
+                    context.view_layer.objects.active = obj
+                    obj.data.attributes.new(name='Edge_Subdivied_Cylinder', type='BOOLEAN', domain='EDGE')
+                    obj.data.attributes.active = obj.data.attributes.get('Edge_Subdivied_Cylinder')
+                    obj.data.update()
+                    bpy.ops.mesh.attribute_set(value_bool=True)
+            bpy.ops.mesh.bevel(offset_type='PERCENT', offset=0.282053, offset_pct=25, affect='EDGES')
+            bpy.ops.mesh.select_all(action='DESELECT')
+
+            for obj in bpy.context.selected_objects:
+                if obj.data.attributes.get('Edge_Subdivied_Cylinder') is not None:
+                    context.view_layer.objects.active = obj
+                    bpy.ops.mesh.select_by_attribute()
+                    obj.data.attributes.remove(obj.data.attributes.get('Edge_Subdivied_Cylinder'))
+
+        if self.type == "change_cylinder_segments_modifier":
+            bpy.ops.mesh.select_all(action='INVERT')
+            bpy.ops.mesh.delete(type='EDGE')
+            obj = bpy.context.active_object
+            obj.modifiers.new(type='SCREW', name='Screw')
+            bpy.context.object.modifiers["Screw"].use_normal_calculate = True
+            bpy.context.object.modifiers["Screw"].use_merge_vertices = True
+        
+        if self.type == "clear_custom_normals":
+            selection = bpy.context.selected_objects
+
+            for obj in selection:
+                if obj.type == 'MESH':
+                    bpy.context.view_layer.objects.active = obj
+                    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+
         return {'FINISHED'}
     
     
     def register():
+        bpy.utils.register_class(ObjectModePanel)
+        bpy.utils.register_class(EditModePanel)
         bpy.utils.register_class(UtilitiesPanel)
         bpy.utils.register_class(SmartExtrude)
     def unregister():
+        bpy.utils.unregister_class(ObjectModePanel)
+        bpy.utils.unregister_class(EditModePanel)
         bpy.utils.unregister_class(UtilitiesPanel)
         bpy.utils.unregister_class(SmartExtrude)
 
@@ -566,15 +1177,13 @@ def menu_func(self, context):
     layout = self.layout
     layout.operator(SmartExtrude.bl_idname, text="Smart Extrude (Slow, Outdated)")
 
-
-
 class UtilitiesPanel(bpy.types.Panel):
     bl_description = "Utilities Panel"
-    bl_label = "Modifiers Utilities"
+    bl_label = "Modifiers"
     bl_idname = "KEYOPS_PT_utilities_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ToolKit'
+    bl_category = 'Toolkit'
 
     @classmethod
     def poll(cls, context):
@@ -582,60 +1191,54 @@ class UtilitiesPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        row = layout.row()
-        if bpy.context.mode == 'OBJECT':
-            row.operator("keyops.utilities_panel_op", text="Join Objects & Keep Normals").type = "Apply_and_Join"
-            row = layout.row()
-            row.operator("keyops.utilities_panel_op", text="Quick Apply All Modifiers").type = "Quick_Apply_All_Modifiers"
-            layout.label(text="Collections:")
-            row = layout.row(align=True)
-            row.operator("keyops.unique_collection_duplicate", text="Unique Collection Duplicate")
-            row = layout.row(align=True)
-            row.operator("keyops.utilities_panel_op", text="Toggle").type = "toggle_high_low"
-            row.operator("keyops.utilities_panel_op", text="high").type = "high"
-            row.operator("keyops.utilities_panel_op", text="low").type = "low"
 
-            layout.separator()
-
-        def draw_uv_operations():
-            row = layout.row()
+        def draw_modifiers_operations():
+            col = layout.column(align=True)
+            row = col.row(align=True)
             if bpy.context.mode == 'EDIT_MESH':
-                row.operator("keyops.utilities_panel_op", text="Offset Selected UV", icon= "MOD_UVPROJECT").type = "offset_uv"   
+                row.operator("keyops.utilities_panel_op", text="Offset UV").type = "offset_uv"   
+                row.operator("keyops.utilities_panel_op", text="Remove").type = "Remove_Offset_UV"
             else:   
-                row.operator("keyops.utilities_panel_op", text="Offset Object UV", icon= "MOD_UVPROJECT").type = "offset_uv"
-            row = layout.row()
-            row.operator("keyops.seam_by_angle", text="Seam by Angle", icon= "MOD_EDGESPLIT")
+                row.operator("keyops.utilities_panel_op", text="Offset UV").type = "offset_uv"
+                row.operator("keyops.utilities_panel_op", text="Remove").type = "Remove_Offset_UV"
+            row = col.row(align=True)
+            row.operator("keyops.utilities_panel_op", text="Triplanar UV").type = "Triplanar_UV_Mapping"
+            row.operator("keyops.utilities_panel_op", text="Remove").type = "Remove_Triplanar_UV_Mapping"
         
         if get_keyops_prefs().enable_uv_tools:
-            draw_uv_operations()
+            draw_modifiers_operations()
         
         row = layout.row()
-        row.label(text="Set Normals:")
-        row = layout.row(align=True)
+        row.label(text="Set Normals")
+        col = layout.column(align=True)
+        row = col.row(align=True)
         row.operator("keyops.utilities_panel_op", text="Sphere", icon= "META_BALL").type = "set_sphere_normal"
         row.operator("keyops.utilities_panel_op", text="Selection", icon= "UV_FACESEL").type = "set_normal_from_selection"
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Clear Custom Normals").type = "clear_custom_normals"
+        
+        if context.mode == 'OBJECT':
+            layout.separator()
+            layout = self.layout
+            col = layout.column(align=False)
+            row = col.row(align=False)
 
-        layout.separator()
-        row = layout.row()
-        row.prop(context.scene, "bevel_segments_type", text="Set")
-        row = layout.row()
-        row.operator("keyops.utilities_panel_op", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
-        row.operator("keyops.utilities_panel_op", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
-        row = layout.row()
-        row.prop(context.scene, "bevel_segment_amount", text="")
-        row.prop(context.scene, "bevel_segment_by_percent", text="")
+            row.prop(context.scene, "bevel_segments_type", text="Set")
+            row = col.row(align=False)
+            col = layout.column(align=True)
 
-        row = layout.row()
-        row.operator("keyops.utilities_panel_op", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-        row = layout.row()
-        row.prop(context.scene, "compensate_for_scale", text="Scale")
-        row.prop(context.scene, "bevel_offset", text="")
+            row = col.row(align=True)
+            row.operator("keyops.utilities_panel_op", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
+            row.operator("keyops.utilities_panel_op", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
+            row = col.row(align=True)
+            row.prop(context.scene, "bevel_segment_amount", text="")
+            row.prop(context.scene, "bevel_segment_by_percent", text="")
 
-        if context.mode == 'EDIT_MESH':
             row = layout.row()
-            row.label(text="Meshe")
+            row.operator("keyops.utilities_panel_op", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
             row = layout.row()
-            row.operator("mesh.keyops_smart_extrude", text="Smart Extrude (Outdated)")
+            row.prop(context.scene, "compensate_for_scale", text="Scale")
+            row.prop(context.scene, "bevel_offset", text="")
 
         def change_meshes_draw():
             row = layout.row(align=True)
@@ -647,10 +1250,11 @@ class UtilitiesPanel(bpy.types.Panel):
             row = layout.row()
             row.operator("keyops.utilities_panel_op", text="Select All Changed", icon="RESTRICT_SELECT_OFF").type = "Select_Changed"
         if bpy.app.version >= (4, 1, 0):
-            header, panel_changde_meshes = layout.panel(idname="Mark Changde Objects",  default_closed=True)
-            header.label(text="Mark Changde Objects")
-            if panel_changde_meshes:
-                change_meshes_draw()
+            pass
+            # header, panel_changde_meshes = layout.panel(idname="Mark Changde Objects",  default_closed=True)
+            # header.label(text="Mark Changde Objects")
+            # if panel_changde_meshes:
+            #     change_meshes_draw()
         else:
             row = layout.row()
             row.label(text="Changde Meshes:")
@@ -662,11 +1266,78 @@ class UtilitiesPanel(bpy.types.Panel):
         bpy.types.Scene.bevel_segment_by_percent = bpy.props.IntProperty(name="Bevel Segment By %", default=-50, min=-100, max=100, subtype='FACTOR')
         bpy.types.Scene.bevel_offset = bpy.props.FloatProperty(name="Bevel Offset", default=0.1, min=-0.0, max=10.0)
         bpy.types.Scene.compensate_for_scale = bpy.props.BoolProperty(name="Compensate for Scale", default=True, description="Compensate for Scale")
-        bpy.types.Scene.bevel_segments_type = bpy.props.EnumProperty(name="bevel_segments_type", items=[('ALL', 'All Bevelse', 'All Bevelse'), ('TOP', 'First Bevel', 'First Bevel'), ('BOTTOM', 'Last Bevel', 'Last Bevel')], default='ALL', description="Bevel Segments Type")
+        bpy.types.Scene.bevel_segments_type = bpy.props.EnumProperty(name="bevel_segments_type", items=[('ALL', 'All Bevelse', 'All Bevelse'), ('TOP', 'First Bevel', 'First Bevel'), ('BOTTOM', 'Last Bevel', 'Last Bevel'), ('BY_OFFSET', 'By Bevel Offset', 'By Bevel Offset')], default='ALL', description="Set based on bevel settings")
     def unregister():
         del bpy.types.Scene.bevel_segment_amount
         del bpy.types.Scene.bevel_segment_by_percent
         del bpy.types.Scene.bevel_offset
         del bpy.types.Scene.compensate_for_scale
         del bpy.types.Scene.bevel_segments_type
+
+class EditModePanel(bpy.types.Panel):
+    bl_description = "Modeling Panel"
+    bl_label = "Edit Mode"
+    bl_idname = "KEYOPS_PT_modeling_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Toolkit'
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode == 'EDIT_MESH':
+            return True
+    
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.operator("mesh.keyops_smart_extrude", text="Smart Extrude (Outdated)")
+        row = col.row(align=True)
+        row.operator("mesh.flip_normals", text="Flip")
+        row.operator("mesh.normals_make_consistent", text="Recalculate")
+        row = col.row(align=True)
+        row.operator("mesh.remove_doubles", text="Merge by Distance")
+        row = col.row(align=True)
+        row.operator("mesh.dissolve_limited", text="Limited Dissolve")
+        row = col.row(align=True)
+        row.operator("mesh.select_non_manifold", text="Select Non Manifold")
+        row = col.row(align=True)
+        row.operator("keyops.seam_by_angle", text="Seam by Angle", icon= "MOD_EDGESPLIT")
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Un-Subdivide Cylinder").type = "un_subdivide_cylinder"
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Subdivide Cylinder").type = "subdivide_cylinder"
+        row = col.row(align=True) 
+        row.operator("keyops.utilities_panel_op", text="Cylinder From Edge Modifier").type = "change_cylinder_segments_modifier"
+
+class ObjectModePanel(bpy.types.Panel):
+    bl_description = "Object Mode Panel"
+    bl_label = "Object Mode"
+    bl_idname = "KEYOPS_PT_object_mode_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Toolkit'
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        row = col.row(align=True)
+
+        row.operator("keyops.utilities_panel_op", text="Join Objects & Keep Normals").type = "Apply_and_Join"
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Quick Apply All Modifiers").type = "Quick_Apply_All_Modifiers"
+
+        row = col.row(align=True)
+
+        row.label(text="Collections:")
+        row = col.row(align=True)
+        row.operator("keyops.unique_collection_duplicate", text="Unique Collection Duplicate")
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Toggle").type = "toggle_high_low"
+        row.operator("keyops.utilities_panel_op", text="high").type = "high"
+        row.operator("keyops.utilities_panel_op", text="low").type = "low"
 
