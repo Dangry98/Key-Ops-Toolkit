@@ -18,7 +18,7 @@
 bl_info = {
     "name": "Key Ops: Toolkit",
     "author": "Dan Gry, MACHIN3",
-    "version": (0, 1, 82),
+    "version": (0, 1, 83),
     "blender": (4, 0, 0),
     "description": "Adds new tools, shortcuts and operations to Blender",
     "category": "3D View"
@@ -91,7 +91,6 @@ import time
 default_classes = [
     KeyOpsPreferences,
     Rebind,
-    # ExtrudeEdgeAlongNormals,
 ]
 if bpy.app.version >= (4, 1, 0):
     default_classes.append(AutoSmooth)

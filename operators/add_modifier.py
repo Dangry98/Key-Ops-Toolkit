@@ -16,6 +16,13 @@ class AddModifier(bpy.types.Operator):
             ('WELD', 'Weld', ''),
             ('LATTICE', 'Lattice', ''))) #type:ignore
     keep_custom_normals: bpy.props.BoolProperty(name="Keep Normals",description="", default=True) #type:ignore
+    quad_method: bpy.props.EnumProperty(name="Method", description="", items=(
+            ('BEAUTY', 'Beauty', ''),
+            ('FIXED', 'Fixed', ''),
+            ('FIXED_ALTERNATE', 'Fixed Alternate', ''),
+            ('SHORTEST_DIAGONAL', 'Shortest Diagonal', ''),
+            ('LONGEST_DIAGONAL', 'Longest Diagonal', ''))) #type:ignore
+    minimum_vertices: bpy.props.IntProperty(name="Min Vertices", description="", default=4) #type:ignore
     keep_sharp: bpy.props.BoolProperty(name="Keep Sharp",description="", default=False) #type:ignore
     merge_threshold: bpy.props.FloatProperty(name="Merge Threshold",description="", default=0.0001,) #type:ignore
     merge_mode: bpy.props.EnumProperty(name="Mode", description="", items=(
@@ -44,7 +51,11 @@ class AddModifier(bpy.types.Operator):
     
     def draw(self, context):
         if self.type == 'TRIANGULATE':
-            self.layout.prop(self, "keep_custom_normals")
+            row = self.layout.row()
+            row.prop(self, "quad_method")
+            row = self.layout.row()
+            row.prop(self, "keep_custom_normals")
+            row.prop(self, "minimum_vertices")
         if self.type == 'WEIGHTED_NORMAL':
             self.layout.prop(self, "keep_sharp")
         if self.type == 'WELD':
@@ -62,6 +73,8 @@ class AddModifier(bpy.types.Operator):
             for obj in [o for o in context.selected_objects if o.type == 'MESH']:
                 mod = obj.modifiers.new(type='TRIANGULATE', name='Triangulate')
                 mod.keep_custom_normals = self.keep_custom_normals
+                mod.quad_method = self.quad_method
+                mod.min_vertices = self.minimum_vertices
                 mod.show_in_editmode = False
 
         if self.type == 'WEIGHTED_NORMAL':

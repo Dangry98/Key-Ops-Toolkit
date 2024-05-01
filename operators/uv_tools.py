@@ -2026,6 +2026,12 @@ class AutoSeam(bpy.types.Operator):
         
         return {'FINISHED'}
           
+def disable_auto_smooth(obj):
+    for m in obj.modifiers:
+        if "Auto Smooth" in m.name or "Smooth by Angle" in m.name or "!!Auto Smooth" in m.name:
+            if m.show_viewport:
+                obj.modifiers[m.name].show_viewport = False
+
 class ToggleSmoothSharp(bpy.types.Operator):
     bl_idname = "keyops.smooth_by_sharp"
     bl_label = "Toggle Smooth Sharp"
@@ -2039,23 +2045,17 @@ class ToggleSmoothSharp(bpy.types.Operator):
     def execute(self, context):
         if bpy.context.mode == 'EDIT_MESH':
             for obj in context.objects_in_mode:
-                
-                for obj in context.objects_in_mode:
-                    me, bm = obj.data, bmesh.from_edit_mesh(obj.data)
-                    for face in bm.faces:
-                        if not face.smooth:
-                            face.smooth = True
+                me, bm = obj.data, bmesh.from_edit_mesh(obj.data)
+                for face in bm.faces:
+                    if not face.smooth:
+                        face.smooth = True
 
-                    bmesh.update_edit_mesh(me, loop_triangles=False)
-                    if bpy.app.version > (4, 1, 0):
-                        obj.data.auto_smooth_angle = 3.141590118408203
-                        obj.data.use_auto_smooth = True
-                    else:
-                        for m in obj.modifiers:
-                            if "Auto Smooth" in m.name and m.show_viewport:
-                                context.object.modifiers[m.name].show_viewport = False
-                            if "Smooth by Angle" in [m.name for m in obj.modifiers]:
-                                context.object.modifiers[m.name].show_viewport = False
+                bmesh.update_edit_mesh(me, loop_triangles=False)
+                if bpy.app.version > (4, 1, 0):
+                    obj.data.auto_smooth_angle = 3.141590118408203
+                    obj.data.use_auto_smooth = True
+                else:
+                    disable_auto_smooth(obj)
                                     
         elif bpy.context.mode == 'OBJECT':
             for obj in context.selected_objects:
@@ -2063,11 +2063,7 @@ class ToggleSmoothSharp(bpy.types.Operator):
                     if bpy.app.version > (4, 1, 0):
                         bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=3.14159, ignore_sharp=False)
                     else:
-                        for m in obj.modifiers:
-                            if "Auto Smooth" in m.name and m.show_viewport:
-                                context.object.modifiers[m.name].show_viewport = False
-                            if "Smooth by Angle" in [m.name for m in obj.modifiers]:
-                                context.object.modifiers[m.name].show_viewport = False
+                        disable_auto_smooth(obj)
         return {'FINISHED'}
 
 class OrientIslandToEdge(bpy.types.Operator):
@@ -2350,7 +2346,8 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row.operator("uv.pin", icon='PINNED', text="Pin").clear = False
         row.operator("uv.pin", icon='UNPINNED', text="Unpin").clear = True
         row = layout.row(align=True)
-        row.operator("uv.pin", text="Invert Pin").invert = True
+        if bpy.app.version >= (4, 0, 0):
+            row.operator("uv.pin", text="Invert Pin").invert = True
         row.operator("uv.remove_all_pins", text="Clear All Pins")
         row = layout.row(align=True)
         
