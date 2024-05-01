@@ -63,12 +63,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         maya_data = [("", "enable_maya_navigation", False, None, None),
                     ("Selects Mesh Island in Vert/Face Mode - Left Dbl Click", "enable_double_click_select_island", False, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
                     ("Instantly Delete Objects, Verts, Edges, Faces with Delete", "enable_auto_delete", True, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
-                    ("Quickly Toggle Overlay, Tools and Settings - 5 in Edit Mode", "enable_toggle_retopology", True, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
+                    ("Toggle Retopo Overlay, Tools and Settings - in Toolkit Panel", "enable_toggle_retopology", True, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
                     ("D Pivot that works similar to D in Maya", "enable_maya_pivot", True, None, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"),
                     ]
         draw_section(b, "Maya", maya_data)
         
-        uv_data = [("WIP. UV Toolkit of tools", "enable_uv_tools", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
+        uv_data = [("Toolkit of UV tools", "enable_uv_tools", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
                    ("WIP. UV Pies", "enable_uv_pies", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),]
         draw_section(b, "UV", uv_data)
 
@@ -81,7 +81,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         draw_section(b, "Pie Menu", pie_data)
 
         Extra_data = [("Useful shortcuts from 2.79x, click to learn more", "enable_legacy_shortcuts", False, None, "https://key-ops-toolkit.notion.site/Blender-2-79x-639a8f60b4794927aede4c835a8af4fc"),
-                      ("1 to merge to nearest vert, Alt 1 merge center", "enable_fast_merge", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
+                      ("1 Merge to nearest, Shift 1 Connect", "enable_fast_merge", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
                       ("Adds more shortcuts to the modifier panel", "enable_modi_key", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),
                       ("Adds Attributes Operations like select and assign", "enable_atri_op", True, None, "https://key-ops-toolkit.notion.site/Extra-de3a011e64b2403a94eeb2d6bc2f12df"),]
         draw_section (b, "Extra", Extra_data)   
@@ -90,7 +90,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                             ("WIP. Tool to create LODs for meshes", "enable_auto_lod", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
                             ("Operations for adding bake names for low and highpoly", "enable_quick_bake_name", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
                             ("Get a list of all the objects and there poly count", "enable_polycount_list", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
-                            ("WIP. Adds new useful utiliti operations for game art", "enable_utilities_panel_op", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
+                            ("Adds new modeling and utility operations", "enable_utilities_panel_op", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
                             ("WIP. CTRL E to export out meshes based on the export settings", "enable_quick_export", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c"),
                             ("Material Index sorting, usful for 3ds Max multi materials", "enable_material_index", True, None, "https://key-ops-toolkit.notion.site/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c")]
         draw_section(b, "Game Art Toolkit", Game_Art_Toolkit)
@@ -147,7 +147,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 row.operator("wm.url_open", text="Download").url = "https://github.com/Dangry98/PolyQuilt-for-Blender-4.0/releases"
             column.prop(self, "toggle_retopology_color_enum")
             layout = column.split(factor=5.0)
-            row = layout.row()
+            row = layout.row(align = True)
             if self.toggle_retopology_color_enum == "custom_color":
                 row.prop(self, "toggle_retopology_custom_color")
                 row.prop(self, "toggle_retopology_face_alpha")
@@ -155,6 +155,11 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             else:
                 row.label(text="Edge Width:")
                 row.prop(self, "toggle_retopology_edge_width")
+
+            row.prop(self, "toggle_retopology_snapping_settings_vert", icon="SNAP_VERTEX")
+            row.prop(self, "toggle_retopology_snapping_settings_face", icon="SNAP_FACE")
+            row.prop(self, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE")
+            row.prop(self, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP")
 
         if self.enable_maya_pivot:
             bb = b.box()
@@ -418,7 +423,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_maya_navigation: BoolProperty(name="Maya Navigation", description="Adds Navigation that works like in Maya", default=True, update=enable_deco("maya_navigation")) # type: ignore
     enable_double_click_select_island: BoolProperty(name="Double Click Select Island", description="Double Click to Select Mesh Island like in Maya", default=True, update=enable_deco("double_click_select_island")) # type: ignore
     enable_uv_tools: BoolProperty(name="UV Tools", default=True, update=enable_deco("uv_tools")) # type: ignore
-    enable_uv_pies: BoolProperty(name="UV Pies", default=True, update=enable_deco("uv_pies")) # type: ignore
+    enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", default=True, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=True, update=enable_deco("add_objects_pie")) # type: ignore
     enable_view_camera_pie: BoolProperty(name="View Camera Pie", default=False, update=enable_deco("view_camera_pie")) # type: ignore
@@ -426,7 +431,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", default=True, update=enable_deco("workspace_pie")) # type: ignore
     enable_cursor_pie: BoolProperty(name="Cursor Pie", default=True, update=enable_deco("cursor_pie")) # type: ignore
-    enable_fast_merge: BoolProperty(name="Fast Merge", default=True, update=enable_deco("fast_merge")) # type: ignore
+    enable_fast_merge: BoolProperty(name="Fast Merge & Connect", default=True, update=enable_deco("fast_merge")) # type: ignore
     enable_modi_key: BoolProperty(name="Modifier Key", default=True, update=enable_deco("modi_key")) # type: ignore
     enable_cad_decimate: BoolProperty(name="CAD Decimate", default=False, update=enable_deco("cad_decimate"))     # type: ignore
     enable_auto_lod: BoolProperty(name="Auto LOD", default=False, update=enable_deco("auto_lod")) # type: ignore
@@ -460,6 +465,13 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     toggle_retopology_custom_color: FloatVectorProperty(name="", subtype='COLOR', size=4, default=(0.313726, 0.784314, 1.0, 0.058824), min=0.0, max=1.0) # type: ignore
     toggle_retopology_face_alpha: FloatProperty(name="Face Alpha", default=0.301961, min=0.0, max=1.0) # type: ignore
     toggle_retopology_edge_width: IntProperty(name="Edge Width", default=3, min=1, max=5) # type: ignore
+    toggle_retopology_snapping_settings_save_string: StringProperty(name="Snap Settings", default="") # type: ignore
+    toggle_retopology_snapping_settings_vert: BoolProperty(name="Vert", default=False) # type: ignore
+    toggle_retopology_snapping_settings_face: BoolProperty(name="Faces", default=True) # type: ignore
+    toggle_retopology_snapping_settings_face_project: BoolProperty(name="Face Project", default=False) # type: ignore
+    toggle_retopology_snapping_settings_face_nearest: BoolProperty(name="Face Nearest", default=False) # type: ignore
+
+    savede_colors_theme_settings_string: StringProperty(name="Saved Colors", default="") # type: ignore
     maya_pivot_behavior: EnumProperty(
         name="Behavior",
         items=[
@@ -470,23 +482,24 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     fast_merge_merge_options: EnumProperty( 
         name="Options",
         items=[
-            ("merge to nerest vert if no active", "Merge to nearest if no active and over 1 vert is selected", "Merge to nearest vert if no active vert and over 1 vert is selected"),
+            ("merge to nerest vert if no active", "Merge nearest if no Active and > 1 Vert Selected", "Merge to nearest vert if no active vert and over 1 vert is selected"),
             ("always merge to nearest vert", "Always merge to nearest vert", "Always merge to nearest vert"),
-            ("only merge if active or only 1 verts is selected", "only merge to nearest if 1 vert is selected, otherwise to active vert", "(legacy) only merge if active vert or only 1 verts is selected")],
-        default="only merge if active or only 1 verts is selected") # type: ignore
+            ("only merge if active or only 1 verts is selected", "Merge nearest if 1 Vert is Selected, Otherwise Active", "(legacy) only merge if active vert or only 1 verts is selected")],
+        default="merge to nerest vert if no active") # type: ignore
     fast_merge_soft_limit: EnumProperty(
         name="Limit",
         items=[
             ("max_polycount", "Max Polycount", "Limit the polycount of the mesh"),
             ("all_selected", "All Selected", "Do not merge if all verts are selected"),
             ("max_limit_&_all_selected", "Max Limit & All Selected", "Do not merge if all verts are selected and polycount is above limit"),
+            ("ask_if_no_active_vert", "Confirm to Merge if No Active", "Ask if no active vert"),
             ("no_limit", "No Limit", "Merge all selected verts")],
-        default="no_limit") # type: ignore
+        default="ask_if_no_active_vert") # type: ignore
     fast_merge_polycount: IntProperty(name="Verts", default=1000, min=1, max=1000000) # type: ignore
     add_object_pie_use_relative: BoolProperty(name="Relative Scale", default=True, description="Default Relative Scale Value") # type: ignore
     add_object_pie_relative_scale: FloatProperty(name="Screen Size", default=6.0, min=1.0, max=25.0, description="Default Relative Scale Value") # type: ignore
     add_object_pie_default_scale: FloatProperty(name="Size", default=2.0, min=0.1, max=10.0, unit='LENGTH', description="Default Regular Scale Size Value") # type: ignore
     add_object_pie_min_scale: FloatProperty(name="Min Size", default=0.01, min=0.0001, max=10.0, unit='LENGTH', description="Relative Scale Min Size Value") # type: ignore
     add_object_pie_empty: BoolProperty(name="Add Empty Instead of Monkey", default=False) # type: ignore
-    uv_tools_panel_name: StringProperty(name="", default="UV Tools") # type: ignore
+    uv_tools_panel_name: StringProperty(name="", default="Toolkit") # type: ignore
    

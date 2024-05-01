@@ -24,18 +24,12 @@ class AutoLOD(bpy.types.Operator):
         bpy.utils.register_class(DeleteSmallFaces)
         bpy.utils.register_class(DeleteLooseEdges)
         bpy.utils.register_class(GenerateLODOperator)
-        bpy.utils.register_class(PreserveSmallerShapesOperator)
-        bpy.utils.register_class(CopyAttributestoSelection)
-        bpy.utils.register_class(RemovePreserveThinShapesOperator)
         bpy.utils.register_class(GenerateLODPanel)
 
     def unregister():
         bpy.utils.unregister_class(DeleteSmallFaces)
         bpy.utils.unregister_class(DeleteLooseEdges)
         bpy.utils.unregister_class(GenerateLODOperator)
-        bpy.utils.unregister_class(PreserveSmallerShapesOperator)
-        bpy.utils.unregister_class(CopyAttributestoSelection)
-        bpy.utils.unregister_class(RemovePreserveThinShapesOperator)
         bpy.utils.unregister_class(GenerateLODPanel)
 
 class DeleteSmallFaces(bpy.types.Operator):
@@ -251,6 +245,8 @@ class GenerateLODOperator(bpy.types.Operator):
         remove_non_manifold_faces = context.scene.remove_non_manifold_faces
         multipler = context.scene.multipler
         delete_loose_edges = context.scene.delete_loose_edges   
+        transfere_normals = context.scene.transfere_normals
+        create_collection = context.scene.create_collection
 
         total_steps = len(selected_objects) * amount_of_lods
         current_step = 0
@@ -259,6 +255,9 @@ class GenerateLODOperator(bpy.types.Operator):
         wm = bpy.context.window_manager
         wm.progress_begin(0, total_steps)
 
+        orginal_objects = selected_objects.copy()
+
+            
         for obj in selected_objects:
             for i in range(amount_of_lods):
                 # Update progress cursor
@@ -270,7 +269,9 @@ class GenerateLODOperator(bpy.types.Operator):
                 lod_name = f"{obj.name}{suffix}{i + 1}"
                 new_object.name = lod_name
 
+
                 if obj.type == 'MESH':
+                    bpy.context.view_layer.objects.active  = obj
                     bpy.context.collection.objects.link(new_object)
 
                     if edge_split:
@@ -312,93 +313,43 @@ class GenerateLODOperator(bpy.types.Operator):
                         else:
                             print("Warning: 'Delete Small Faces' modifier not found.")
 
+                    if transfere_normals:
+                        mod = new_object.modifiers.new(type='DATA_TRANSFER', name='Transfere_Normals')
+                        mod.data_types_loops = {'CUSTOM_NORMAL'}
+                        mod.use_object_transform = False
+                        mod.object = obj
+        
                     print(f"{lod_name} DONE")
 
                     current_step += 1   
+
         if apply_decimate_modifier:
             bpy.ops.object.modifier_apply(modifier="Decimate")
             bpy.ops.object.modifier_apply(modifier="EDGE_SPLIT")
         # End progress bar
+        
+        # Rename the original objects with the suffix
+        for obj in orginal_objects:
+            if obj.type == 'MESH':
+                obj.name = f"{obj.name}{suffix}0"
+        
+        all_selected_objects = context.selected_objects
+
+        #create collections for each orginal object and name them the same name as the orginal object - suffix
+        if create_collection:
+            for obj in orginal_objects:
+                #remove the suffix from the name to get the collection name withoute suffix
+                collection_name = obj.name[:-len(suffix)]
+                collection = bpy.data.collections.new(collection_name)
+                bpy.context.scene.collection.children.link(collection)
+         
+                
+                
         wm.progress_end()
 
         bpy.ops.ed.undo_push(True)
         return {'FINISHED'}
 
-class CopyAttributestoSelection(bpy.types.Operator):
-    bl_idname = "copy.attributes_to_selection"
-    bl_label = "Copy Attributes to Selection"
-
-    def execute(self, context):
-        bpy.ops.object.vertex_group_copy_to_selected()
-        active_object = bpy.context.object
-        selected_objects = bpy.context.selected_objects.copy()
-        selected_objects.remove(active_object)  # Remove the active object from the selected objects list
-        modifier_name = "Weld"
-        edge_split_index = 1 if any("EDGE_SPLIT" in obj.modifiers for obj in selected_objects) else 0
-
-        active_modifiers = active_object.modifiers
-        modifier = active_modifiers.get(modifier_name)
-
-        if modifier:
-            for obj in selected_objects:
-                has_weld_modifier = any(mod.name == modifier_name for mod in obj.modifiers)
-                has_preserve_group = "Preserve Group" in obj.vertex_groups
-
-                if not has_weld_modifier:
-                    new_modifier = obj.modifiers.new(name=modifier.name, type=modifier.type)
-                    new_modifier.show_expanded = modifier.show_expanded
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.context.object.vertex_groups.active.name = "Preserve Group"
-                    new_modifier.vertex_group = "Preserve Group"
-                    bpy.ops.object.modifier_move_to_index(modifier=modifier_name, index=edge_split_index)
-
-        return {'FINISHED'}
-
-class PreserveSmallerShapesOperator(bpy.types.Operator):
-    bl_idname = "object.preserve_smaller_shapes"
-    bl_label = "Preserve Smaller Shapes"
-
-    def execute(self, context):
-        vertex_group = context.object.vertex_groups.get("Preserve Group")
-        weld_modifier = context.object.modifiers.get("Weld")
-        edge_split_modifier = context.object.modifiers.get("EDGE_SPLIT")
-
-        if weld_modifier is None:
-            weld_modifier = context.object.modifiers.new(name="Weld", type='WELD')
-
-            if vertex_group is None:
-                bpy.ops.object.vertex_group_add()
-                bpy.context.active_object.vertex_groups.active.name = "Preserve Group"
-                bpy.context.object.modifiers["Weld"].vertex_group = "Preserve Group"
-            else:
-                bpy.context.active_object.vertex_groups.active.name = "Preserve Group"
-                bpy.context.object.modifiers["Weld"].vertex_group = "Preserve Group"
-            
-        else:
-            bpy.ops.object.vertex_group_assign()
-
-        def check(obj, name):
-            index = obj.modifiers.find(name)
-            if index == -1:
-                print(f"Couldn't find '{name}' modifier inside '{obj.name}' object")
-            return index
-
-        if edge_split_modifier is not None:
-            bpy.ops.object.modifier_move_to_index(modifier="Weld", index=1)
-
-        else:
-            bpy.ops.object.modifier_move_to_index(modifier="Weld", index=0)
-
-
-        return {'FINISHED'}
-
-class RemovePreserveThinShapesOperator(bpy.types.Operator):
-    bl_idname = "object.remove_preserve_thin_shapes"
-    bl_label = "Remove Preserve Thin Shapes"
-
-    def execute(self, context):
-        bpy.ops.object.vertex_group_remove_from()
-        return {'FINISHED'}
 
 class GenerateLODPanel(bpy.types.Panel):
     bl_idname = "OBJECT_PT_generate_lod"
@@ -431,6 +382,9 @@ class GenerateLODPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(scene, "lod_parent_object", text="Parent Object")
 
+        #row = layout.row()
+        #row.prop(scene, "create_collection", text="Create Collection")
+
         # row = layout.row()
         # row.prop(scene, "apply_decimate_modifier", text="Apply Decimate Modifier")
 
@@ -444,7 +398,11 @@ class GenerateLODPanel(bpy.types.Panel):
         row.prop(scene, "unlock_normals_on_all_lods", text="Unlock Normals")
 
         row = layout.row()
+        row.prop(scene, "transfere_normals", text="Transfere Normals")
+
+        row = layout.row()
         row.prop(scene, "amount_of_lods", text="Amount of LODs")
+
         row = layout.row()
         row.prop(scene, "lod_difference", text="LOD Difference (%)")
 
@@ -460,20 +418,7 @@ class GenerateLODPanel(bpy.types.Panel):
         row = layout.row()
         row.scale_y = 1.5
         row.operator("object.generate_lod", text="Generate LODs")
-
-        layout.label(text="Add Preserve Shape to Selection:")
-        
-        if bpy.context.mode == 'EDIT_MESH':
-            row = layout.row()
-            row.operator("object.preserve_smaller_shapes", text="Add Preserve Thin Shapes")
-
-        if bpy.context.mode == 'EDIT_MESH':
-            row = layout.row()
-            row.operator("object.remove_preserve_thin_shapes", text="Remove Preserve Thin Shapes")
-
-        row = layout.row()
-        row.enabled = bpy.context.mode == 'OBJECT'
-        row.operator("copy.attributes_to_selection", text="Copy Attributes to Selection")
+    
 
     def register():
         bpy.types.Scene.suffix = bpy.props.StringProperty(default="_LOD")
@@ -489,6 +434,8 @@ class GenerateLODPanel(bpy.types.Panel):
         bpy.types.Scene.multipler = bpy.props.FloatProperty(default=2.0)
         bpy.types.Scene.delete_loose_edges = bpy.props.BoolProperty(default=False)
         bpy.types.Scene.keep_symmetry_X = bpy.props.BoolProperty(default=False)
+        bpy.types.Scene.transfere_normals = bpy.props.BoolProperty(default=True)
+        bpy.types.Scene.create_collection = bpy.props.BoolProperty(default=False)
 
     def unregister():
         del bpy.types.Scene.suffix
@@ -504,3 +451,5 @@ class GenerateLODPanel(bpy.types.Panel):
         del bpy.types.Scene.multipler 
         del bpy.types.Scene.delete_loose_edges
         del bpy.types.Scene.keep_symmetry_X
+        del bpy.types.Scene.transfere_normals
+        del bpy.types.Scene.create_collection

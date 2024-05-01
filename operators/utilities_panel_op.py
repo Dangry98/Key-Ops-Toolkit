@@ -2,6 +2,8 @@ import bpy
 from ..utils.pref_utils import get_keyops_prefs
 import tempfile
 import bmesh
+from bpy.props import IntProperty, FloatProperty, BoolProperty
+
 
 #fix attribute toggle in edit mode/objet mode
 
@@ -542,7 +544,6 @@ class UtilitiesPanelOP(bpy.types.Operator):
             layout.prop(self, "join_children")   
             layout.prop(self, "apply_instances") 
             layout.prop(self, "rename_uv_layer")
-            layout.prop(self, "export_normals")
             layout.prop(self, "recalculate_normals")
             layout.prop(self, "triangulate")
         if self.type == "set_sphere_normal":
@@ -558,55 +559,58 @@ class UtilitiesPanelOP(bpy.types.Operator):
             
 
     def execute(self, context):
-        prefs = get_keyops_prefs()
-        if self.type == "Triplanar_UV_Mapping":
-            active_object = bpy.context.active_object
-            if bpy.data.node_groups.get("Triplanar UV Mapping") is None:
-                triplanar_uv_mapping_node_group()
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':         
-                    bpy.context.view_layer.objects.active = obj
-
-                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
-                        bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
-                        bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
-                  
-                    if obj.data.uv_layers.active is not None:
-                        active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
-
-                    if context.mode == 'EDIT_MESH':
-                        bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                        bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
-                        named_attributes = bpy.context.object.data.attributes
-                        attribute_name = "Triplanar_UV_Mapping"
-                        set_act = named_attributes.get(attribute_name)
-                        if set_act is not None:
-                            select_atribute(attribute_name)
-                        else:
-                            mesh = bpy.context.object.data
-                            mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
-                            select_atribute(attribute_name)
-                    else:
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
-
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_3"] = active_uv_layer_name
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_4"] = self.axis_x
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_5"] = self.axis_y
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_6"] = self.scale_triplanar
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_7"] = self.rotation_triplanar
-                    bpy.context.object.data.update()
-                
-                    bpy.context.object.modifiers["Triplanar UV Mapping"].show_group_selector = False
-
-                    if context.mode == 'EDIT_MESH':
-                        bpy.ops.mesh.attribute_set(value_bool=True)
-
-            if self.appy_triplanar == True:
+        if bpy.app.version >= (4, 1, 0): 
+            prefs = get_keyops_prefs()
+            if self.type == "Triplanar_UV_Mapping":
+                active_object = bpy.context.active_object
+                if bpy.data.node_groups.get("Triplanar UV Mapping") is None:
+                    triplanar_uv_mapping_node_group()
                 for obj in bpy.context.selected_objects:
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
+                    if obj.type == 'MESH':         
+                        bpy.context.view_layer.objects.active = obj
 
-            bpy.context.view_layer.objects.active = active_object
+                        if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
+                            bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
+                            bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
+                    
+                        if obj.data.uv_layers.active is not None:
+                            active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
+
+                        if context.mode == 'EDIT_MESH':
+                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
+                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
+                            named_attributes = bpy.context.object.data.attributes
+                            attribute_name = "Triplanar_UV_Mapping"
+                            set_act = named_attributes.get(attribute_name)
+                            if set_act is not None:
+                                select_atribute(attribute_name)
+                            else:
+                                mesh = bpy.context.object.data
+                                mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
+                                select_atribute(attribute_name)
+                        else:
+                            context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
+
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_3"] = active_uv_layer_name
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_4"] = self.axis_x
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_5"] = self.axis_y
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_6"] = self.scale_triplanar
+                        context.object.modifiers["Triplanar UV Mapping"]["Socket_7"] = self.rotation_triplanar
+                        bpy.context.object.data.update()
+                    
+                        bpy.context.object.modifiers["Triplanar UV Mapping"].show_group_selector = False
+
+                        if context.mode == 'EDIT_MESH':
+                            bpy.ops.mesh.attribute_set(value_bool=True)
+
+                if self.appy_triplanar == True:
+                    for obj in bpy.context.selected_objects:
+                        bpy.context.view_layer.objects.active = obj
+                        bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
+
+                bpy.context.view_layer.objects.active = active_object
+        else:
+            self.report({'ERROR'}, "This operator only works on Blender 4.1 and above, due to a bug in geometry nodes")
 
         if self.type == "Remove_Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
@@ -632,6 +636,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     bpy.context.object.modifiers["Offset UV"]["Socket_2_attribute_name"] = "Offset_UV"
 
         if self.type == "offset_uv":
+            if bpy.app.version >= (4, 1, 0): 
                 active_object = bpy.context.active_object
                 if bpy.data.node_groups.get("Offset UV") is None:
                     offset_uv()
@@ -659,6 +664,8 @@ class UtilitiesPanelOP(bpy.types.Operator):
                                     
                         bpy.context.object.modifiers["Offset UV"].show_group_selector = False
                 bpy.context.view_layer.objects.active = active_object
+            else:
+                self.report({'ERROR'}, "This operator only works on Blender 4.1 and above, due to a bug in geometry nodes")
 
         if self.type == "Remove_Offset_UV":
             active_object = bpy.context.active_object
@@ -1136,14 +1143,16 @@ class UtilitiesPanelOP(bpy.types.Operator):
     
     def register():
         bpy.utils.register_class(ObjectModePanel)
-        bpy.utils.register_class(EditModePanel)
         bpy.utils.register_class(UtilitiesPanel)
+        bpy.utils.register_class(EditModePanel)
         bpy.utils.register_class(SmartExtrude)
+        bpy.utils.register_class(ExtrudeEdgeByNormal)
     def unregister():
         bpy.utils.unregister_class(ObjectModePanel)
-        bpy.utils.unregister_class(EditModePanel)
         bpy.utils.unregister_class(UtilitiesPanel)
+        bpy.utils.unregister_class(EditModePanel)
         bpy.utils.unregister_class(SmartExtrude)
+        bpy.utils.unregister_class(ExtrudeEdgeByNormal)
 
 class SmartExtrude(bpy.types.Operator):
     bl_description = "Smart Extrude, this is a slow and outdated operator, a way faster and better version is in the works"
@@ -1170,12 +1179,119 @@ class SmartExtrude(bpy.types.Operator):
         return {'FINISHED'}
     
     def register():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_func)
+        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_extrude)
     def unregister():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_func)
-def menu_func(self, context):
+        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_extrude)
+def menu_extrude(self, context):
     layout = self.layout
     layout.operator(SmartExtrude.bl_idname, text="Smart Extrude (Slow, Outdated)")
+
+
+
+class ExtrudeEdgeByNormal(bpy.types.Operator):
+    bl_idname = "mesh.extrude_edge_by_normal"
+    bl_label = "Extrude Edge by Normal"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    offset: bpy.props.FloatProperty(name="Offset", default=1) # type: ignore
+
+    def execute(self, context):
+        if bpy.app.version <= (4, 0, 2):
+            self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
+            return {'CANCELLED'}
+        else:
+            def extrude_edge_by_normal_node_group():
+                extrude_edge_by_normal = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Extrude Edge By Normal")
+
+                extrude_edge_by_normal.is_tool = True
+                extrude_edge_by_normal.is_mode_edit = True
+                extrude_edge_by_normal.is_mode_sculpt = False
+                extrude_edge_by_normal.is_type_curve = False
+                extrude_edge_by_normal.is_type_mesh = True
+                extrude_edge_by_normal.is_type_point_cloud = False
+                
+                #initialize extrude_edge_by_normal nodes
+                #extrude_edge_by_normal interface
+                #Socket Geometry
+                geometry_socket = extrude_edge_by_normal.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
+                geometry_socket.attribute_domain = 'POINT'
+                
+                #Socket Geometry
+                geometry_socket_1 = extrude_edge_by_normal.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
+                geometry_socket_1.attribute_domain = 'POINT'
+                
+                
+                #node Group Input
+                group_input = extrude_edge_by_normal.nodes.new("NodeGroupInput")
+                group_input.name = "Group Input"
+                
+                #node Group Output
+                group_output = extrude_edge_by_normal.nodes.new("NodeGroupOutput")
+                group_output.name = "Group Output"
+                group_output.is_active_output = True
+                
+                #node Extrude Mesh
+                extrude_mesh = extrude_edge_by_normal.nodes.new("GeometryNodeExtrudeMesh")
+                extrude_mesh.name = "Extrude Mesh"
+                extrude_mesh.mode = 'EDGES'
+                #Offset Scale
+                extrude_mesh.inputs[3].default_value = 1.0
+                #Individual
+                extrude_mesh.inputs[4].default_value = True
+                
+                #node Normal
+                normal = extrude_edge_by_normal.nodes.new("GeometryNodeInputNormal")
+                normal.name = "Normal"
+                
+                #node Selection
+                selection = extrude_edge_by_normal.nodes.new("GeometryNodeToolSelection")
+                selection.name = "Selection"
+                
+                #node Set Selection
+                set_selection = extrude_edge_by_normal.nodes.new("GeometryNodeToolSetSelection")
+                set_selection.name = "Set Selection"
+                
+                #Set locations
+                group_input.location = (-956.7882690429688, -106.79387664794922)
+                group_output.location = (32.99273681640625, -42.937740325927734)
+                extrude_mesh.location = (-449.79449462890625, -33.02903366088867)
+                normal.location = (-743.4354248046875, -157.43838500976562)
+                selection.location = (-722.5401000976562, -86.97645568847656)
+                set_selection.location = (-233.14840698242188, -84.7745132446289)
+                
+                #initialize extrude_edge_by_normal links
+                #group_input.Geometry -> extrude_mesh.Mesh
+                extrude_edge_by_normal.links.new(group_input.outputs[0], extrude_mesh.inputs[0])
+                #normal.Normal -> extrude_mesh.Offset
+                extrude_edge_by_normal.links.new(normal.outputs[0], extrude_mesh.inputs[2])
+                #selection.Selection -> extrude_mesh.Selection
+                extrude_edge_by_normal.links.new(selection.outputs[0], extrude_mesh.inputs[1])
+                #extrude_mesh.Mesh -> set_selection.Geometry
+                extrude_edge_by_normal.links.new(extrude_mesh.outputs[0], set_selection.inputs[0])
+                #extrude_mesh.Top -> set_selection.Selection
+                extrude_edge_by_normal.links.new(extrude_mesh.outputs[1], set_selection.inputs[1])
+                #set_selection.Geometry -> group_output.Geometry
+                extrude_edge_by_normal.links.new(set_selection.outputs[0], group_output.inputs[0])
+                return extrude_edge_by_normal
+
+            if "Extrude Edge By Normal" not in bpy.data.node_groups:
+                extrude_edge_by_normal_node_group()
+
+            bpy.data.node_groups["Extrude Edge By Normal"].is_mode_edit = True
+            bpy.data.node_groups["Extrude Edge By Normal"].nodes["Extrude Mesh"].inputs[3].default_value = self.offset
+            bpy.ops.geometry.execute_node_group(name="Extrude Edge By Normal")
+            bpy.data.node_groups["Extrude Edge By Normal"].is_mode_edit = False
+
+        return {'FINISHED'}
+    
+def register():
+    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.prepend(menu_extrude)
+def unregister():
+    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.remove(menu_extrude)
+
+def menu_extrude(self, context):
+    if bpy.context.mode == 'EDIT_MESH' and not bpy.context.tool_settings.mesh_select_mode[2] == True:
+        self.layout.operator(ExtrudeEdgeByNormal.bl_idname, text="Extrude Edge by Normal")
 
 class UtilitiesPanel(bpy.types.Panel):
     bl_description = "Utilities Panel"
@@ -1288,26 +1404,67 @@ class EditModePanel(bpy.types.Panel):
             return True
     
     def draw(self, context):
+        sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
+
         layout = self.layout
         col = layout.column(align=True)
+
+        #uv
         row = col.row(align=True)
-        row.operator("mesh.keyops_smart_extrude", text="Smart Extrude (Outdated)")
+        row.operator("keyops.seam_by_angle", text="Seam by Angle", icon= "MOD_EDGESPLIT")
+        row = col.row(align=True)
+
+        #edit mesh
+        row.label(text="Edit Mesh")
+        row = col.row(align=True)
+        row.operator("mesh.extrude_edge_by_normal", text="Extrude Edge by Normal")
         row = col.row(align=True)
         row.operator("mesh.flip_normals", text="Flip")
         row.operator("mesh.normals_make_consistent", text="Recalculate")
         row = col.row(align=True)
-        row.operator("mesh.remove_doubles", text="Merge by Distance")
+        row.operator("mesh.remove_doubles", text="Weld")
+        row.operator("mesh.bridge_edge_loops", text="Bridge")
+        row = col.row(align=True)
+        row.operator("mesh.connect2", text="Connect")
+        row.operator("mesh.subdivide", text="Subdivide")
+        row = col.row(align=True)
+        row.operator("mesh.set_edge_flow", text="Set Flow")
+        row.operator("mesh.edge_face_add", text="Fill")
+
         row = col.row(align=True)
         row.operator("mesh.dissolve_limited", text="Limited Dissolve")
         row = col.row(align=True)
-        row.operator("mesh.select_non_manifold", text="Select Non Manifold")
+        if sel_mode[0] or sel_mode[1]:
+            row.operator("mesh.rip_move", text="Rip")
+        else:
+            row.operator("mesh.split", text="Split")
+        row.operator("mesh.separate", text="Separate")
+
+        #select 
         row = col.row(align=True)
-        row.operator("keyops.seam_by_angle", text="Seam by Angle", icon= "MOD_EDGESPLIT")
-        col = layout.column(align=True)
+        row.label(text="Select")
         row = col.row(align=True)
-        row.operator("keyops.utilities_panel_op", text="Un-Subdivide Cylinder").type = "un_subdivide_cylinder"
+        row.operator("mesh.select_more", text="More", icon= "ADD")
+        row.operator("mesh.select_less", text="Less", icon= "REMOVE")
         row = col.row(align=True)
-        row.operator("keyops.utilities_panel_op", text="Subdivide Cylinder").type = "subdivide_cylinder"
+        row.operator("mesh.loop_multi_select", text="Loop").ring=False
+        row.operator("mesh.loop_multi_select", text="Ring").ring=True
+        row = col.row(align=True)
+        row.operator("mesh.select_non_manifold", text="Non Manifold")
+        row.operator("mesh.region_to_loop", text="Boundary")
+        row = col.row(align=True)
+        row.operator("mesh.select_similar", text="Similar")
+        if sel_mode[2]:
+            row.operator("mesh.faces_select_linked_flat", text="By Angle")
+        else:
+            row.operator("mesh.edges_select_sharp", text="Edge Angle")
+
+        #cylinder
+        row = col.row(align=True)
+        row.label(text="Cylinder")
+        row = col.row(align=True)
+        row.operator("keyops.utilities_panel_op", text="Un-Subdivide").type = "un_subdivide_cylinder"
+        row.operator("keyops.utilities_panel_op", text="Subdivide").type = "subdivide_cylinder"
         row = col.row(align=True) 
         row.operator("keyops.utilities_panel_op", text="Cylinder From Edge Modifier").type = "change_cylinder_segments_modifier"
 
