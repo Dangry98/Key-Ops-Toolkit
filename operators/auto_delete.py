@@ -1,6 +1,7 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
 
+
 class AutoDelete(bpy.types.Operator):
     bl_idname = "keyops.auto_delete"
     bl_label = "KeyOps: Auto Delete"
@@ -26,4 +27,3 @@ class AutoDelete(bpy.types.Operator):
             self.report({'ERROR'}, "Invalid selection mode")
 
         return {'FINISHED'}
-    

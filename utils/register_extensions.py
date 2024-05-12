@@ -163,7 +163,6 @@ def get_extension():
                  get_double_click_select_island,
                  get_uv_tools,
                  get_add_objects_pie,
-                 get_view_camera_pie,
                  get_add_modifier_pie,
                  get_workspace_pie,
                  get_cursor_pie,
@@ -207,9 +206,6 @@ def get_uv_tools(): pass
 
 @operator("Add Objects Pie")
 def get_add_objects_pie(): pass
-
-@operator("View Camera Pie")
-def get_view_camera_pie(): pass
 
 @operator("Add Modifier Pie")
 def get_add_modifier_pie(): pass

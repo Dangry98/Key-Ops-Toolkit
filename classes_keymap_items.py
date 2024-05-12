@@ -17,7 +17,6 @@ classes = {
            'ADD_OBJECTS_PIE': [('menu.pies', [('AddObjectsPie', 'add_objects_pie')]),
                                ('operators.add_mesh', [('AddMesh', 'add_mesh')])],
            'UTILITY_PIE': [('menu.pies', [('UtilityPie', 'utility_pie')])],
-           'VIEW_CAMERA_PIE': [('menu.pies', [('ViewCameraPie', 'view_camera_pie')])],   
            'ADD_MODIFIER_PIE': [('menu.pies', [('AddModifierPie', 'add_modifier_pie')]),  
                                 ('operators.add_modifier', [('AddModifier', 'add_modifier')])],
            'WORKSPACE_PIE': [('menu.pies', [('WorkspacePie', 'workspace_pie')])],             
@@ -86,6 +85,7 @@ keymap_items = {
                      {'label': 'Delete Selected Objects Modifier', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key', 'type': 'X', 'value': 'PRESS', 'alt': True, 'properties': [('type', 'delete_named_modi_on_all_selected')]},
                      {'label': 'Apply Modifer', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key', 'type': 'A', 'value': 'PRESS', 'properties': [('type', 'Apply')]},
                      {'label': 'Copy_Modifier_to_Selected', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key', 'type': 'C', 'alt': True, 'value': 'PRESS', 'properties': [('type', 'Copy_Modifier_to_Selected')]},
+                     {'label': 'Sync Modifier Between Instances', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key', 'type': 'V', 'alt': True, 'ctrl': True, 'value': 'PRESS', 'properties': [('type', 'Sync_All_Modifiers_betwhine_Instances')]},
                      {'label': 'Toggle Modifier Atribute', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key_no_undo', 'type': 'TAB', 'value': 'PRESS', 'properties': [('type', 'Toggle_Space')]},
                      {'label': 'Duplicate', 'keymap': 'Property Editor', 'space_type': 'PROPERTIES', 'idname': 'keyops.modi_key', 'type': 'D', 'value': 'PRESS', 'properties': [('type', 'Duplicate')]}],
                      
@@ -93,7 +93,6 @@ keymap_items = {
         'ADD_OBJECTS_PIE': [{'keymap': '3D View Generic', 'space_type': 'VIEW_3D', 'idname': 'wm.call_menu_pie', 'type': 'A', 'value': 'PRESS', 'shift': True, 'alt': True, 'properties': [('name', 'KEYOPS_MT_add_objects_pie')]}],           
         'UTILITY_PIE': [{'label': 'Utility Pie Edit Mode', 'keymap': 'Mesh', 'idname': 'wm.call_menu_pie', 'type': 'U', 'value': 'PRESS', 'properties': [('name', 'KEYOPS_MT_utility_pie')]},
                         {'label': 'Utility Pie Object Mode', 'keymap': 'Object Mode', 'idname': 'wm.call_menu_pie', 'type': 'U', 'value': 'PRESS', 'properties': [('name', 'KEYOPS_MT_utility_pie')]}],
-        'VIEW_CAMERA_PIE': [{'keymap': '3D View Generic', 'space_type': 'VIEW_3D', 'idname': 'wm.call_menu_pie', 'type': 'SPACE', 'value': 'PRESS', 'properties': [('name', 'VIEW3D_MT_view_pie')]}],
         'ADD_MODIFIER_PIE': [{'keymap': 'Window','space_type': 'EMPTY', 'idname': 'wm.call_menu_pie', 'type': 'Q', 'value': 'PRESS', 'shift': True, 'properties': [('name', 'KEYOPS_MT_add_modifier_pie')]}],
         'WORKSPACE_PIE': [{'keymap': 'Window', 'space_type': 'EMPTY', 'idname': 'wm.call_menu_pie', 'type': 'BACK_SLASH', 'value': 'PRESS', 'shift': True, 'properties': [('name', 'KEYOPS_MT_workspace_pie')]}],
         'CURSOR_PIE': [{'keymap': '3D View Generic', 'space_type': 'VIEW_3D', 'idname': 'wm.call_menu_pie', 'type': 'S', 'value': 'PRESS', 'shift': True, 'properties': [('name', 'KEYOPS_MT_cursor_pie')]}],

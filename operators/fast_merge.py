@@ -235,7 +235,6 @@ class FastKnife(bpy.types.Operator):
 
         return {'FINISHED'}
 
-
 class FastConnect(bpy.types.Operator):
     bl_idname = 'mesh.fast_connect'
     bl_label = 'FastConnect'
@@ -301,13 +300,13 @@ class Connect(bpy.types.Operator):
     edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
 
     def execute(self, context):
-        ob = context.edit_object
-        me = ob.data
-        bm = bmesh.from_edit_mesh(me)
-
         sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
 
         if sel_mode[0] or sel_mode[2]:
+            ob = context.edit_object
+            me = ob.data
+            bm = bmesh.from_edit_mesh(me)
+
             if sel_mode[0]:
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
             
@@ -339,19 +338,31 @@ class Connect(bpy.types.Operator):
             for e in new_edges['geom_inner']:
                 e.select = True
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+            bmesh.update_edit_mesh(me)
+            bm.free()
+
         
         elif sel_mode[1]:
-            edge_sel = set(e for e in bm.edges if e.select)
+            for obj in context.selected_objects:
+                if obj.type == 'MESH':
+                    if obj.data.total_edge_sel > 0: 
+                        me = obj.data
+                        bm = bmesh.from_edit_mesh(me)
 
-            bpy.ops.mesh.select_all(action='DESELECT')
+                        edge_sel = set(e for e in bm.edges if e.select)
 
-            new_edges = bmesh.ops.subdivide_edges(bm, edges=list(edge_sel), cuts=self.edge_count, use_grid_fill=True)
-            remove_edges = set(e for e in new_edges['geom_split'] if isinstance(e, bmesh.types.BMEdge))  
+                        for e in bm.edges:
+                            e.select = False
+
+                        new_edges = bmesh.ops.subdivide_edges(bm, edges=list(edge_sel), cuts=self.edge_count, use_grid_fill=True)
+                        remove_edges = set(e for e in new_edges['geom_split'] if isinstance(e, bmesh.types.BMEdge))  
+                        
+                        for e in new_edges['geom_inner']:
+                            e.select = True
+                        for e in remove_edges:
+                            e.select = False
+                        bmesh.update_edit_mesh(me)
+                        bm.free()
+                    
             
-            for e in new_edges['geom_inner']:
-                e.select = True
-            for e in remove_edges:
-                e.select = False
-            
-        bmesh.update_edit_mesh(me)
         return {'FINISHED'}

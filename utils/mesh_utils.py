@@ -1,7 +1,8 @@
 
 import bpy
 
-def modifier_toggle_visability_based(visibility_modifier_dict_list = {}): 
+
+def modifier_toggle_visability_based(visibility_modifier_dict_list={}):
     active_object_name = bpy.context.view_layer.objects.active.name
 
     if active_object_name not in visibility_modifier_dict_list:

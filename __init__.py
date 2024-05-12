@@ -18,7 +18,7 @@
 bl_info = {
     "name": "Key Ops: Toolkit",
     "author": "Dan Gry, MACHIN3",
-    "version": (0, 1, 83),
+    "version": (0, 1, 84),
     "blender": (4, 0, 0),
     "description": "Adds new tools, shortcuts and operations to Blender",
     "category": "3D View"
@@ -92,7 +92,8 @@ default_classes = [
     KeyOpsPreferences,
     Rebind,
 ]
-if bpy.app.version >= (4, 1, 0):
+#only add AutoSmooth if the version is 4.1.0 or higher but not higher than 4.2.0 since its fixed in 4.2.0
+if bpy.app.version >= (4, 1, 0) and bpy.app.version < (4, 2, 0):
     default_classes.append(AutoSmooth)
 
 def register():
@@ -132,6 +133,11 @@ def register():
     if debug:
         print(f"register_keymaps() took {time.time() - register_keymaps_time:.4f} seconds")
         print(f"{bl_info['name']} addon registered in {time.time() - addon_start_time:.4f} seconds")
+
+
+    # #print all addons names that are enabled
+    # for addon in bpy.context.preferences.addons:
+    #     print(addon.module)        
 
 def unregister():
     for cls in default_classes:

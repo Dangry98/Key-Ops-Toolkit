@@ -14,7 +14,6 @@ class QuickExport(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-
         active_collection = bpy.context.view_layer.active_layer_collection
 
         blend_file_name = bpy.path.basename(bpy.context.blend_data.filepath)

@@ -167,6 +167,7 @@ class SmartUVSync(bpy.types.Operator):
         bpy.utils.unregister_class(SelectSimilarUVIsland)
         bpy.utils.unregister_class(RemoveAllPins)
 
+
 class UVCut(bpy.types.Operator):
     bl_idname = "uv.keyops_uv_cut"
     bl_label = "KeyOps: UV Cut"
@@ -670,6 +671,7 @@ class SharpFromUVIslands(bpy.types.Operator):
             context.view_layer.objects.active = active_object
         return {'FINISHED'}
 
+
 class UnwrapInPlace(bpy.types.Operator):
     bl_idname = "uv.keyops_unwrap_in_place"
     bl_label = "KeyOps: Unwrap in Place"
@@ -1162,6 +1164,49 @@ class UnwrapInPlace(bpy.types.Operator):
             corners_of_face.location = (58.17718505859375, 975.83837890625)
             index.location = (-164.66323852539062, 893.779296875)
             
+            #Set dimensions
+            vector_math_001.width, vector_math_001.height = 140.0, 100.0
+            vector_math.width, vector_math.height = 140.0, 100.0
+            math.width, math.height = 140.0, 100.0
+            math_001.width, math_001.height = 140.0, 100.0
+            math_002.width, math_002.height = 140.0, 100.0
+            math_003.width, math_003.height = 140.0, 100.0
+            position.width, position.height = 140.0, 100.0
+            group_output.width, group_output.height = 140.0, 100.0
+            group_input.width, group_input.height = 140.0, 100.0
+            mix.width, mix.height = 140.0, 100.0
+            mix_001.width, mix_001.height = 140.0, 100.0
+            mix_002.width, mix_002.height = 140.0, 100.0
+            bounding_box.width, bounding_box.height = 140.0, 100.0
+            vector_math_004.width, vector_math_004.height = 140.0, 100.0
+            reroute.width, reroute.height = 140.0, 100.0
+            separate_xyz.width, separate_xyz.height = 140.0, 100.0
+            compare.width, compare.height = 140.0, 100.0
+            math_004.width, math_004.height = 140.0, 100.0
+            reroute_001.width, reroute_001.height = 140.0, 100.0
+            separate_xyz_001.width, separate_xyz_001.height = 140.0, 100.0
+            compare_001.width, compare_001.height = 140.0, 100.0
+            math_007.width, math_007.height = 140.0, 100.0
+            math_008.width, math_008.height = 140.0, 100.0
+            math_009.width, math_009.height = 140.0, 100.0
+            position_001.width, position_001.height = 140.0, 100.0
+            vertex_of_corner.width, vertex_of_corner.height = 140.0, 100.0
+            vertex_of_corner_001.width, vertex_of_corner_001.height = 140.0, 100.0
+            corners_of_face_001.width, corners_of_face_001.height = 140.0, 100.0
+            vertex_of_corner_002.width, vertex_of_corner_002.height = 140.0, 100.0
+            corners_of_face_002.width, corners_of_face_002.height = 140.0, 100.0
+            vertex_of_corner_003.width, vertex_of_corner_003.height = 140.0, 100.0
+            sample_index_002.width, sample_index_002.height = 140.0, 100.0
+            sample_index_005.width, sample_index_005.height = 140.0, 100.0
+            sample_index_004.width, sample_index_004.height = 140.0, 100.0
+            sample_index_007.width, sample_index_007.height = 140.0, 100.0
+            sample_index_001.width, sample_index_001.height = 140.0, 100.0
+            sample_index_003.width, sample_index_003.height = 140.0, 100.0
+            sample_index_008.width, sample_index_008.height = 140.0, 100.0
+            sample_index_006.width, sample_index_006.height = 140.0, 100.0
+            corners_of_face_003.width, corners_of_face_003.height = 140.0, 100.0
+            corners_of_face.width, corners_of_face.height = 140.0, 100.0
+            index.width, index.height = 140.0, 100.0
             
             #initialize match_bounding_box links
             #mix.Result -> mix_002.A
@@ -1292,7 +1337,7 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Unwrap In Place Tool")
 
             unwrap_in_place_tool.is_tool = True
-            unwrap_in_place_tool.is_mode_edit = True
+            unwrap_in_place_tool.is_mode_edit = False
             unwrap_in_place_tool.is_mode_sculpt = False
             unwrap_in_place_tool.is_type_curve = False
             unwrap_in_place_tool.is_type_mesh = True
@@ -1375,7 +1420,7 @@ class UnwrapInPlace(bpy.types.Operator):
             group_001.label = "Match Bounding Box"
             group_001.name = "Group.001"
             group_001.node_tree = match_bounding_box_node_group()
-            
+
             #node Group Input.006
             group_input_006 = unwrap_in_place_tool.nodes.new("NodeGroupInput")
             group_input_006.name = "Group Input.006"
@@ -1421,7 +1466,7 @@ class UnwrapInPlace(bpy.types.Operator):
             switch.name = "Switch"
             switch.input_type = 'VECTOR'
             #Switch
-            switch.inputs[0].default_value = True
+            switch.inputs[0].default_value = False
             
             #node UV Unwrap.002
             uv_unwrap_002 = unwrap_in_place_tool.nodes.new("GeometryNodeUVUnwrap")
@@ -1622,6 +1667,64 @@ class UnwrapInPlace(bpy.types.Operator):
             #Amount
             duplicate_elements_003.inputs[2].default_value = 1
             
+            #node Switch.004
+            switch_004 = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
+            switch_004.name = "Switch.004"
+            switch_004.input_type = 'GEOMETRY'
+            
+            #node Grid.001
+            grid_001 = unwrap_in_place_tool.nodes.new("GeometryNodeMeshGrid")
+            grid_001.name = "Grid.001"
+            #Size X
+            grid_001.inputs[0].default_value = 0.5
+            #Size Y
+            grid_001.inputs[1].default_value = 0.5
+            #Vertices X
+            grid_001.inputs[2].default_value = 2
+            #Vertices Y
+            grid_001.inputs[3].default_value = 2
+            
+            #node Transform Geometry.001
+            transform_geometry_001 = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
+            transform_geometry_001.name = "Transform Geometry.001"
+            #Translation
+            transform_geometry_001.inputs[1].default_value = (0.5, 0.5, 0.0)
+            #Rotation
+            transform_geometry_001.inputs[2].default_value = (0.0, 0.0, 0.0)
+            #Scale
+            transform_geometry_001.inputs[3].default_value = (1.0, 1.0, 1.0)
+            
+            #node Compare.003
+            compare_003 = unwrap_in_place_tool.nodes.new("FunctionNodeCompare")
+            compare_003.name = "Compare.003"
+            compare_003.data_type = 'FLOAT'
+            compare_003.mode = 'ELEMENT'
+            compare_003.operation = 'LESS_EQUAL'
+            #B
+            compare_003.inputs[1].default_value = 2.0
+            #A_INT
+            compare_003.inputs[2].default_value = 0
+            #B_INT
+            compare_003.inputs[3].default_value = 0
+            #A_VEC3
+            compare_003.inputs[4].default_value = (0.0, 0.0, 0.0)
+            #B_VEC3
+            compare_003.inputs[5].default_value = (0.0, 0.0, 0.0)
+            #A_COL
+            compare_003.inputs[6].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+            #B_COL
+            compare_003.inputs[7].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+            #A_STR
+            compare_003.inputs[8].default_value = ""
+            #B_STR
+            compare_003.inputs[9].default_value = ""
+            #C
+            compare_003.inputs[10].default_value = 0.8999999761581421
+            #Angle
+            compare_003.inputs[11].default_value = 0.08726649731397629
+            #Epsilon
+            compare_003.inputs[12].default_value = 0.0010000000474974513
+            
             
             
             
@@ -1660,7 +1763,7 @@ class UnwrapInPlace(bpy.types.Operator):
             vector_math_1.location = (1259.5888671875, 26.084964752197266)
             grid.location = (1657.582763671875, 73.90567016601562)
             transform_geometry.location = (2003.52880859375, -109.94488525390625)
-            switch_003.location = (2211.86767578125, -5.061500549316406)
+            switch_003.location = (2236.65283203125, -38.558162689208984)
             vector_math_001_1.location = (1624.822509765625, -196.11776733398438)
             vector_math_002.location = (1750.199462890625, -194.54443359375)
             compare_002.location = (1649.615234375, -30.162660598754883)
@@ -1671,7 +1774,62 @@ class UnwrapInPlace(bpy.types.Operator):
             duplicate_elements_002.location = (1675.232421875, -348.19586181640625)
             set_position_002.location = (747.9999389648438, -118.56639099121094)
             duplicate_elements_003.location = (2244.999755859375, -351.35821533203125)
-         
+            switch_004.location = (2420.06201171875, 109.07523345947266)
+            grid_001.location = (1965.2052001953125, 161.468994140625)
+            transform_geometry_001.location = (2141.143310546875, 236.33486938476562)
+            compare_003.location = (1833.024658203125, -36.365753173828125)
+            
+            #Set dimensions
+            group_input_001.width, group_input_001.height = 140.0, 100.0
+            group_output_001.width, group_output_001.height = 140.0, 100.0
+            set_position.width, set_position.height = 140.0, 100.0
+            named_attribute.width, named_attribute.height = 140.0, 100.0
+            position_1.width, position_1.height = 140.0, 100.0
+            split_edges.width, split_edges.height = 140.0, 100.0
+            store_named_attribute_003.width, store_named_attribute_003.height = 140.0, 100.0
+            uv_unwrap_001.width, uv_unwrap_001.height = 140.0, 100.0
+            store_named_attribute_004.width, store_named_attribute_004.height = 140.0, 100.0
+            set_position_003.width, set_position_003.height = 140.0, 100.0
+            set_position_001.width, set_position_001.height = 140.0, 100.0
+            group_001.width, group_001.height = 140.0, 100.0
+            group_input_006.width, group_input_006.height = 140.0, 100.0
+            store_named_attribute_006.width, store_named_attribute_006.height = 140.0, 100.0
+            named_attribute_001.width, named_attribute_001.height = 140.0, 100.0
+            sample_index_001_1.width, sample_index_001_1.height = 140.0, 100.0
+            index_1.width, index_1.height = 140.0, 100.0
+            duplicate_elements.width, duplicate_elements.height = 140.0, 100.0
+            capture_attribute.width, capture_attribute.height = 140.0, 100.0
+            switch.width, switch.height = 140.0, 100.0
+            uv_unwrap_002.width, uv_unwrap_002.height = 140.0, 100.0
+            selection.width, selection.height = 140.0, 100.0
+            evaluate_on_domain.width, evaluate_on_domain.height = 140.0, 100.0
+            named_attribute_002.width, named_attribute_002.height = 140.0, 100.0
+            named_attribute_003.width, named_attribute_003.height = 140.0, 100.0
+            remove_named_attribute.width, remove_named_attribute.height = 170.0, 100.0
+            string.width, string.height = 140.0, 100.0
+            value.width, value.height = 140.0, 100.0
+            boolean.width, boolean.height = 140.0, 100.0
+            string_001.width, string_001.height = 140.0, 100.0
+            bounding_box_1.width, bounding_box_1.height = 140.0, 100.0
+            vector_math_1.width, vector_math_1.height = 140.0, 100.0
+            grid.width, grid.height = 140.0, 100.0
+            transform_geometry.width, transform_geometry.height = 140.0, 100.0
+            switch_003.width, switch_003.height = 140.0, 100.0
+            vector_math_001_1.width, vector_math_001_1.height = 140.0, 100.0
+            vector_math_002.width, vector_math_002.height = 140.0, 100.0
+            compare_002.width, compare_002.height = 140.0, 100.0
+            vector_math_003.width, vector_math_003.height = 140.0, 100.0
+            domain_size.width, domain_size.height = 140.0, 100.0
+            merge_by_distance_002.width, merge_by_distance_002.height = 140.0, 100.0
+            named_attribute_004.width, named_attribute_004.height = 140.0, 100.0
+            duplicate_elements_002.width, duplicate_elements_002.height = 140.0, 100.0
+            set_position_002.width, set_position_002.height = 140.0, 100.0
+            duplicate_elements_003.width, duplicate_elements_003.height = 140.0, 100.0
+            switch_004.width, switch_004.height = 140.0, 100.0
+            grid_001.width, grid_001.height = 140.0, 100.0
+            transform_geometry_001.width, transform_geometry_001.height = 140.0, 100.0
+            compare_003.width, compare_003.height = 140.0, 100.0
+            
             #initialize unwrap_in_place_tool links
             #named_attribute.Attribute -> set_position.Position
             unwrap_in_place_tool.links.new(named_attribute.outputs[0], set_position.inputs[2])
@@ -1799,8 +1957,6 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool.links.new(merge_by_distance_002.outputs[0], domain_size.inputs[0])
             #set_position_002.Geometry -> bounding_box_1.Geometry
             unwrap_in_place_tool.links.new(set_position_002.outputs[0], bounding_box_1.inputs[0])
-            #switch_003.Output -> group_001.Geometry
-            unwrap_in_place_tool.links.new(switch_003.outputs[0], group_001.inputs[0])
             #string.String -> named_attribute_004.Name
             unwrap_in_place_tool.links.new(string.outputs[0], named_attribute_004.inputs[0])
             #named_attribute_004.Attribute -> set_position_001.Position
@@ -1815,163 +1971,216 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool.links.new(set_position_001.outputs[0], duplicate_elements_003.inputs[0])
             #evaluate_on_domain.Value -> duplicate_elements_003.Selection
             unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], duplicate_elements_003.inputs[1])
+            #switch_003.Output -> switch_004.False
+            unwrap_in_place_tool.links.new(switch_003.outputs[0], switch_004.inputs[1])
+            #switch_004.Output -> group_001.Geometry
+            unwrap_in_place_tool.links.new(switch_004.outputs[0], group_001.inputs[0])
+            #grid_001.Mesh -> transform_geometry_001.Geometry
+            unwrap_in_place_tool.links.new(grid_001.outputs[0], transform_geometry_001.inputs[0])
+            #transform_geometry_001.Geometry -> switch_004.True
+            unwrap_in_place_tool.links.new(transform_geometry_001.outputs[0], switch_004.inputs[2])
+            #domain_size.Point Count -> compare_003.A
+            unwrap_in_place_tool.links.new(domain_size.outputs[0], compare_003.inputs[0])
+            #compare_003.Result -> switch_004.Switch
+            unwrap_in_place_tool.links.new(compare_003.outputs[0], switch_004.inputs[0])
             return unwrap_in_place_tool
+
+        visibility_modifier_dict_list = {}
+
+        def modifier_toggle_visability_based2(): 
+            active_object_name = bpy.context.view_layer.objects.active.name
+
+            if active_object_name not in visibility_modifier_dict_list:
+                visibility_modifier_dict_list[active_object_name] = []
+
+            visibility_modifier_list = visibility_modifier_dict_list[active_object_name]
+
+            if len(visibility_modifier_list) <= 0:
+                ml_act_ob = bpy.context.view_layer.objects.active
+                for mod in ml_act_ob.modifiers:
+                    if mod.show_viewport:
+                        visibility_modifier_list.append(mod)
+                        mod.show_viewport = False
+            else:
+                ml_act_ob = bpy.context.view_layer.objects.active
+                hidden_modifiers = []
+                for mod in ml_act_ob.modifiers:
+                    if mod in visibility_modifier_list:
+                        mod.show_viewport = True
+                        hidden_modifiers.append(mod)
+                visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
+                visibility_modifier_dict_list[active_object_name] = visibility_modifier_list
 
         #import time
         #total_time = time.time()
+
+        if bpy.app.version <= (4, 0, 2):
+            self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
+            return {'FINISHED'}
+        
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                if obj.data.total_vert_sel > 0:
+                    bpy.context.view_layer.objects.active = obj
+                    modifier_toggle_visability_based2()
+
         #create_unwrap_in_place_node_group_time = time.time()
         if "Unwrap In Place Tool" not in bpy.data.node_groups:
             unwrap_in_place_tool_node_group()
         #print("Create Unwrap In Place Node Group Time: ", time.time() - create_unwrap_in_place_node_group_time)
 
         #start_op_time = time.time()
+    
+        if len([obj for obj in bpy.context.selected_objects if obj.type == 'MESH' and obj.data.total_vert_sel > 0]) == 0:
+            self.report({'WARNING'}, "Nothing is selected")
+            return {'FINISHED'}
+        
+        #print("Start Operator Time: ", time.time() - start_op_time)
+        #cheack_time = time.time()
+        has_synced = False
+        angle_based = False
 
-        if bpy.app.version <= (4, 0, 2):
-            self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
+        if self.uv_unwrap_method == 'ANGLE_BASED':
+            angle_based = True
+        #print("Check Time: ", time.time() - cheack_time)
+        
+        bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = True
+
+        selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH' and obj.data.total_vert_sel > 0]
+        
+        #pre_prep_selection_time = time.time()
+
+        if not self.selected_only:
+            #replace with geomtry nodes, way faster! can save at least 10% of the time
+            if self.select_islands:
+                bpy.ops.mesh.select_linked()
         else:
-            #print("Start Operator Time: ", time.time() - start_op_time)
-            #cheack_time = time.time()
-            has_synced = False
-            angle_based = False
-
-            if self.uv_unwrap_method == 'ANGLE_BASED':
-                angle_based = True
-            #print("Check Time: ", time.time() - cheack_time)
-            
-            bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = True
-
-            selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH' and obj.data.total_vert_sel > 0]
-            
-            #pre_prep_selection_time = time.time()
-
-            if not self.selected_only:
-                #replace with geomtry nodes, way faster! can save at least 10% of the time
-                if self.select_islands:
-                    bpy.ops.mesh.select_linked()
-            else:
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                if context.tool_settings.use_uv_select_sync == False:
-                    bpy.ops.uv.select_split()
-                bpy.ops.transform.translate(value=(0.00311425, -0.00103808, 0), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
-                bpy.ops.uv.seams_from_islands()
-            
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
             if context.tool_settings.use_uv_select_sync == False:
-                for obj in selected_objects:
-                    if obj.data.total_vert_sel > 0:
-                        context.view_layer.objects.active = obj
-                        obj.data.attributes.new(name='Currently_Visiable_Faces', type='BOOLEAN', domain='FACE')
-                        obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
-                        obj.data.update()
-                        bpy.ops.mesh.attribute_set(value_bool=True)
-                
-                has_synced = True
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                bpy.ops.uv.hide(unselected=True)
-
-            #print("Prep Selection Time: ", time.time() - pre_prep_selection_time)
+                bpy.ops.uv.select_split()
+            bpy.ops.transform.translate(value=(0.00311425, -0.00103808, 0), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
+            bpy.ops.uv.seams_from_islands()
+        
+        if context.tool_settings.use_uv_select_sync == False:
+            for obj in selected_objects:
+                if obj.data.total_vert_sel > 0:
+                    context.view_layer.objects.active = obj
+                    obj.data.attributes.new(name='Currently_Visiable_Faces', type='BOOLEAN', domain='FACE')
+                    obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
+                    obj.data.update()
+                    bpy.ops.mesh.attribute_set(value_bool=True)
             
-            #set_seam_atri = time.time()
-     
+            has_synced = True
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
+            bpy.ops.uv.hide(unselected=True)
+
+        #print("Prep Selection Time: ", time.time() - pre_prep_selection_time)
+        
+        #set_seam_atri = time.time()
+    
+        for obj in selected_objects:
+            if obj.data.total_vert_sel > 0:
+                me = obj.data
+                bm = bmesh.from_edit_mesh(me)
+
+                intial_selection = [face for face in bm.faces if face.select]
+                intial_selection_edges = [edge for edge in bm.edges if edge.select]
+
+                for edge in intial_selection_edges:
+                    edge.select = False
+                    if edge.seam:
+                        edge.select = True
+        if obj.data.total_vert_sel > 0:
+            bmesh.update_edit_mesh(me)
+
+        for obj in selected_objects:
+            if obj.data.total_vert_sel > 0:
+
+                context.view_layer.objects.active = obj
+
+                obj.data.attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
+                obj.data.attributes.active = obj.data.attributes.get('seam_Unwrap_In_Place')
+                obj.data.update()
+                bpy.ops.mesh.attribute_set(value_bool=True)
+
+        if obj.data.total_vert_sel > 0:
+            for face in intial_selection:
+                face.select = True
+        if obj.data.total_vert_sel > 0:
+            bmesh.update_edit_mesh(me)
+                
+        #print("Set Seam Atri ", time.time() - set_seam_atri)
+        
+        #get_uvmap_name_time = time.time()
+        uv_name_list_and_object = []
+        for obj in selected_objects:
+            if len(obj.data.uv_layers) == 0:
+                obj.data.uv_layers.new(name='UVMap')
+            if obj.data.uv_layers.active.name != 'UVMap':
+                if len(obj.data.uv_layers) > 0:
+                    uv_name_list_and_object.append([obj.data.uv_layers.active.name, obj])
+                    obj.data.uv_layers.active.name = 'UVMap'
+        #print("Get UVMap Name Time: ", time.time() - get_uvmap_name_time)
+
+        #add_modifier_time = time.time()
+
+        if angle_based:
+            bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = True
+        else:
+            bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = False
+
+        if self.ignore_pin == False:
             for obj in selected_objects:
                 if obj.data.total_vert_sel > 0:
                     me = obj.data
                     bm = bmesh.from_edit_mesh(me)
+                    uv = bm.loops.layers.uv.verify()
 
-                    intial_selection = [face for face in bm.faces if face.select]
-                    intial_selection_edges = [edge for edge in bm.edges if edge.select]
+                    for f in bm.faces:
+                        for l in f.loops:
+                            if l[uv].pin_uv:
+                                f.select = False 
+                    bmesh.update_edit_mesh(me)
+       
+        context_override = context.copy()
+        context_override["area"].type = 'VIEW_3D'
+        bpy.ops.geometry.execute_node_group(name="Unwrap In Place Tool")
+        bpy.context.area.ui_type = 'UV'
+        #("Unwrap Time ", time.time() - add_modifier_time)
 
-                    for edge in intial_selection_edges:
-                        edge.select = False
-                        if edge.seam:
-                            edge.select = True
-            if obj.data.total_vert_sel > 0:
-                bmesh.update_edit_mesh(me)
+        #restore_uvmap_name_time = time.time()
+        for uv_name in uv_name_list_and_object:
+            uv_name[1].data.uv_layers.active.name = uv_name[0]
+        #print("Restore UVMap Name Time: ", time.time() - restore_uvmap_name_time)
 
+        #edit_mode_time = time.time()
+        bpy.ops.uv.average_islands_scale(scale_uv=True, shear=False)
+        if self.pack_uv_islands:
+            bpy.ops.uv.pack_islands(udim_source='ORIGINAL_AABB', margin=self.margin, shape_method='AABB', rotate_method= self.rotation_method, rotate=self.rotate)
+        if has_synced:
+            bpy.context.scene.tool_settings.use_uv_select_sync = False
+        #print("Edit Mode Time: ", time.time() - edit_mode_time)
+
+        #restore_selection_time = time.time()
+        if has_synced:
             for obj in selected_objects:
-                if obj.data.total_vert_sel > 0:
-
+                if obj.data.attributes.get('Currently_Visiable_Faces'):
                     context.view_layer.objects.active = obj
+                    obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
+                    bpy.ops.mesh.select_by_attribute()
+                    obj.data.attributes.remove(obj.data.attributes.get('Currently_Visiable_Faces'))
+            #print("Restore Selection Time: ", time.time() - restore_selection_time)
+        
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                if obj.data.total_vert_sel > 0:
+                    bpy.context.view_layer.objects.active = obj
+                    modifier_toggle_visability_based2()
 
-                    obj.data.attributes.new(name='seam_Unwrap_In_Place', type='BOOLEAN', domain='EDGE')
-                    obj.data.attributes.active = obj.data.attributes.get('seam_Unwrap_In_Place')
-                    obj.data.update()
-                    bpy.ops.mesh.attribute_set(value_bool=True)
-
-            if obj.data.total_vert_sel > 0:
-                for face in intial_selection:
-                    face.select = True
-            if obj.data.total_vert_sel > 0:
-                bmesh.update_edit_mesh(me)
-                    
-            #print("Set Seam Atri ", time.time() - set_seam_atri)
-            
-            #get_uvmap_name_time = time.time()
-            uv_name_list_and_object = []
-            for obj in selected_objects:
-                if obj.data.uv_layers.active.name != 'UVMap':
-                    if len(obj.data.uv_layers) > 0:
-                        uv_name_list_and_object.append([obj.data.uv_layers.active.name, obj])
-                        obj.data.uv_layers.active.name = 'UVMap'
-            #print("Get UVMap Name Time: ", time.time() - get_uvmap_name_time)
-
-            #add_modifier_time = time.time()
-            # context_override = context.copy()
-            # context_override["area"].type = 'VIEW_3D'
-            # bpy.ops.geometry.execute_node_group(asset_library_type='LOCAL', asset_library_identifier="", relative_asset_identifier="NodeTree\\Unwrap In Place Tool")
-            # bpy.context.area.ui_type = 'UV'
-            if angle_based:
-                bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = True
-            else:
-                bpy.data.node_groups["Unwrap In Place Tool"].nodes["Switch"].inputs[0].default_value = False
-
-            if self.ignore_pin == False:
-                for obj in selected_objects:
-                    if obj.data.total_vert_sel > 0:
-                        me = obj.data
-                        bm = bmesh.from_edit_mesh(me)
-                        uv = bm.loops.layers.uv.verify()
-
-                        for f in bm.faces:
-                            for l in f.loops:
-                                if l[uv].pin_uv:
-                                    f.select = False 
-                        bmesh.update_edit_mesh(me)
-
-            areas = bpy.context.screen.areas
-            area = [a for a in areas if a.type == 'VIEW_3D'][0]
-            
-            with bpy.context.temp_override(area=area):
-                bpy.ops.geometry.execute_node_group(name="Unwrap In Place Tool")
-            #print("Unwrap Time ", time.time() - add_modifier_time)
-
-            #restore_uvmap_name_time = time.time()
-            for uv_name in uv_name_list_and_object:
-                uv_name[1].data.uv_layers.active.name = uv_name[0]
-            #print("Restore UVMap Name Time: ", time.time() - restore_uvmap_name_time)
-
-
-            #edit_mode_time = time.time()
-            bpy.ops.uv.average_islands_scale(scale_uv=True, shear=False)
-            if self.pack_uv_islands:
-                bpy.ops.uv.pack_islands(udim_source='ORIGINAL_AABB', margin=self.margin, shape_method='AABB', rotate_method= self.rotation_method, rotate=self.rotate)
-            if has_synced:
-                bpy.context.scene.tool_settings.use_uv_select_sync = False
-            #print("Edit Mode Time: ", time.time() - edit_mode_time)
-
-            #restore_selection_time = time.time()
-            if has_synced:
-                for obj in selected_objects:
-                    if obj.data.attributes.get('Currently_Visiable_Faces'):
-                        context.view_layer.objects.active = obj
-                        obj.data.attributes.active = obj.data.attributes.get('Currently_Visiable_Faces')
-                        bpy.ops.mesh.select_by_attribute()
-                        obj.data.attributes.remove(obj.data.attributes.get('Currently_Visiable_Faces'))
-                #print("Restore Selection Time: ", time.time() - restore_selection_time)
-            
-            bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = False
-
-        #print("Total Time: ", time.time() - total_time)
+        bpy.data.node_groups["Unwrap In Place Tool"].is_mode_edit = False
+        #("Total Time: ", time.time() - total_time)
         return {'FINISHED'}
+
 
 class AutoSeam(bpy.types.Operator):
     bl_idname = "keyops.seam_by_angle"
@@ -2279,7 +2488,7 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row.operator("keyops.smart_uv_sync", text="Smart UV Sync", icon='UV_SYNC_SELECT')
         row.prop(context.scene, "smart_uv_sync_enable", toggle=True, text="Enable")
 
-        #uv islands    
+        #uv islands  
         row = layout.row()
         row.label(text="UV Islands")
         row = layout.row(align=True)
@@ -2355,9 +2564,8 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.separator()
         row = layout.row()
         row.label(text="Align")
-        row = layout.row(align=False)
-        row.operator("keyops.orient_island_to_edge", text="Orient Island to Edge")
         row = layout.row(align=True)
+        row.operator("keyops.orient_island_to_edge", text="Orient to Edge")
         row.operator("uv.align_rotation", text="Align Islands"). method='AUTO'
 
         #select
@@ -2365,9 +2573,14 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Select")
         row = layout.row(align=True)
+        row.operator("uv.select_more", text="More", icon='ADD')
+        row.operator("uv.select_less", text="Less", icon='REMOVE')
+        row = layout.row(align=True)
         row.operator("uv.keyops_select_similar_uv_island", text="Similar")
         row.operator("uv.select_overlap", text="Overlap")
-        row.operator("uv.select_pinned", text="Pin")
+        row = layout.row(align=True)
+        row.operator("uv.select_linked", text="Island")
+        row.operator("uv.select_pinned", text="Pinned")
 
         #transform
         row = layout.separator()
