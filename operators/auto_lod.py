@@ -4,22 +4,23 @@ from ..utils.pref_utils import get_keyops_prefs
 
 prefs = get_keyops_prefs()
 
-#to do:
-#add X symmetrize option for decimate modifier - DONE
-#orginize menu panel better
-#replace delete small face with delete by mesh island
-#use split edge node instead of modifer
-#place the lods in the current collection?
-#add auto smooth angle
-#add data transfere for normals
-#fix node group for delete small faces error and update to last version
+# to do:
+# add X symmetrize option for decimate modifier - DONE
+# orginize menu panel better
+# replace delete small face with delete by mesh island
+# use split edge node instead of modifer
+# place the lods in the current collection?
+# add auto smooth angle
+# add data transfere for normals
+# fix node group for delete small faces error and update to last version
+
 
 class AutoLOD(bpy.types.Operator):
     bl_idname = "keyops.auto_lod"
     bl_label = "Auto LOD"
     bl_description = "Auto LOD"
     bl_options = {'REGISTER', 'UNDO'}
- 
+
     def register():
         bpy.utils.register_class(DeleteSmallFaces)
         bpy.utils.register_class(DeleteLooseEdges)
@@ -31,6 +32,7 @@ class AutoLOD(bpy.types.Operator):
         bpy.utils.unregister_class(DeleteLooseEdges)
         bpy.utils.unregister_class(GenerateLODOperator)
         bpy.utils.unregister_class(GenerateLODPanel)
+
 
 class DeleteSmallFaces(bpy.types.Operator):
     bl_idname = "object.delete_small_faces"
@@ -173,6 +175,7 @@ class DeleteSmallFaces(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
 class DeleteLooseEdges(bpy.types.Operator):
     bl_idname = "object.delete_loose_edges"
     bl_label = "Delete Loose Edges"
@@ -256,8 +259,7 @@ class GenerateLODOperator(bpy.types.Operator):
         wm.progress_begin(0, total_steps)
 
         orginal_objects = selected_objects.copy()
-
-            
+      
         for obj in selected_objects:
             for i in range(amount_of_lods):
                 # Update progress cursor
@@ -280,7 +282,6 @@ class GenerateLODOperator(bpy.types.Operator):
                         split_angle_degrees = context.scene.edge_split_angle
                         split_angle_radians = math.radians(split_angle_degrees)
                         split_edge_modifier.split_angle = split_angle_radians
-                
 
                     decimate_modifier = new_object.modifiers.new(name="Decimate", type='DECIMATE')
                     decimate_modifier.ratio = (1 - lod_difference) ** (i + 1)
@@ -335,16 +336,13 @@ class GenerateLODOperator(bpy.types.Operator):
         
         all_selected_objects = context.selected_objects
 
-        #create collections for each orginal object and name them the same name as the orginal object - suffix
+        # create collections for each orginal object and name them the same name as the orginal object - suffix
         if create_collection:
             for obj in orginal_objects:
-                #remove the suffix from the name to get the collection name withoute suffix
+                # remove the suffix from the name to get the collection name withoute suffix
                 collection_name = obj.name[:-len(suffix)]
                 collection = bpy.data.collections.new(collection_name)
-                bpy.context.scene.collection.children.link(collection)
-         
-                
-                
+                bpy.context.scene.collection.children.link(collection)          
         wm.progress_end()
 
         bpy.ops.ed.undo_push(True)
@@ -363,7 +361,7 @@ class GenerateLODPanel(bpy.types.Panel):
     def poll(cls, context):
         if context.mode == "OBJECT":
             return True
-    
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
@@ -382,8 +380,8 @@ class GenerateLODPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(scene, "lod_parent_object", text="Parent Object")
 
-        #row = layout.row()
-        #row.prop(scene, "create_collection", text="Create Collection")
+        # row = layout.row()
+        # row.prop(scene, "create_collection", text="Create Collection")
 
         # row = layout.row()
         # row.prop(scene, "apply_decimate_modifier", text="Apply Decimate Modifier")
@@ -418,7 +416,6 @@ class GenerateLODPanel(bpy.types.Panel):
         row = layout.row()
         row.scale_y = 1.5
         row.operator("object.generate_lod", text="Generate LODs")
-    
 
     def register():
         bpy.types.Scene.suffix = bpy.props.StringProperty(default="_LOD")
@@ -443,12 +440,12 @@ class GenerateLODPanel(bpy.types.Panel):
         del bpy.types.Scene.apply_decimate_modifier
         del bpy.types.Scene.amount_of_lods
         del bpy.types.Scene.lod_difference
-        del bpy.types.Scene.unlock_normals_on_all_lods 
+        del bpy.types.Scene.unlock_normals_on_all_lods
         del bpy.types.Scene.edge_split
         del bpy.types.Scene.edge_split_angle
         del bpy.types.Scene.max_face_size
         del bpy.types.Scene.remove_non_manifold_faces
-        del bpy.types.Scene.multipler 
+        del bpy.types.Scene.multipler
         del bpy.types.Scene.delete_loose_edges
         del bpy.types.Scene.keep_symmetry_X
         del bpy.types.Scene.transfere_normals

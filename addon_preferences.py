@@ -16,7 +16,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     prefs_tabs = [("EXTENSIONS", "Extensions", ""),
                         ("KEYMAPS", "Keymaps", ""),
                         #("KEYOPS", "Keyops", ""),
-                        #("REBIND", "Rebind", ""),
+                        ("REBIND", "Remap", ""),
                         ("ABOUT", "About", "")]
 
     tabs: EnumProperty(name="Tabs", items=prefs_tabs, default="EXTENSIONS") # type: ignore
@@ -32,7 +32,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             "EXTENSIONS": self.draw_extensions,
             "KEYMAPS": self.draw_keymaps,
             #"KEYOPS": self.draw_keyops,
-            #"REBIND": self.draw_rebind,
+            "REBIND": self.draw_rebind,
             "ABOUT": self.draw_about}
 
         box = column.box()
@@ -74,7 +74,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
         pie_data = [("Faster way to add mesh primitivs", "enable_add_objects_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, None, "https://key-ops-toolkit.notion.site/UV-faa2eddaa1cd440088a31f25aa23a2d8"),
-                    ("Viewport perspectiv views and focus on object", "enable_view_camera_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("WIP. Faster way to Add Common Modifers", "enable_add_modifier_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("Switch Workspace Faster", "enable_workspace_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),
                     ("Better Shift S Pie Menu", "enable_cursor_pie", True, None, "https://key-ops-toolkit.notion.site/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7"),]
@@ -130,7 +129,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 row = layout.row()
                 row.label(text="Auto Delete")
                 row.prop(self, "auto_delete_dissolv_edge")
-                row.operator("keyops.add_delete_menu_object_mode_menu", text="Reset to Default, popup menu")
+                row.operator("keyops.add_delete_menu_object_mode_menu", icon ="BACK", text="Reset to Default, popup menu")
 
         if self.enable_toggle_retopology:
             bb = b.box()
@@ -212,7 +211,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
                 row.label(text="Add Menu is currently (Shift Alt A)")
                 row.alignment = 'LEFT'
-                row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)?"). type = "Add Object Pie Rebind Shift Alt A" 
+                row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)?", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A" 
             
             layout = column.split(factor=5.0)  
             row = layout.row()
@@ -225,34 +224,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             row = layout.row()
             row.alignment = 'LEFT'
             row.prop(self, "add_object_pie_empty")
-
-        if self.enable_view_camera_pie:
-                bb = b.box()
-                column = bb.column()
-                layout = column.split(factor=2.0)
-
-                def check_view_camera_pie_keymap():
-                    is_view_camera_pie_space = False
-                    for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-                        for keymap_item in keymap.keymap_items:
-                            if keymap_item.name == "Play Animation" and keymap_item.type == "SPACE" and keymap_item.shift==False:
-                                is_view_camera_pie_space = True
-                                break
-                    return is_view_camera_pie_space
-                   
-                is_view_camera_pie_space = check_view_camera_pie_keymap()
-                if is_view_camera_pie_space:
-                    row = layout.row()
-                    row.label(text="View Camera Pie Warning, Currently Blocked by (Space) Play", icon='ERROR')
-                    col = bb.column()
-                    row = col.row()
-                    row.operator("keyops.space_to_view_camera_pie", text="Fix: Play to (Shift Space)"). type = "Space To View Camera Pie Shift"
-                else:
-                    row = layout.row()
-                    row.label(text="View Camera Pie")
-                    row.alignment = 'LEFT'
-                    row.label(text="Play Animation Currently (Shift Space)")
-                    row.operator("keyops.space_to_view_camera_pie", text="Play back to (Space)?"). type = "Space To View Camera Pie"            
 
         # if self.enable_uv_tools:
         #     bb = b.box()
@@ -298,45 +269,81 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         bb = box.box()
         column = bb.column()
         row = column.row()
-        row.label(text="Rebind Shortcuts in Blender")
+        row.label(text="Rebind/Cusomize Shortcuts in Blender")
         row.separator()
         row = column.row()
-        row.label(text="WIP. Warning this will overwrite your current shortcuts when prefrences are saved, even if you remove the addon", icon='ERROR')
+        row.label(text="WIP. Warning this will permanently change your shortcuts", icon='ERROR')
         
-        row.separator()
-        row.separator()
+        bb = box.box()
+        column = bb.column()
         row = column.row()
-        row.label(text="Rebind Context Menu to W (Operator)")
+        row.label(text="Rebind")
+
+        row.separator()
+        row.separator()
+        
+        row = column.row()
+        row.label(text="Rebind Context Menu to (W)")
         row.operator("keyops.rebind_w")
         
         row = column.row()
-        row.label(text="Rebind Context Menu to Default RightClick (Operator)")
+        row.label(text="Rebind Context Menu to Default (RightClick)")
         row.operator("keyops.rebind_rightclick")
 
+        def check_add_mesh_pie_keymap():
+            is_add_mesh_pie_alt = False
+            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
+                for keymap_item in keymap.keymap_items:
+                    if keymap_item.name == "Add Mesh Pie" and keymap_item.type == "A" and keymap_item.shift and keymap_item.alt:
+                        is_add_mesh_pie_alt = True
+                        break
+            return is_add_mesh_pie_alt
+        
+        is_add_mesh_pie_alt = check_add_mesh_pie_keymap()
 
-        row = column.row()
-        row.label(text="Rebind Context Menu to Shift Space (Operator)")
-        row.operator("keyops.space_to_view_camera_pie", text="Space To View Camera Pie Shift"). type = "Space To View Camera Pie Shift"
-        row = column.row()
-        row.label(text="Rebind Context Menu to Space (Operator)")
-        row.operator("keyops.space_to_view_camera_pie", text="Play back to (Space)?"). type = "Space To View Camera Pie"
+        if is_add_mesh_pie_alt:
+            row = column.row()
+            row.label(text="Rebind Add Menu")
+            row.operator("keyops.add_object_pie_rebind", text="Add Menu to (Shift Alt A)"). type = "Add Object Pie Rebind Shift A"
+        else:
+            row = column.row()
+            row.label(text="Rebind Add Menu")
+            row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A"
 
+        bb = box.box()
+        column = bb.column()
         row = column.row()
-        row.label(text="Rebind Context Menu to Shift A (Operator)")
-        row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)?"). type = "Add Object Pie Rebind Shift A"
-
-        row = column.row()
-        row.label(text="Rebind Context Menu to Shift Alt A (Operator)")
-        row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)?"). type = "Add Object Pie Rebind Shift Alt A"
+        row.label(text="Pies")
 
         #pie menu settings
         row = column.row()
-        row.label(text="Pie Menu Settings (Operator)")
+        row.label(text="Pie Menu Animation Timeout")
         if bpy.context.preferences.view.pie_animation_timeout == 6:
             row.operator("keyops.rebind", text="No Lag Pie Menu Settings").type = "No_Lag_Pie"
         else:
-            row.operator("keyops.rebind", text = "Reset to Defualt Pie Menu Settings").type = "Default_Pie"
+            row.operator("keyops.rebind", text = "Reset to Defualt", icon ="BACK").type = "Default_Pie"
 
+        def check_view_camera_pie_keymap():
+            is_view_camera_pie_space = False
+            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
+                for keymap_item in keymap.keymap_items:
+                    if keymap_item.name == "Play Animation" and keymap_item.type == "SPACE" and keymap_item.shift==False:
+                        is_view_camera_pie_space = True
+                        break
+            return is_view_camera_pie_space
+            
+        is_view_camera_pie_space = check_view_camera_pie_keymap()
+        
+        if is_view_camera_pie_space:
+            row = column.row()
+
+            row.label(text="View Camera Pie")
+            row.operator("keyops.space_to_view_camera_pie", text="View Camera Pie to (Space)"). type = "Space To View Camera Pie Shift"
+        else:
+            row = column.row()
+
+            row.label(text="View Camera Pie")
+            row.operator("keyops.space_to_view_camera_pie", text="Reset Play back to (Space)", icon ="BACK"). type = "Space To View Camera Pie"            
 
     def draw_about(self, box):
         links = [("Documentation (incomplete, wip)", "https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9", "INFO"),
@@ -345,7 +352,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             
             ("" ,"", ""),
             ("My Favorite Addons:", "", "FUND"),
-            ("", "", ""),
 
             ("HardOps/Boxcutter", "https://blendermarket.com/products/hard-ops--boxcutter-ultimate-bundle?ref=100", "WORLD"),
             ("Meshmachine", "https://blendermarket.com/products/meshmachine", "WORLD"),
@@ -356,7 +362,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             ("Pie Menu Editor", "https://blendermarket.com/products/pie-menu-editor", "WORLD"),
             ("Poly Quilt", "https://blenderartists.org/t/polyquilt-addon-for-blender-2-8/1168918/590?u=dangry", "WORLD"),
             ("UV Packmaster", "https://blendermarket.com/products/uvpackmaster", "WORLD"),
-            ("X-Ray Selection Tools", "https://captain-cirno.gumroad.com/l/DaLdj", "WORLD")]
+            ("X-Ray Selection Tools", "https://github.com/BenjaminSauder/EdgeFlow", "WORLD"),
+            ("Edge Flow", "https://github.com/BenjaminSauder/EdgeFlow", "WORLD")]
         
         column = box.column()
 
@@ -426,7 +433,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", default=True, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=True, update=enable_deco("add_objects_pie")) # type: ignore
-    enable_view_camera_pie: BoolProperty(name="View Camera Pie", default=False, update=enable_deco("view_camera_pie")) # type: ignore
     enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
     enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", default=True, update=enable_deco("workspace_pie")) # type: ignore
@@ -436,7 +442,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_cad_decimate: BoolProperty(name="CAD Decimate", default=False, update=enable_deco("cad_decimate"))     # type: ignore
     enable_auto_lod: BoolProperty(name="Auto LOD", default=False, update=enable_deco("auto_lod")) # type: ignore
     enable_quick_bake_name: BoolProperty(name="Quick Bake Name", default=False, update=enable_deco("quick_bake_name")) # type: ignore
-    enable_polycount_list: BoolProperty(name="Polycount List", default=False, update=enable_deco("polycount_list")) # type: ignore
+    enable_polycount_list: BoolProperty(name="Polycount List", default=True, update=enable_deco("polycount_list")) # type: ignore
     enable_utilities_panel_op: BoolProperty(name="Utilities Panel", default=True, update=enable_deco("utilities_panel_op")) # type: ignore
     enable_quick_export: BoolProperty(name="Quick Export", default=False, update=enable_deco("quick_export")) # type: ignore
     enable_atri_op: BoolProperty(name="Atributes Operations", default=True, update=enable_deco("atri_op")) # type: ignore
@@ -464,10 +470,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         default="maya") # type: ignore
     toggle_retopology_custom_color: FloatVectorProperty(name="", subtype='COLOR', size=4, default=(0.313726, 0.784314, 1.0, 0.058824), min=0.0, max=1.0) # type: ignore
     toggle_retopology_face_alpha: FloatProperty(name="Face Alpha", default=0.301961, min=0.0, max=1.0) # type: ignore
-    toggle_retopology_edge_width: IntProperty(name="Edge Width", default=3, min=1, max=5) # type: ignore
+    toggle_retopology_edge_width: IntProperty(name="", default=3, min=1, max=5) # type: ignore
     toggle_retopology_snapping_settings_save_string: StringProperty(name="Snap Settings", default="") # type: ignore
     toggle_retopology_snapping_settings_vert: BoolProperty(name="Vert", default=False) # type: ignore
-    toggle_retopology_snapping_settings_face: BoolProperty(name="Faces", default=True) # type: ignore
+    toggle_retopology_snapping_settings_face: BoolProperty(name="Face", default=True) # type: ignore
     toggle_retopology_snapping_settings_face_project: BoolProperty(name="Face Project", default=False) # type: ignore
     toggle_retopology_snapping_settings_face_nearest: BoolProperty(name="Face Nearest", default=False) # type: ignore
 

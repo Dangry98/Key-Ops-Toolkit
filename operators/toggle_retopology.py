@@ -213,6 +213,21 @@ class Retopolgy_Panel(bpy.types.Panel):
             row = layout.row()
             row.scale_y = 0.8
             row.operator("wm.url_open", text="Download").url = "https://github.com/Dangry98/PolyQuilt-for-Blender-4.0/releases"
+
+        if bpy.context.preferences.use_preferences_save == True:
+            row = layout.row()
+            row.scale_y = 0.6
+
+            row.label(text="AutoSave Prefs is enabled", icon="ERROR")
+            row = layout.row()
+            row.scale_y = 0.6
+
+            row.label(text="Please Disable")
+            row.prop(bpy.context.preferences, "use_preferences_save", text="Disable", toggle=True)
+            #link to website
+            row = layout.row()
+            row.scale_y = 0.6
+            row.operator("wm.url_open", text="More Info").url = "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"
         
 class RETOPOLOGY_PT_Settings(bpy.types.Panel):
     bl_label = "Retopology Settings"
@@ -242,6 +257,8 @@ class RETOPOLOGY_PT_Settings(bpy.types.Panel):
 
         if prefs.toggle_retopology_color_enum == "custom_color":
             row.prop(prefs, "toggle_retopology_face_alpha")
+        row = layout.row()
+        row.label(text="Edge Width:")
         row.prop(prefs, "toggle_retopology_edge_width")
 
         layout = self.layout
@@ -249,14 +266,13 @@ class RETOPOLOGY_PT_Settings(bpy.types.Panel):
         row = col.row(align=True)
 
         
-        col.label(text="Snapping Settings:")
+        col.label(text="Snapp Settings:")
         row = col.row(align=True)
         row.prop(prefs, "toggle_retopology_snapping_settings_vert", icon="SNAP_VERTEX")
         row.prop(prefs, "toggle_retopology_snapping_settings_face", icon="SNAP_FACE")
         row = col.row(align=True)
         row.prop(prefs, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE")
         row.prop(prefs, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP")
-
 
         if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt"):
             row = layout.row()

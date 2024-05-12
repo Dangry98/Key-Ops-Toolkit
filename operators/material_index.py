@@ -1,5 +1,6 @@
 import bpy.types
 from bpy.props import StringProperty, PointerProperty, CollectionProperty
+from bpy_extras import view3d_utils
 
 class MaterialItem(bpy.types.PropertyGroup):
     name: StringProperty() # type: ignore
@@ -182,6 +183,7 @@ class MaterialIndex(bpy.types.Operator):
         bpy.utils.register_class(MaterialAssign)
         bpy.utils.register_class(MaterialItem)
         bpy.utils.register_class(MaterialListProperty)
+        #bpy.utils.register_class(MaterialPicker)
         bpy.types.Scene.material_list_property = PointerProperty(type=MaterialListProperty)
 
     def unregister():
@@ -190,6 +192,7 @@ class MaterialIndex(bpy.types.Operator):
         bpy.utils.unregister_class(MaterialAssign)
         bpy.utils.unregister_class(MaterialItem)
         bpy.utils.unregister_class(MaterialListProperty)
+        #bpy.utils.unregister_class(MaterialPicker)
         del bpy.types.Scene.material_list_property
 
     
@@ -316,3 +319,95 @@ class MaterialAssign(bpy.types.Operator):
                 #             obj.data.materials.pop(index=obj.active_material_index)
                 #         obj.data.materials.append(bpy.data.materials.get(context.scene.material_list_property.items[assign_index].name))
         return {'FINISHED'}
+    
+    def register():
+        bpy.types.EEVEE_MATERIAL_PT_context_material.append(menu_material)
+        if hasattr(bpy.types, 'CYCLES_PT_context_material'):
+            bpy.types.CYCLES_PT_context_material.append(menu_material)
+    def unregister():
+        if hasattr(bpy.types, 'EEVEE_MATERIAL_PT_context_material'):
+            bpy.types.EEVEE_MATERIAL_PT_context_material.remove(menu_material)
+        if hasattr(bpy.types, 'CYCLES_PT_context_material'):
+            bpy.types.CYCLES_PT_context_material.remove(menu_material)
+    
+def menu_material(self, context):
+    layout = self.layout
+    row = layout.row(align=True)
+    if bpy.context.mode == 'OBJECT':
+        #row.operator("view3d.material_picker", icon = "EYEDROPPER")
+        if bpy.context.active_object.data.materials:
+            row.operator("object.material_slot_copy", text="Assign")
+            row.operator("keyops.material_index", text="Clear Unused").type="Clear_Unused_Materials"
+
+
+
+def main(context, event):
+    # get the context arguments
+    scene = context.scene
+    region = context.region
+    rv3d = context.region_data
+    coord = event.mouse_region_x, event.mouse_region_y
+#    scene = bpy.context.scene 
+#    viewlayer = bpy.context.view_layer
+    viewlayer = context.view_layer
+
+    # get the ray from the viewport and mouse
+    view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
+    ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
+#    ray_target = ray_origin + (view_vector *-10)
+#    ray_goal = ray_origin + (view_vector *1000)
+    
+
+#    result, location, normal, index, object, matrix = scene.ray_cast(viewlayer, ray_target, ray_goal)
+    result, location, normal, index, object, matrix = scene.ray_cast(bpy.context.evaluated_depsgraph_get(), ray_origin, view_vector)
+
+    # get and select object
+#    obj = object  
+#    bpy.ops.object.select_all(action='DESELECT')
+#    context.view_layer.objects.active = obj
+
+    if result:
+        for o in context.selected_objects:
+            o.select_set(False)
+        dg = context.depsgraph
+#        eval_obj = dg.id_eval_get(obj)
+        eval_obj = dg.id_eval_get(object)
+        viewlayer.objects.active = object.original
+    
+#    if obj:
+        # select material slot
+        MatInd = eval_obj.data.polygons[index].material_index
+        
+        print (MatInd)
+        object.original.active_material_index = MatInd
+
+#    else:
+#        return {'CANCELLED'}
+    return {'FINISHED'}
+
+
+class MaterialPicker(bpy.types.Operator):
+    bl_idname = "view3d.material_picker"
+    bl_label = ""
+
+    def modal(self, context, event):
+        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 
+'WHEELDOWNMOUSE'}:
+            # allow navigation
+            return {'PASS_THROUGH'}
+#        elif event.type == 'LEFTMOUSE':
+        elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            main(context, event)
+            return {'RUNNING_MODAL'}
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        if context.space_data.type == 'VIEW_3D':
+            context.window_manager.modal_handler_add(self)
+            return {'RUNNING_MODAL'}
+        else:
+            self.report({'WARNING'}, "Active space must be a View3d")
+            return {'CANCELLED'}

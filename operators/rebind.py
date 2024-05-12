@@ -89,6 +89,7 @@ class AddObjectPieRebindShiftA(bpy.types.Operator):
                             for keymap_item in keymap.keymap_items:
                                 if keymap_item.name == "Add" and keymap_item.type == "A" and keymap_item.shift:
                                     keymap_item.alt = True
+
         elif self.type == "Add Object Pie Rebind Shift Alt A":
             for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
                 for keymap_item in keymap.keymap_items:
@@ -115,12 +116,23 @@ class SpaceToViewPieShift(bpy.types.Operator):
             for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
                 for keymap_item in keymap.keymap_items:
                     if keymap_item.name == "Play Animation" and keymap_item.type == "SPACE" and keymap_item.shift==False:
-                        keymap_item.shift = True           
+                        keymap_item.shift = True   
+
+            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
+                for keymap_item in keymap.keymap_items:
+                    if keymap_item.name == "View" and keymap_item.idname == "wm.call_menu_pie":
+                        keymap_item.type = "SPACE"
+
         elif self.type == "Space To View Camera Pie":
             for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
                 for keymap_item in keymap.keymap_items:
                     if keymap_item.name == "Play Animation" and keymap_item.type == "SPACE" and keymap_item.shift:
-                        keymap_item.shift = False   
+                        keymap_item.shift = False  
+
+            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
+                for keymap_item in keymap.keymap_items:
+                    if keymap_item.name == "View" and keymap_item.idname == "wm.call_menu_pie":
+                        keymap_item.type = "ACCENT_GRAVE"
         return {'FINISHED'}
   
 class RemoveDeleteMenuObjectModeMenu(bpy.types.Operator):

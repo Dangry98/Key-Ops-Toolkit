@@ -1,15 +1,15 @@
 import bpy.types
-from bpy.types import Context, Menu
+from bpy.types import Menu
 from ..utils.pref_utils import get_is_addon_enabled
 from ..utils.pref_utils import get_keyops_prefs
-import bmesh
-import mathutils
+
 
 hardops = None
 uvpackmaster = None
 uvtoolkit = None
 zenuv = None
 polyquilt = None
+
 
 class AddObjectsPie(Menu):
     bl_idname = "KEYOPS_MT_add_objects_pie"
@@ -20,24 +20,25 @@ class AddObjectsPie(Menu):
         pie = layout.menu_pie()
         prefs = get_keyops_prefs()
 
-        pie.operator("keyops.add_mesh", text="UV Sphere", icon="SHADING_WIRE").mesh_type = "UVSPHERE" #LEFT
+        pie.operator("keyops.add_mesh", text="UV Sphere", icon="SHADING_WIRE").mesh_type = "UVSPHERE"  # LEFT
 
-        pie.operator("keyops.add_mesh", text="Cube", icon="MESH_CUBE").mesh_type = "CUBE" #RIGHT
+        pie.operator("keyops.add_mesh", text="Cube", icon="MESH_CUBE").mesh_type = "CUBE"  # RIGHT
 
-        pie.operator("keyops.add_mesh", text="Cylinder", icon="MESH_CYLINDER").mesh_type = "CYLINDER" #BOTTOM
+        pie.operator("keyops.add_mesh", text="Cylinder", icon="MESH_CYLINDER").mesh_type = "CYLINDER"  # BOTTOM
 
-        pie.operator("keyops.add_mesh", text="Plane", icon="MESH_PLANE").mesh_type = "PLANE" #TOP
+        pie.operator("keyops.add_mesh", text="Plane", icon="MESH_PLANE").mesh_type = "PLANE"  # TOP
 
-        pie.operator("keyops.add_mesh", text="Mod Cylinder", icon="MOD_SCREW").mesh_type = "MODCYLINDER" #LEFT TOP
+        pie.operator("keyops.add_mesh", text="Mod Cylinder", icon="MOD_SCREW").mesh_type = "MODCYLINDER"  # LEFT TOP
 
         if prefs.add_object_pie_empty:
-            pie.operator("keyops.add_mesh", text="Empty", icon="EMPTY_ARROWS").mesh_type = "EMPTY" #RIGHT TOP
+            pie.operator("keyops.add_mesh", text="Empty", icon="EMPTY_ARROWS").mesh_type = "EMPTY"  # RIGHT TOP
         else:
-            pie.operator("keyops.add_mesh", text="Monkey", icon="MESH_MONKEY").mesh_type = "MONKEY" #RIGHT TOP
+            pie.operator("keyops.add_mesh", text="Monkey", icon="MESH_MONKEY").mesh_type = "MONKEY"  # RIGHT TOP
 
-        pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_UVSPHERE").mesh_type = "QUADSPHERE" #LEFT BOTTOM
+        pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_UVSPHERE").mesh_type = "QUADSPHERE"  # LEFT BOTTOM
 
-        pie.operator("keyops.add_mesh", text="Circle", icon="MESH_CIRCLE").mesh_type = "CIRCLE" #RIGHT BOTTOM  
+        pie.operator("keyops.add_mesh", text="Circle", icon="MESH_CIRCLE").mesh_type = "CIRCLE"  # RIGHT BOTTOM  
+
 
 class ViewCameraPie(Menu):
     bl_idname = "KEYOPS_MT_view_camera_pie"
@@ -45,6 +46,7 @@ class ViewCameraPie(Menu):
 
     def draw(self, context):
         layout = self.layout
+
 
 class AddModifierPie(Menu):
     bl_idname = "KEYOPS_MT_add_modifier_pie"

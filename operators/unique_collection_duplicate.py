@@ -1,11 +1,12 @@
 import bpy
 
-#todo:
-#autofind booleons
-#new cutter collection?
-#custom name
-#auto remove remesh and smooth?
-#Auto remove small bevelse?
+# todo:
+# autofind booleons
+# new cutter collection?
+# custom name
+# auto remove remesh and smooth?
+# Auto remove small bevelse?
+
 
 class UniqueCollectionDuplicate(bpy.types.Operator):
     bl_label = "Unique Collection Duplicate"

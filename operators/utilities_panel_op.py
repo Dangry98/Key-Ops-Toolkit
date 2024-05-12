@@ -1,11 +1,10 @@
 import bpy
-from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
 import tempfile
 import bmesh
-from bpy.props import IntProperty, FloatProperty, BoolProperty
+import math
 
-
-#fix attribute toggle in edit mode/objet mode
+# fix attribute toggle in edit mode/objet mode
 
 def offset_uv():
 	offset_uv = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Offset UV")
@@ -491,6 +490,7 @@ def get_scale(obj):
     s = obj.scale
     return (s[0] + s[1] + s[2]) / 3
 
+
 class UtilitiesPanelOP(bpy.types.Operator):
     bl_description = "Utilities Panel Operator"
     bl_idname = "keyops.utilities_panel_op"
@@ -520,6 +520,11 @@ class UtilitiesPanelOP(bpy.types.Operator):
     axis_y: bpy.props.FloatProperty(name="Y", default=0.5 ) # type: ignore
     appy_triplanar: bpy.props.BoolProperty(name="Apply Triplanar", default=False) # type: ignore
     recalculate_normals: bpy.props.BoolProperty(name="Recalculate Normals", default=False) # type: ignore
+    triangulate_end: bpy.props.BoolProperty(name="Triangulate End", default=True) # type: ignore
+    angle_to_skip: bpy.props.FloatProperty(name="Angle to Skip", subtype='ANGLE', default=1.5708, min=0.0, max=1.5708) # type: ignore
+    full_edge_loops: bpy.props.BoolProperty(name="Full Edge Loops", default=True) # type: ignore
+    angle_to_add: bpy.props.FloatProperty(name="Angle to Add", subtype='ANGLE', default=1.5708, min=0.0, max=1.5708) # type: ignore
+    use_full_edge_loops: bpy.props.BoolProperty(name="Full Edge Loops", default=True) # type: ignore
 
     def draw(self, context):
         layout = self.layout
@@ -556,6 +561,14 @@ class UtilitiesPanelOP(bpy.types.Operator):
         if self.type == "Quick_Apply_All_Modifiers":
             layout.label(text="Can have unexpected results, save backup!", icon='ERROR')
             layout.prop(self, "try_deduplicate_materials")
+        if self.type == "subdivide_cylinder":
+            layout.prop(self, "triangulate_end")
+            layout.prop(self, "angle_to_add")
+            layout.prop(self, "use_full_edge_loops")
+        if self.type == "un_subdivide_cylinder":
+            layout.prop(self, "angle_to_skip")
+            layout.prop(self, "full_edge_loops")
+            
             
 
     def execute(self, context):
@@ -820,77 +833,6 @@ class UtilitiesPanelOP(bpy.types.Operator):
                             if bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
                                 if modifier.width < bevel_offset:
                                     modifier.show_viewport = False
-                                                                             
-        if self.type == "Marke_Changed":
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.context.object.color = (1, 0, 0, 1)
-                    self.report({'INFO'}, "Marked Changed")
-                else:
-                    self.report({'WARNING'}, "Only Works on Meshes")
-        
-        #Make a list with all emptyes that has changde? Tag and untag button? Select button?
-        #auto tag with handlers?
-            
-        if self.type == "Clear_Changed":
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.context.object.color = (1, 1, 1, 1)
-            
-        if self.type == "Clear_All":
-            for obj in bpy.context.scene.objects:
-                if obj.type == 'MESH':
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.context.object.color = (1, 1, 1, 1)
-            self.report({'WARNING'}, "Cleared All")
-
-        if self.type == "Preview_Change_Objects":
-            bpy.context.space_data.shading.type = 'SOLID'
-            if bpy.context.space_data.shading.color_type == 'OBJECT':
-                bpy.context.space_data.shading.color_type = 'MATERIAL'
-            else:
-                bpy.context.space_data.shading.color_type = 'OBJECT'
-            pass
-
-        if self.type == "Select_Changed":
-            #import time
-
-            #perf_time = time.time()
-            if bpy.context.mode == 'EDIT_MESH':
-                bpy.ops.object.mode_set(mode='OBJECT')
-            selected_objects = []
-
-            bpy.ops.object.select_all(action='DESELECT')
-
-            selected_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' and obj.color[:4] == (1, 0, 0, 1)]
-
-            if self.select_parent == True:
-            
-                for obj in selected_objects:
-                    bpy.context.view_layer.objects.active = obj
-                    if self.select_children == True:
-                        bpy.ops.object.select_grouped(extend=True, type='PARENT')
-                        bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
-                    else:
-                        bpy.ops.object.select_grouped(extend=True, type='PARENT')
-                        obj.select_set(False)
-                    if self.select_top_parent == True:
-                        top_parent = obj
-                        while top_parent.parent:
-                            top_parent.parent.select_set(False)
-                            top_parent = top_parent.parent
-
-                        if self.select_children == True:
-                            bpy.context.view_layer.objects.active = top_parent
-                            top_parent.select_set(True)
-                            bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
-                        else:
-                            top_parent.select_set(True)
-            else:
-                for obj in selected_objects:
-                    obj.select_set(True)
                     
         if self.type == "Apply_and_Join":
             if self.join_children:
@@ -1082,20 +1024,54 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
 
         if self.type == "un_subdivide_cylinder":
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+
             for obj in bpy.context.selected_objects:
                 if obj.data.total_vert_sel > 0:
                     context.view_layer.objects.active = obj
-                    obj.data.attributes.new(name='Edge_Un_Subdivied_Cylinder', type='BOOLEAN', domain='EDGE')
+                    if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is None:
+                        obj.data.attributes.new(name='Edge_Un_Subdivied_Cylinder', type='BOOLEAN', domain='EDGE')
                     obj.data.attributes.active = obj.data.attributes.get('Edge_Un_Subdivied_Cylinder')
                     obj.data.update()
                     bpy.ops.mesh.attribute_set(value_bool=True)
 
             for obj in bpy.context.selected_objects:
                 if obj.data.total_vert_sel > 0:    
+                    mesh = obj.data
+                    bm = bmesh.from_edit_mesh(mesh)
+                    current_selection = [e for e in bm.edges if e.select]
+
+                    if len(current_selection) == 0:
+                        self.report({'INFO'}, "No edges selected")
+                        obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
+                        return {'CANCELLED'}
+                    
+                    bpy.ops.mesh.select_all(action='DESELECT')
+                    current_selection[0].select = True
+
                     bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
                     bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=0)
+
+                    #compare if current_selection does not match any in the new_selection, if then increase the offset with +1
+                    new_selection = [e for e in bm.edges if e.select]
+                    if any(e in current_selection for e in new_selection):
+                        bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                        bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=1)
+
                     bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=False)
+
+                    if self.angle_to_skip <= 1.570:
+                        bpy.ops.mesh.select_all(action='INVERT')
+                        bpy.ops.mesh.edges_select_sharp(sharpness=self.angle_to_skip)
+                        bpy.ops.mesh.select_all(action='INVERT')
+                        if self.full_edge_loops == True:
+                            bpy.ops.mesh.loop_multi_select(ring=False)
+
                     bpy.ops.mesh.dissolve_mode('EXEC_DEFAULT', True, use_verts=True)
+                    bpy.ops.mesh.select_by_attribute()
+
+                    bmesh.update_edit_mesh(mesh)
+                    bm.free()
 
             for obj in bpy.context.selected_objects:
                 if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is not None:
@@ -1104,23 +1080,87 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
                     
         if self.type == "subdivide_cylinder":
-            bpy.ops.mesh.loop_multi_select(ring=False)
-            bpy.ops.mesh.loop_multi_select(ring=True)
-            for obj in bpy.context.selected_objects:
-                if obj.data.total_vert_sel > 0:
-                    context.view_layer.objects.active = obj
-                    obj.data.attributes.new(name='Edge_Subdivied_Cylinder', type='BOOLEAN', domain='EDGE')
-                    obj.data.attributes.active = obj.data.attributes.get('Edge_Subdivied_Cylinder')
-                    obj.data.update()
-                    bpy.ops.mesh.attribute_set(value_bool=True)
-            bpy.ops.mesh.bevel(offset_type='PERCENT', offset=0.282053, offset_pct=25, affect='EDGES')
-            bpy.ops.mesh.select_all(action='DESELECT')
+            if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
+                mesh_obj = bpy.context.active_object
 
-            for obj in bpy.context.selected_objects:
-                if obj.data.attributes.get('Edge_Subdivied_Cylinder') is not None:
-                    context.view_layer.objects.active = obj
-                    bpy.ops.mesh.select_by_attribute()
-                    obj.data.attributes.remove(obj.data.attributes.get('Edge_Subdivied_Cylinder'))
+                bm = bmesh.from_edit_mesh(mesh_obj.data)
+
+                active_edge = bm.select_history.active
+                selected_edges = [e for e in bm.edges if e.select]
+
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+
+                if len(selected_edges) == 0:
+                    self.report({'WARNING'}, "No edges selected")
+                    return {'CANCELLED'}
+
+                if active_edge is None or not isinstance(active_edge, bmesh.types.BMEdge):
+                    loop = selected_edges[0].link_loops[0]
+                else:
+                    loop = active_edge.link_loops[0]
+
+                next_loop = loop.link_loop_next
+
+                for edge in bm.edges:
+                    edge.select = False
+                next_loop.edge.select = True
+
+                bpy.ops.mesh.loop_multi_select(ring=True)
+                bpy.ops.mesh.loop_multi_select(ring=False)
+
+                if self.angle_to_add <= 1.570:
+                    bm = bmesh.from_edit_mesh(mesh_obj.data)
+                    # Define the angle threshold for edge deletion
+                    angle_threshold = math.radians(self.angle_to_skip)
+
+                    # Loop through all edges in the mesh
+                    for edge in bm.edges:
+                        # Check if the edge has exactly 2 faces
+                        if len(edge.link_faces) == 2:
+                            # Calculate the angle between the connected faces
+                            angle = edge.calc_face_angle()
+
+                            # Check if the angle is below the threshold
+                            if angle < angle_threshold:
+                                # Mark the edge to be deselected
+                                edge.select = False
+                        else:
+                            # Handle the case where the edge doesn't have 2 faces
+                            self.report({'WARNING'}, "Edge doesn't use 2 faces")
+
+                    # Update the mesh
+                    bmesh.update_edit_mesh(mesh_obj.data)
+
+                if self.use_full_edge_loops == True:
+                    bpy.ops.mesh.loop_multi_select(ring=False)
+
+
+                bpy.ops.mesh.connect2()
+                bpy.ops.mesh.set_edge_flow(tension=180, iterations=3)
+
+                if self.triangulate_end == True:
+                    bm = bmesh.from_edit_mesh(mesh_obj.data)
+
+                    new_selected_edges = [e for e in bm.edges if e.select]
+                    
+                    bpy.ops.mesh.loop_multi_select(ring=True)
+                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+                    bpy.ops.mesh.region_to_loop()
+                    bpy.ops.mesh.loop_to_region()
+                    bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+
+                    for edge in bm.edges:
+                        edge.select = False
+
+                    for edge in new_selected_edges:
+                        edge.select = True
+
+                    bmesh.update_edit_mesh(mesh_obj.data)
+                    bm.free()
+
+                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+            else:
+                self.report({'WARNING'}, "EdgeFlow addon not installed, please install it to use this operator")
 
         if self.type == "change_cylinder_segments_modifier":
             bpy.ops.mesh.select_all(action='INVERT')
@@ -1154,6 +1194,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
         bpy.utils.unregister_class(SmartExtrude)
         bpy.utils.unregister_class(ExtrudeEdgeByNormal)
 
+
 class SmartExtrude(bpy.types.Operator):
     bl_description = "Smart Extrude, this is a slow and outdated operator, a way faster and better version is in the works"
     bl_idname = "mesh.keyops_smart_extrude"
@@ -1182,10 +1223,10 @@ class SmartExtrude(bpy.types.Operator):
         bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_extrude)
     def unregister():
         bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_extrude)
+        
 def menu_extrude(self, context):
     layout = self.layout
     layout.operator(SmartExtrude.bl_idname, text="Smart Extrude (Slow, Outdated)")
-
 
 
 class ExtrudeEdgeByNormal(bpy.types.Operator):
@@ -1320,7 +1361,11 @@ class UtilitiesPanel(bpy.types.Panel):
             row = col.row(align=True)
             row.operator("keyops.utilities_panel_op", text="Triplanar UV").type = "Triplanar_UV_Mapping"
             row.operator("keyops.utilities_panel_op", text="Remove").type = "Remove_Triplanar_UV_Mapping"
-        
+
+            if bpy.context.mode == 'EDIT_MESH':
+                row = layout.row()
+                row.operator("keyops.utilities_panel_op", text="Cylinder From Edge Modifier").type = "change_cylinder_segments_modifier"
+                
         if get_keyops_prefs().enable_uv_tools:
             draw_modifiers_operations()
         
@@ -1434,7 +1479,7 @@ class EditModePanel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator("mesh.dissolve_limited", text="Limited Dissolve")
         row = col.row(align=True)
-        if sel_mode[0] or sel_mode[1]:
+        if sel_mode[0] or sel_mode[1]:  
             row.operator("mesh.rip_move", text="Rip")
         else:
             row.operator("mesh.split", text="Split")
@@ -1458,6 +1503,9 @@ class EditModePanel(bpy.types.Panel):
             row.operator("mesh.faces_select_linked_flat", text="By Angle")
         else:
             row.operator("mesh.edges_select_sharp", text="Edge Angle")
+        #checker deselect
+        row = col.row(align=True)
+        row.operator("mesh.select_nth", text="Checker Deselect")
 
         #cylinder
         row = col.row(align=True)
@@ -1465,8 +1513,6 @@ class EditModePanel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator("keyops.utilities_panel_op", text="Un-Subdivide").type = "un_subdivide_cylinder"
         row.operator("keyops.utilities_panel_op", text="Subdivide").type = "subdivide_cylinder"
-        row = col.row(align=True) 
-        row.operator("keyops.utilities_panel_op", text="Cylinder From Edge Modifier").type = "change_cylinder_segments_modifier"
 
 class ObjectModePanel(bpy.types.Panel):
     bl_description = "Object Mode Panel"

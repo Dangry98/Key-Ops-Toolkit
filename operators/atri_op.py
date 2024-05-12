@@ -1,8 +1,9 @@
 import bpy.types
 
-#reset selection mode back to what it was before running the operator
-#fix face gruope
-#add to n-panel?
+# reset selection mode back to what it was before running the operator
+# fix face gruope
+# add to n-panel?
+
 
 def select_atribute(attribute_name):
     C = bpy.context
@@ -14,11 +15,14 @@ def select_atribute(attribute_name):
     set_act_index = C.object.data.attributes.find(ip_name)
     C.object.data.attributes.active_index = set_act_index
 
+
 def update_float_value(self, context):
     bpy.ops.mesh.attribute_set('EXEC_DEFAULT', True, value_float=context.scene.float_value)
 
+
 def update_float_color_value(self, context):
     bpy.ops.mesh.attribute_set('EXEC_DEFAULT', True, value_color=context.scene.float_color_value)
+
 
 def draw_custom_button(self, context):
     if context.active_object.mode == 'EDIT':
@@ -34,12 +38,12 @@ def draw_custom_button(self, context):
             row.operator("keyops.atri_op", text="Assign").type = "Assign"
             row.operator("keyops.atri_op", text="Remove").type = "Remove"
             row.prop(context.scene, "float_color_value", text="")
-            
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("keyops.atri_op", text="Vertex Group", icon = "VERTEXSEL").type = "Vertex"
-        row.operator("keyops.atri_op", text="Edge Group", icon = "EDGESEL").type = "Edge"
-        row.operator("keyops.atri_op", text="Face Group", icon = "FACESEL").type = "Face"
+        row.operator("keyops.atri_op", text="Vertex Group", icon="VERTEXSEL").type = "Vertex"
+        row.operator("keyops.atri_op", text="Edge Group", icon="EDGESEL").type = "Edge"
+        row.operator("keyops.atri_op", text="Face Group", icon="FACESEL").type = "Face"
+
 
 class AtriOP(bpy.types.Operator):
     bl_idname = "keyops.atri_op"
@@ -47,7 +51,7 @@ class AtriOP(bpy.types.Operator):
     bl_description = "Atributte Operations"
     bl_options = {'REGISTER', 'UNDO'}
 
-    type: bpy.props.StringProperty(default="") #type:ignore
+    type: bpy.props.StringProperty(default="") # type:ignore
 
     @classmethod
     def poll(cls, context):
