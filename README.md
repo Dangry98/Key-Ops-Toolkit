@@ -1,7 +1,7 @@
 Key Ops: Toolkit is my first add-on which I have been developing for almost one year. My goal with it is to make Blender more industri standard like, and add new tools that makes it more efficent to use. While it’s not 100% finished yet, it’s still mostly functional and will hopefully bring value to some in the Blender community. Enjoy!
 
 [Download Latest](https://github.com/Dangry98/Key-Ops-Toolkit/releases/latest/download/keyops-toolkit.zip) - 
-[Documentation](https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9) - [Blender Artist](https://blenderartists.org/t/key-ops-toolkit-0-1-82/1517413)
+[Documentation](https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9) - [BlenderArtist](https://blenderartists.org/t/key-ops-toolkit-0-1-82/1517413)
 
 
 ## Features
