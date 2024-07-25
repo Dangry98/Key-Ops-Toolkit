@@ -1,3 +1,5 @@
+# Note - This is outdated, for Blender 4.2 and higher its aviable on the Blender Extension Platform: https://extensions.blender.org/add-ons/key-ops-toolkit/
+
 Key Ops: Toolkit is my first add-on which I have been developing for almost one year. My goal with it is to make Blender more industri standard like, and add new tools that makes it more efficent to use. While it’s not 100% finished yet, it’s still mostly functional and will hopefully bring value to some in the Blender community. Enjoy!
 
 [Download Latest](https://github.com/Dangry98/Key-Ops-Toolkit/releases/latest/download/keyops-toolkit.zip) - 
