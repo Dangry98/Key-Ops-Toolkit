@@ -17,63 +17,12 @@ def get_editable_bpy_object_props(bpy_object, props_to_ignore={}):
             if not p.is_readonly and p.identifier not in props_to_ignore]
     return [p[:] if type(p).__name__ == "bpy_prop_array" else p for p in props]
 
-def get_ml_active_object():
-    """Get the active object or if some object is pinned, get that"""
-    context = bpy.context
-    ob = context.object
-    ml_pinned_ob = context.scene.modifier_list.pinned_object
-    area = context.area
-
-    if ml_pinned_ob and area.type != 'PROPERTIES':
-        if not (ml_pinned_ob.users == 1 and ml_pinned_ob.use_fake_user):
-            return ml_pinned_ob
-
-    return ob
-
-# def sync_modifiers(source_modifier, dest_objects):
-#     obs_already_in_sync_count = 0
-#     obs_synced_count = 0
-#     obs_without_syncable_modifier_count = 0
-
-#     props_to_sync_separately = {"show_render"}
-#     source_mod_geom_updating_props = get_editable_bpy_object_props(source_modifier, props_to_sync_separately)
-
-#     for dest_ob in dest_objects:
-#         dest_ob_mod_names = [mod.name for mod in dest_ob.modifiers]
-
-#         if source_modifier.name not in dest_ob_mod_names:
-#             obs_without_syncable_modifier_count += 1
-#             continue
-
-#         dest_mod = dest_ob.modifiers[source_modifier.name]
-
-#         if source_modifier.type != dest_mod.type:
-#             obs_without_syncable_modifier_count += 1
-#             continue
-
-#         dest_mod_geom_updating_props = get_editable_bpy_object_props(dest_mod, props_to_sync_separately)
-
-#         synced = False
-
-#         # Check name and show_render and other properties
-#         # separately to avoid updating geometry unnecessarily.
-#         if source_mod_geom_updating_props != dest_mod_geom_updating_props:
-#             sync_bpy_object_props(source_modifier, dest_mod)
-#             synced = True
-#         if dest_mod.show_render is not source_modifier.show_render:
-#             dest_mod.show_render = source_modifier.show_render
-#             synced = True
-
-#         if synced:
-#             obs_synced_count += 1
-#         else:
-#             obs_already_in_sync_count += 1
 
 class ModiKey(Operator):
     bl_idname = "keyops.modi_key"
     bl_label = "KeyOps: Modi Key"
     bl_description = ""
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'INTERNAL', 'UNDO'}
 
     type: bpy.props.StringProperty(name="type") #type:ignore
 
@@ -85,9 +34,24 @@ class ModiKey(Operator):
 
         if bpy.context.space_data.context == 'MODIFIER':
             if modifier_list is None:
-                modifier_list = get_is_addon_enabled('modifier_list' or 'modifier_list-master')  
-
+                modifier_list = get_is_addon_enabled('Modifier_List_Fork')  
+            
             obj = bpy.context.active_object
+            has_Linked_modifiers = False
+
+            if modifier_list: 
+                obj = bpy.context.active_object
+                if obj.modifiers:
+                    mod = obj.modifiers[0]
+                    if len(obj.modifiers) == 1:
+                        if mod.name == "Duplicate Linked Modifiers":
+                            for item in mod.node_group.interface.items_tree:
+                                if item.in_out == "INPUT" and item.identifier == 'Socket_2': 
+                                    if mod[item.identifier]:
+                                        object_name = mod[item.identifier].name
+                                        obj = bpy.data.objects[object_name]
+                                        has_Linked_modifiers = True
+           
             active_modifier = obj.modifiers.active
 
             if active_modifier:
@@ -111,17 +75,19 @@ class ModiKey(Operator):
                     obj.modifiers.active = obj.modifiers[-1]
 
                 elif self.type == 'delete':
-                    if modifier_list:
-                        if modifier_list:
-                            bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
-                        else:
-                            obj.modifiers.remove(active_modifier)
+                    if modifier_list and not has_Linked_modifiers:
+                        bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
                     else:
-                        current_mode = bpy.context.object.mode
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                        bpy.ops.ed.undo_push()
-                        obj.modifiers.remove(active_modifier)
-                        bpy.ops.object.mode_set(mode=current_mode)
+                        if bpy.context.object.mode == "OBJECT":
+                            obj.modifiers.remove(active_modifier)
+                        else:
+                            current_mode = bpy.context.object.mode
+                            bpy.ops.object.mode_set(mode='OBJECT')
+                            bpy.ops.ed.undo_push()
+                                
+                            obj.modifiers.remove(active_modifier)
+
+                            bpy.ops.object.mode_set(mode=current_mode)
 
                 elif self.type == 'delete_named_modi_on_all_selected':
                     delete_modi_name = active_modifier.name
@@ -136,66 +102,7 @@ class ModiKey(Operator):
                     if len(bpy.context.selected_objects) > 1:                       
                         bpy.ops.object.modifier_copy_to_selected(modifier = active_modifier.name)
                 
-                # elif self.type == 'Sync_Modifier_to_Selected':
-
-                #     #based on code in modifier list by Antti Tikka https://github.com/Symstract/modifier_list
-                #     source_ob = get_ml_active_object()
-                #     source_mod = source_ob.modifiers[active_index]
-
-                #     #get all the selected objects and sync modifiers with the same name as source modifier
-
-                #     dest_obs = list(bpy.data.user_map(subset=[source_ob.data]).values()).pop()
-                #     dest_obs.remove(source_ob)
-
-                #     sync_modifiers(source_mod, dest_obs)
-
-                    return {'FINISHED'}
-                
-                elif self.type == 'Sync_All_Modifiers_betwhine_Instances':
-                    props_to_sync_separately = {"name", "show_render"}
-                    source_ob = get_ml_active_object()
-                    source_mods = source_ob.modifiers
-                    source_mod_names_types = [mod.type for mod in source_mods]
-                    source_geom_updating_props_per_mod = [
-                        get_editable_bpy_object_props(mod, props_to_sync_separately) for mod in source_mods]
-
-                    dest_obs = list(bpy.data.user_map(subset=[source_ob.data]).values()).pop()
-                    dest_obs.remove(source_ob)
-                    
-                    needed_syncing = False
-
-                    for ob in dest_obs:
-                        dest_mod_names_types = [mod.type for mod in ob.modifiers]
-                    
-                        if source_mod_names_types == dest_mod_names_types:
-                            for i, source_mod in enumerate(source_mods):
-                                dest_mod = ob.modifiers[i]
-                                dest_mod_geom_updating_props = get_editable_bpy_object_props(
-                                    dest_mod, props_to_sync_separately)
-                                # Check name and show_render and other properties
-                                # separately to avoid updating geometry
-                                # unnecessarily.
-                                if source_geom_updating_props_per_mod[i] != dest_mod_geom_updating_props:
-                                    sync_bpy_object_props(source_mod, dest_mod)
-                                    needed_syncing = True
-                                for p in props_to_sync_separately:
-                                    if getattr(dest_mod, p) != getattr(source_mod, p):
-                                        setattr(dest_mod, p, getattr(source_mod, p))
-                                        needed_syncing = True
-                        else:
-                            ob.modifiers.clear()
-                            for source_mod in source_mods:
-                                new_mod = ob.modifiers.new(source_mod.name, source_mod.type)
-                                sync_bpy_object_props(source_mod, new_mod)
-                            needed_syncing = True
-
-                    if not needed_syncing:
-                        self.report({'INFO'}, "Modifiers already in sync")
-                        return {'CANCELLED'}
-
-                    self.report({'INFO'}, "Synchronized modifiers")
-                    return {'FINISHED'}
-                            
+                    return {'FINISHED'}  
 
                 elif self.type == 'Apply':
                     name = active_modifier.name
@@ -230,6 +137,29 @@ class ModiKey(Operator):
                     if modifier_list:     
                         if bpy.context.mode == 'OBJECT':   
                             bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
+                                                        
+                            # does not work with modifers that are not visible in edit mode, make exception for them?
+                            #hide all modifiers except the active one
+                            #name = active_modifier.name
+                            # active_modifier = bpy.context.view_layer.objects.active.modifiers.active
+                            # #get a list with all modifers that are visiable or not execpt the active one
+                            # vis_list = [mod.show_viewport for mod in bpy.context.view_layer.objects.active.modifiers if mod != active_modifier]
+                    
+                            # if not active_modifier.show_in_editmode:
+                            #     active_modifier.show_in_editmode = True
+                            # for mod in bpy.context.view_layer.objects.active.modifiers:
+                            #     if mod != active_modifier:
+                            #         mod.show_viewport = False
+                            # #update object data
+                            # bpy.context.view_layer.objects.active.data.update()
+                            # bpy.ops.keyops.utilities_panel_op(type="Instant_Apply_Modifiers", remove_modifiers=False)
+                            # #remove the active modifier from the object
+                            # obj.modifiers.remove(active_modifier)
+
+                            # #restore the visibility of the other modifiers
+                            # for i, mod in enumerate(bpy.context.view_layer.objects.active.modifiers):
+                            #     mod.show_viewport = vis_list[i]
+                                 
                         else:
                             if bpy.context.mode == 'EDIT_MESH':
                                 modifier_toggle_visability_based2()        
@@ -276,6 +206,16 @@ class ModiKey(Operator):
                     active_modifier.show_render = not active_modifier.show_render
                 elif self.type == 'Viewport_Toggle':
                     active_modifier.show_viewport = not active_modifier.show_viewport
+                elif self.type == 'Viewport_Toggle_all_selected':
+                    selection = set(bpy.context.selected_objects)
+                    selection.add(bpy.context.active_object)
+                    current_status = active_modifier.show_viewport 
+                    mod_name = active_modifier.name
+                    for obj in selection:
+                        for mod in obj.modifiers:
+                            if mod.name == mod_name:
+                                mod.show_viewport = not current_status
+                            
                 elif self.type == 'Edit_Toggle':
                     active_modifier.show_in_editmode = not active_modifier.show_in_editmode
                 elif self.type == 'Cage_Toggle':
@@ -364,16 +304,15 @@ class ModiKeyNoUndo(Operator):
     bl_description = ""
     bl_idname = "keyops.modi_key_no_undo"
     bl_label = "KeyOps: Modi Key No Undo"
-    bl_options = {'REGISTER'}
+    bl_options = {'INTERNAL'}
 
     type: bpy.props.StringProperty(name="type") #type:ignore
 
     def execute(self, context):
 
+        active_object = bpy.context.active_object
+        current_context = bpy.context.space_data.context
         if self.type == 'Toggle_Space':
-            active_object = bpy.context.active_object
-            current_context = bpy.context.space_data.context
-
             if active_object is not None:
                 if active_object.type == 'MESH' or active_object.type == 'CURVE' or active_object.type == 'SURFACE' or active_object.type == 'META' or active_object.type == 'FONT':
                     if current_context == 'DATA':
@@ -383,14 +322,16 @@ class ModiKeyNoUndo(Operator):
                     else:
                         bpy.context.space_data.context = 'MODIFIER'
 
-            if active_object.type == 'LIGHT':
-                if current_context == 'OBJECT':
-                    bpy.context.space_data.context = 'DATA'
-                elif current_context == 'DATA':
-                    bpy.context.space_data.context = 'OBJECT'
-                else:
-                    bpy.context.space_data.context = 'DATA'
-            
+                elif active_object.type == 'LIGHT':
+                    if current_context == 'OBJECT':
+                        bpy.context.space_data.context = 'DATA'
+                    elif current_context == 'DATA':
+                        bpy.context.space_data.context = 'OBJECT'
+                    else:
+                        bpy.context.space_data.context = 'DATA'
+        if self.type == "Material_Tab":
+            if active_object.type == 'MESH' or active_object.type == 'CURVE' or active_object.type == 'SURFACE' or active_object.type == 'META' or active_object.type == 'FONT':
+                bpy.context.space_data.context = 'MATERIAL'
     
         return {'FINISHED'}
     

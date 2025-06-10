@@ -248,7 +248,7 @@ class FastConnect(bpy.types.Operator):
         global half_knife
 
         if half_knife is None:
-            half_knife = get_is_addon_enabled('half_knife')
+            half_knife = get_is_addon_enabled('Half_Knife')
 
         obj = context.edit_object
         me = obj.data
@@ -261,13 +261,16 @@ class FastConnect(bpy.types.Operator):
 
             if not vert_sel or len(vert_sel) == 1:
                 if half_knife:
-                    bpy.ops.mesh.half_knife_operator('INVOKE_DEFAULT', True, auto_cut=True)
+                    bpy.ops.mesh.half_knife_operator('INVOKE_DEFAULT', auto_cut=True, cut_with_preview_from_void = False)
                 else:
-                    bpy.ops.mesh.fast_knife('INVOKE_DEFAULT')
+                    bpy.ops.mesh.knife_tool('INVOKE_DEFAULT')
                 return {'FINISHED'}
             
             elif len(vert_sel) > 1:
-                bpy.ops.mesh.vert_connect_path()  
+                try:
+                    bpy.ops.mesh.vert_connect_path('INVOKE_DEFAULT')
+                except:
+                    self.report({'WARNING'}, "Could not connect vertices")
                 return {'FINISHED'}
 
         elif sel_mode[1]:
@@ -298,71 +301,83 @@ class Connect(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
+    set_flow: bpy.props.BoolProperty(name="Set Flow", default=False) # type: ignore
+
+    def draw(self, context):
+        self.layout.prop(self, "edge_count")
+        self.layout.prop(self, "set_flow")
 
     def execute(self, context):
         sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
+        edit_mode_objects = [obj for obj in context.objects_in_mode if obj.type == 'MESH']
 
         if sel_mode[0] or sel_mode[2]:
-            ob = context.edit_object
-            me = ob.data
-            bm = bmesh.from_edit_mesh(me)
+            for obj in edit_mode_objects:
+                if sel_mode[0]:
+                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
 
-            if sel_mode[0]:
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-            
-            #Based on Armored Wolf's answer on https://blender.stackexchange.com/questions/142197/convert-a-partial-loop-of-faces-to-an-edge-ring-with-python Thanks for the help! :)
-            edge_sel = {e for e in bm.edges if e.select}
+                me = obj.data
+                bm = bmesh.from_edit_mesh(me)
 
-            bpy.ops.mesh.region_to_loop()
-            perimeter_edges = set(e for e in bm.edges if e.select)
-            contained_edges = edge_sel - perimeter_edges
-            
-            bpy.ops.mesh.select_all(action='DESELECT')
+                edge_sel = {e for e in bm.edges if e.select}
+                if not edge_sel:
+                    continue
 
-            for e in contained_edges:
-                e.select = True
-
-            bpy.ops.mesh.loop_multi_select(ring=True)
-            ring_edges = set(e for e in bm.edges if e.select)
-
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-            corner_edges = set(e for e in bm.edges if e.select).intersection(perimeter_edges)
-
-            ring_edges -= corner_edges
-
-            bpy.ops.mesh.select_all(action='DESELECT')
+                #Based on Armored Wolf's answer on https://blender.stackexchange.com/questions/142197
+                bpy.ops.mesh.region_to_loop()
+                perimeter_edges = set(e for e in bm.edges if e.select)
+                contained_edges = edge_sel - perimeter_edges
                 
-            ring_sel = (perimeter_edges.intersection(ring_edges) - corner_edges).union(contained_edges)
+                bpy.ops.mesh.select_all(action='DESELECT')
 
-            new_edges = bmesh.ops.subdivide_edges(bm, edges=list(ring_sel), cuts=self.edge_count, use_grid_fill=True)
-            for e in new_edges['geom_inner']:
-                e.select = True
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-            bmesh.update_edit_mesh(me)
-            bm.free()
+                for e in contained_edges:
+                    e.select = True
+
+                bpy.ops.mesh.loop_multi_select(ring=True)
+                ring_edges = set(e for e in bm.edges if e.select)
+
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
+                corner_edges = set(e for e in bm.edges if e.select).intersection(perimeter_edges)
+
+                ring_edges -= corner_edges
+
+                bpy.ops.mesh.select_all(action='DESELECT')
+                    
+                ring_sel = (perimeter_edges.intersection(ring_edges) - corner_edges).union(contained_edges)
+
+                new_edges = bmesh.ops.subdivide_edges(bm, edges=list(ring_sel), cuts=self.edge_count, use_grid_fill=True)
+                for e in new_edges['geom_inner']:
+                    e.select = True
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+                bmesh.update_edit_mesh(me)
+                bm.free()
 
         
         elif sel_mode[1]:
-            for obj in context.selected_objects:
-                if obj.type == 'MESH':
-                    if obj.data.total_edge_sel > 0: 
-                        me = obj.data
-                        bm = bmesh.from_edit_mesh(me)
+            for obj in edit_mode_objects:
+                if obj.data.total_edge_sel > 0:
+                    me = obj.data
+                    bm = bmesh.from_edit_mesh(me)
 
-                        edge_sel = set(e for e in bm.edges if e.select)
+                    edge_sel = set(e for e in bm.edges if e.select)
 
-                        for e in bm.edges:
-                            e.select = False
+                    for e in bm.edges:
+                        e.select = False
 
-                        new_edges = bmesh.ops.subdivide_edges(bm, edges=list(edge_sel), cuts=self.edge_count, use_grid_fill=True)
-                        remove_edges = set(e for e in new_edges['geom_split'] if isinstance(e, bmesh.types.BMEdge))  
-                        
-                        for e in new_edges['geom_inner']:
-                            e.select = True
-                        for e in remove_edges:
-                            e.select = False
-                        bmesh.update_edit_mesh(me)
-                        bm.free()
+                    new_edges = bmesh.ops.subdivide_edges(bm, edges=list(edge_sel), cuts=self.edge_count, use_grid_fill=True)
+                    remove_edges = set(e for e in new_edges['geom_split'] if isinstance(e, bmesh.types.BMEdge))  
                     
-            
+                    for e in new_edges['geom_inner']:
+                        e.select = True
+                    for e in remove_edges:
+                        e.select = False
+                    bmesh.update_edit_mesh(me)
+                    bm.free()
+
+        if self.set_flow:
+            if get_is_addon_enabled('EdgeFlow-blender_28') or get_is_addon_enabled('EdgeFlow'):
+                bpy.ops.mesh.set_edge_flow(tension=180, iterations=3)
+            else:
+                self.report({'WARNING'}, "EdgeFlow Add-on not Installed, search for it in Get Extensions")
+
         return {'FINISHED'}

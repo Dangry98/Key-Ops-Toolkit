@@ -174,11 +174,13 @@ def get_extension():
                  get_cad_decimate,
                  get_auto_lod,
                  get_polycount_list,
-                 get_utilities_panel_op,
+                 get_toolkit_panel,
                  get_quick_bake_name,
                  get_quick_export,
                  get_atri_op,
                  get_material_index,
+                 get_outliner_options,
+                 get_viewport_menu,
 ]
     classlists, keylists = [], []
     for func in functions:
@@ -240,8 +242,8 @@ def get_auto_lod(): pass
 @operator("Polycount List")
 def get_polycount_list(): pass
 
-@operator("Utilities Panel OP")
-def get_utilities_panel_op(): pass
+@operator("Toolkit Panel")
+def get_toolkit_panel(): pass
 
 @operator("Quick Bake Name")
 def get_quick_bake_name(): pass
@@ -254,3 +256,9 @@ def get_atri_op(): pass
 
 @operator("Material Index")
 def get_material_index(): pass
+
+@operator("Outliner Options")
+def get_outliner_options(): pass
+
+@operator("Viewport Menu")
+def get_viewport_menu(): pass

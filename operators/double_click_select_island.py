@@ -4,14 +4,19 @@ class DoubleClickSelectIsland(bpy.types.Operator):
     bl_idname = "keyops.double_click_select_island"
     bl_label = "KeyOps: Double Click Select Island"
     bl_description = ""
-    bl_options = {'REGISTER', 'UNDO'}  
+    bl_options = {'INTERNAL', 'UNDO'}  
 
     def execute(self, context):
-        if bpy.context.scene.tool_settings.use_uv_select_sync:
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-        bpy.ops.uv.select_linked_pick('INVOKE_DEFAULT')
-
+        if context.active_object is not None and context.active_object.type == 'MESH':
+            if bpy.context.scene.tool_settings.use_uv_select_sync:
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
+            bpy.ops.uv.select_linked_pick('INVOKE_DEFAULT')
+        elif context.active_object is not None and context.active_object.type == 'CURVE':
+            bpy.ops.curve.select_linked_pick('INVOKE_DEFAULT')
+        elif context.active_object is not None and context.active_object.type == 'CURVES':
+            bpy.ops.curves.select_linked_pick('INVOKE_DEFAULT')
         return {'FINISHED'}
+
     def register():
         bpy.utils.register_class(SelectEdgeLoop)
         bpy.utils.register_class(SelectEdgeLoopShift)

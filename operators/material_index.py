@@ -1,6 +1,18 @@
-import bpy.types
+import bpy.types, bmesh
 from bpy.props import StringProperty, PointerProperty, CollectionProperty
 from bpy_extras import view3d_utils
+from ..utils.pref_utils import get_keyops_prefs
+
+def clear_unused_materials(obj):
+    material_indices = set()
+    
+    if obj.material_slots and obj.type == "MESH":
+        for f in obj.data.polygons:
+            material_indices.add(f.material_index)
+        for i in range(len(obj.material_slots) - 1, -1, -1):
+            if i not in material_indices:
+                if i < len(obj.data.materials):
+                    obj.data.materials.pop(index=i)
 
 class MaterialItem(bpy.types.PropertyGroup):
     name: StringProperty() # type: ignore
@@ -28,55 +40,62 @@ class MaterialIndex(bpy.types.Operator):
       
         #if screw modifier or curv object is present, set material with modifier instead of material index, same with boolean? Or make so that booleon get the same material as the object it cuts
         if self.type == "Make_Material_Index":
-            import time
-            start_time = time.time()
+            # import time
+            # start_time = time.time()
             if bpy.context.mode == 'EDIT_MESH':
                 bpy.ops.object.mode_set(mode='OBJECT')
 
             for obj in bpy.context.selected_objects:
                 if obj.type == 'MESH' or obj.type == 'CURVE' and not obj.display_type == 'WIRE':
-                    bpy.context.view_layer.objects.active = obj
+                    m = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
 
-                    current_active_object_existing_materials_names = [material.name for material in obj.material_slots]
+                    #need to cheack for empty mesh since it can soft lock blender
+                    if m is not None:
+                        faces = len(m.polygons)
+                        if faces >= 1:
+                            clear_unused_materials(obj)
+                            bpy.context.view_layer.objects.active = obj
 
-                    # Add materials from the material list to the object
-                    for material_item in context.scene.material_list_property.items:
-                        material_name = material_item.name
-                        material = bpy.data.materials.get(material_name)
+                            current_active_object_existing_materials_names = [material.name for material in obj.material_slots]
+                            # Add materials from the material list to the object
+                            for material_item in context.scene.material_list_property.items:
+                                material_name = material_item.name
+                                material = bpy.data.materials.get(material_name)
 
-                        if material_name not in current_active_object_existing_materials_names:
-                            obj.data.materials.append(bpy.data.materials.get(material_name))
-                        
-                    #if thers a material i current_active_object_existing_materials_names that is not in the material list remove it
-                    for material_name in current_active_object_existing_materials_names:
-                        if material_name not in [material_item.name for material_item in context.scene.material_list_property.items]:
-                            obj.active_material_index = len(obj.material_slots)-1
-                            #if its not the same index as the material list
-                            while obj.active_material.name != material_name:
-                                obj.active_material_index -=1
-                            # Remove materials that do not have the same name as in the material list for each object
-                            obj.data.materials.pop(index=obj.active_material_index)
+                                if material_name not in current_active_object_existing_materials_names:
+                                    obj.data.materials.append(bpy.data.materials.get(material_name))
 
+                            #if thers a material i current_active_object_existing_materials_names that is not in the material list remove it
+                            for material_name in current_active_object_existing_materials_names:  
+                            
+                                if material_name not in [material_item.name for material_item in context.scene.material_list_property.items]:
+                                    obj.active_material_index = len(obj.material_slots)-1
 
-                    material_names_in_order = [material_item.name for material_item in context.scene.material_list_property.items]
+                                    #if its not the same index as the material list
+                                    while obj.active_material.name != material_name:
+                                        obj.active_material_index -=1
+                                    # Remove materials that do not have the same name as in the material list for each object
+                                    obj.data.materials.pop(index=obj.active_material_index)
 
-                    material_index_dict = {name: index for index, name in enumerate(material_names_in_order)}
+                            material_names_in_order = [material_item.name for material_item in context.scene.material_list_property.items]
 
-                    # Sort the material slots based on the order in the material list, current bottleneck is bpy.ops.object.material_slot_move, should be replaced with a none bpy.ops solution
-                    for index, slot in enumerate(obj.material_slots):
-                        for material_name in current_active_object_existing_materials_names:
-                            if material_name in material_names_in_order:
-                                obj.active_material_index = len(obj.material_slots)-1
-                                #if its not the same index as the material list
-                                while obj.active_material.name != material_name:
-                                    obj.active_material_index -=1
-                                while obj.active_material_index > material_index_dict[material_name]:
-                                    bpy.ops.object.material_slot_move(direction='UP')
-                                #repete if its still does not match
-                                while obj.active_material_index < material_index_dict[material_name]:
-                                    bpy.ops.object.material_slot_move(direction='DOWN')
-            
-            print ("%s seconds" % (time.time() - start_time))
+                            material_index_dict = {name: index for index, name in enumerate(material_names_in_order)}
+
+                            # Sort the material slots based on the order in the material list, current bottleneck is bpy.ops.object.material_slot_move, should be replaced with a none bpy.ops solution
+                            for index, slot in enumerate(obj.material_slots):
+                                for material_name in current_active_object_existing_materials_names:
+                                    if material_name in material_names_in_order:
+                                        obj.active_material_index = len(obj.material_slots)-1
+                                        #if its not the same index as the material list
+                                        while obj.active_material.name != material_name:
+                                            obj.active_material_index -=1
+                                        while obj.active_material_index > material_index_dict[material_name]:
+                                            bpy.ops.object.material_slot_move(direction='UP')
+                                        #repete if its still does not match
+                                        while obj.active_material_index < material_index_dict[material_name]:
+                                            bpy.ops.object.material_slot_move(direction='DOWN')
+        
+            # print ("%s seconds" % (time.time() - start_time))
             #Benchmarks, before, before, after optimization:
             #61.839571475982666 seconds, 7.817131280899048 seconds, 6.89214015007019 seconds
                     
@@ -96,16 +115,8 @@ class MaterialIndex(bpy.types.Operator):
                         for i in range(len(obj.material_slots) - 1, 0, -1):
                             obj.data.materials.pop(index=i)
                 else:
-                    material_indices = set()
-                    
-                    if not obj.material_slots or not obj.type == "MESH":
-                        continue
-                    for f in obj.data.polygons:
-                        material_indices.add(f.material_index)
-                    for i in range(len(obj.material_slots) - 1, -1, -1):
-                        if i not in material_indices:
-                            if i < len(obj.data.materials):
-                                obj.data.materials.pop(index=i)
+                    clear_unused_materials(obj)
+              
             # print ("%s seconds" % (time.time() - start_time))
             #from 28 seconds to 0.02 seconds when not using bpy.ops.object.material_slot_remove_unused() lol :) 
 
@@ -180,18 +191,22 @@ class MaterialIndex(bpy.types.Operator):
     def register():
         bpy.utils.register_class(MaterialIndexPanel)
         bpy.utils.register_class(MATERIALINDEX_OT_refresh)
-        bpy.utils.register_class(MaterialAssign)
         bpy.utils.register_class(MaterialItem)
         bpy.utils.register_class(MaterialListProperty)
+        bpy.utils.register_class(MaterialListMenu)
+        bpy.utils.register_class(MaterialSelectByActive)
+        bpy.utils.register_class(AssignMaterial)
         #bpy.utils.register_class(MaterialPicker)
         bpy.types.Scene.material_list_property = PointerProperty(type=MaterialListProperty)
 
     def unregister():
         bpy.utils.unregister_class(MaterialIndexPanel)
         bpy.utils.unregister_class(MATERIALINDEX_OT_refresh)
-        bpy.utils.unregister_class(MaterialAssign)
         bpy.utils.unregister_class(MaterialItem)
         bpy.utils.unregister_class(MaterialListProperty)
+        bpy.utils.unregister_class(MaterialListMenu)
+        bpy.utils.unregister_class(MaterialSelectByActive)
+        bpy.utils.unregister_class(AssignMaterial)
         #bpy.utils.unregister_class(MaterialPicker)
         del bpy.types.Scene.material_list_property
 
@@ -204,6 +219,16 @@ class MaterialIndexPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'Toolkit'
     bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 10
+
+    @classmethod
+    def poll(cls, context):
+        prefs = get_keyops_prefs()
+        return prefs.material_utilities_panel
+
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text="", icon='PRESET')
 
     def draw(self, context): 
         global active_index
@@ -241,7 +266,7 @@ class MaterialIndexPanel(bpy.types.Panel):
                 print("Material not found")                
 
             icon = 'RESTRICT_SELECT_OFF' if index == active_index else 'RESTRICT_SELECT_ON'
-            row.operator("keyops.material_index_assign", text="", icon_value=material_icon).assign_material = str(index)
+            row.operator("object.assign_materials_by_name", text="", icon_value=material_icon).mat_name = str(material_item.name)
             row.label(text=f"ID: {index+1} ")
 
             text = f"{material_item.name}"
@@ -263,62 +288,103 @@ class MATERIALINDEX_OT_refresh(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class MaterialAssign(bpy.types.Operator):
-    bl_idname = "keyops.material_index_assign"
-    bl_label = "KeyOps: Material Index Assign"
+class MaterialSelectByActive(bpy.types.Operator):
+    bl_idname = "object.select_material_by_active"
+    bl_label = "Select Objects with Material"
     bl_options = {'INTERNAL', 'UNDO'}
-    assign_material: StringProperty(default="") # type: ignore
+
+    deselect: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'}) # type: ignore
 
     def execute(self, context):
-        global assign_index
+        active_material = context.active_object.active_material
 
-        if (self.assign_material != ""):
-            material_list_index = int(self.assign_material)
-            assign_index = []  
-            assign_index = (material_list_index)
-            # for material_item in context.scene.material_list_property.items:
-            #     material_name = material_item.name
-
-            # if bpy.context.mode == 'EDIT_MESH':
-            #     for obj in bpy.context.selected_objects:
-            #         if obj.type == 'MESH':
-
-            #             #if the materail does not already exist add it. else just assign it
-            #             current_active_object_existing_materials_names = [material.name for material in obj.material_slots]
-
-            #                                 #if thers a material i current_active_object_existing_materials_names that is not in the material list remove it
-            #             for material_name in current_active_object_existing_materials_names:
-            #                 if material_name not in [material_item.name for material_item in context.scene.material_list_property.items]:
-            #                     obj.active_material_index = len(obj.material_slots)-1
-            #                     #if its not the same index as the material list
-            #                     while obj.active_material.name != material_name:
-            #                         obj.active_material_index -=1
-            #                     # Remove materials that do not have the same name as in the material list for each object
-            #                     obj.data.materials.pop(index=obj.active_material_index)
-            #             #else add new material that in material list active
-            #             if context.scene.material_list_property.items[assign_index].name not in current_active_object_existing_materials_names:
-            #                 obj.data.materials.append(bpy.data.materials.get(context.scene.material_list_property.items[assign_index].name))
- 
-            #             #add the material to the slot if it does not exist
-            #             obj.material_slots[len(obj.material_slots) - 1].material = bpy.data.materials.get(context.scene.material_list_property.items[assign_index].name)
-            #             #assign after active material list index name
-            #             obj.active_material_index = len(obj.material_slots) - 1
-            #             bpy.ops.object.material_slot_assign()
-            #             self.report({'INFO'}, "Assigned Material")
-            # elif bpy.context.mode == 'OBJECT':
-
-            #can be optimzed a lot if needed by not using bpy.ops.object.material_slot_assign(), almost there, but not quite yet
-            mat = context.scene.material_list_property.items[assign_index].name
-            op = bpy.ops.object.apply_material
-            op(mat_to_assign = mat)
-              
-                #get the index row and assign that material to the active slot in the active material and all other select objects
-                # for obj in bpy.context.selected_objects:
-                #     if obj.type == 'MESH':
-                #         if obj.active_material_index < len(obj.material_slots):
-                #             obj.data.materials.pop(index=obj.active_material_index)
-                #         obj.data.materials.append(bpy.data.materials.get(context.scene.material_list_property.items[assign_index].name))
+        for obj in context.scene.objects:
+            if obj.material_slots:
+                for slot in obj.material_slots:
+                    if slot.material == active_material:
+                        if self.deselect:
+                            obj.select_set(False)
+                        else:
+                            obj.select_set(True)
+                        break
         return {'FINISHED'}
+
+
+def check_if_material_exists_in_object(obj, mat):
+    for i, slot in enumerate(obj.material_slots):
+        if slot.material == mat:
+            obj.active_material_index = i
+            return True
+        
+class AssignMaterial(bpy.types.Operator):
+    bl_idname = "object.assign_materials_by_name"
+    bl_label = "Assign Material"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    mat_name: bpy.props.StringProperty(name="Material Name", options={'SKIP_SAVE'}) # type: ignore
+    add_by: bpy.props.EnumProperty(
+        items=[
+            ("INDEX", "Active Index", "Assign by material index"),
+            ("INDEX_ID", "Index ID", "Assign by index ID"),
+        ],
+        name="Add By",
+        default="INDEX_ID"
+    ) # type: ignore
+
+    id: bpy.props.IntProperty(name="Index ID", default=0, min=0, max=64) # type: ignore
+
+    def draw(self, context):
+        if context.mode != 'EDIT_MESH':
+            layout = self.layout
+            row = layout.row()
+            row.prop(self, "add_by", text="By")
+            if self.add_by == "INDEX_ID":
+                row.prop(self, "id")
+
+    def execute(self, context):
+        mat = bpy.data.materials.get(self.mat_name)
+        selection = set(context.selected_objects)
+        active_object = bpy.context.object
+        selection.add(active_object)
+
+        if not self.mat_name:
+            self.mat_name = active_object.active_material.name
+
+        if active_object:
+            active_obj_index = active_object.active_material_index
+            
+            for obj in selection:
+                if obj.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
+                    if context.mode != 'EDIT_MESH':
+                        if self.add_by == "INDEX":
+                            if obj.active_material:
+                                obj.active_material_index = active_obj_index
+                                obj.active_material = mat
+                            else:
+                                obj.data.materials.append(mat)
+                        elif self.add_by == "INDEX_ID":
+                            if obj.active_material:
+                                obj.active_material_index = self.id
+                                obj.active_material = mat
+                            else:
+                                obj.data.materials.append(mat)
+                    else:
+                        mat_found = check_if_material_exists_in_object(obj, mat)
+                                
+                        if not mat_found:
+                            obj.data.materials.append(mat)
+                            obj.active_material_index = len(obj.material_slots) - 1
+
+                        if obj.type == 'MESH':
+                            bm = bmesh.from_edit_mesh(obj.data)
+                            mat_idx = obj.active_material_index
+                            for face in bm.faces:
+                                if face.select:
+                                    face.material_index = mat_idx
+                            obj.data.update()
+
+        return {'FINISHED'}
+
     
     def register():
         bpy.types.EEVEE_MATERIAL_PT_context_material.append(menu_material)
@@ -336,78 +402,69 @@ def menu_material(self, context):
     if bpy.context.mode == 'OBJECT':
         #row.operator("view3d.material_picker", icon = "EYEDROPPER")
         if bpy.context.active_object.data.materials:
-            row.operator("object.material_slot_copy", text="Assign")
-            row.operator("keyops.material_index", text="Clear Unused").type="Clear_Unused_Materials"
+            if bpy.context.active_object.active_material:
+                row.operator("object.assign_materials_by_name", text="Assign").mat_name = bpy.context.active_object.active_material.name
+                row.operator("object.select_material_by_active", text="Select")
+                row.operator("object.select_material_by_active", text="Deselect").deselect = True
+                row.operator("keyops.material_index", text="Clear Unused").type="Clear_Unused_Materials"
 
+class MaterialListMenu(bpy.types.Menu):
+    bl_idname = "MATERIAL_MT_material_list"
+    bl_label = "Material List"
 
-
-def main(context, event):
-    # get the context arguments
-    scene = context.scene
-    region = context.region
-    rv3d = context.region_data
-    coord = event.mouse_region_x, event.mouse_region_y
-#    scene = bpy.context.scene 
-#    viewlayer = bpy.context.view_layer
-    viewlayer = context.view_layer
-
-    # get the ray from the viewport and mouse
-    view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-    ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-#    ray_target = ray_origin + (view_vector *-10)
-#    ray_goal = ray_origin + (view_vector *1000)
-    
-
-#    result, location, normal, index, object, matrix = scene.ray_cast(viewlayer, ray_target, ray_goal)
-    result, location, normal, index, object, matrix = scene.ray_cast(bpy.context.evaluated_depsgraph_get(), ray_origin, view_vector)
-
-    # get and select object
-#    obj = object  
-#    bpy.ops.object.select_all(action='DESELECT')
-#    context.view_layer.objects.active = obj
-
-    if result:
-        for o in context.selected_objects:
-            o.select_set(False)
-        dg = context.depsgraph
-#        eval_obj = dg.id_eval_get(obj)
-        eval_obj = dg.id_eval_get(object)
-        viewlayer.objects.active = object.original
-    
-#    if obj:
-        # select material slot
-        MatInd = eval_obj.data.polygons[index].material_index
+    def draw(self, context):
+        prefs = get_keyops_prefs()
+        layout = self.layout
+        col = layout.column()
         
-        print (MatInd)
-        object.original.active_material_index = MatInd
+        # Get non-grease pencil materials
+        materials = [m for m in bpy.data.materials if not m.is_grease_pencil]
+        
+        if prefs.material_list_type == "PREVIEW_ICONS":
+            # Icon grid view
+            max_materials_per_row = 12
+            num_columns = max(4, (len(materials) + 7) // max_materials_per_row)
+            grid = col.grid_flow(row_major=False, columns=num_columns, 
+                               even_columns=True, even_rows=True, align=True)
+            
+            for mat in materials:
+                cell = grid.column()
+                icon = layout.icon(mat)
+                cell.template_icon(icon_value=icon, scale=prefs.material_list_icon_scale)
+                # Truncate long names
+                text = mat.name
+                max_len = 8
+                if len(text) > max_len:
+                    text = text[:max_len + 2] if len(text) - max_len <= 2 else f"{text[:max_len].rstrip()}.."
 
-#    else:
-#        return {'CANCELLED'}
-    return {'FINISHED'}
-
-
-class MaterialPicker(bpy.types.Operator):
-    bl_idname = "view3d.material_picker"
-    bl_label = ""
-
-    def modal(self, context, event):
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 
-'WHEELDOWNMOUSE'}:
-            # allow navigation
-            return {'PASS_THROUGH'}
-#        elif event.type == 'LEFTMOUSE':
-        elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            main(context, event)
-            return {'RUNNING_MODAL'}
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            return {'CANCELLED'}
-
-        return {'RUNNING_MODAL'}
-
-    def invoke(self, context, event):
-        if context.space_data.type == 'VIEW_3D':
-            context.window_manager.modal_handler_add(self)
-            return {'RUNNING_MODAL'}
+                op = cell.operator("object.assign_materials_by_name", text=text, emboss=True)
+                op.mat_name = mat.name
         else:
-            self.report({'WARNING'}, "Active space must be a View3d")
-            return {'CANCELLED'}
+            # Compact list view
+            max_items_per_column = 24
+            num_columns = (len(materials) + max_items_per_column - 1) // max_items_per_column
+            max_text_length = 24 
+
+            if num_columns > 1:
+                grid = col.grid_flow(columns=num_columns, align=True)
+                sub_col = grid.column()
+            else:
+                sub_col = col
+
+            for i, mat in enumerate(materials):
+                if num_columns > 1 and i % max_items_per_column == 0 and i > 0:
+                    sub_col = grid.column()
+
+                display_name = mat.name
+                if len(display_name) > max_text_length:
+                    display_name = display_name[:max_text_length + 2] if len(display_name) - max_text_length <= 2 else f"{display_name[:max_text_length].rstrip()}.."
+
+                kwargs = {
+                    "text": display_name,
+                    "emboss": True
+                }
+                if prefs.material_list_show_icons:
+                    kwargs["icon_value"] = layout.icon(mat)
+                    
+                op = sub_col.operator("object.assign_materials_by_name", **kwargs)
+                op.mat_name = mat.name

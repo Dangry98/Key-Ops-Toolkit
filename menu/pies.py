@@ -10,94 +10,20 @@ uvtoolkit = None
 zenuv = None
 polyquilt = None
 
-
-class AddObjectsPie(Menu):
-    bl_idname = "KEYOPS_MT_add_objects_pie"
-    bl_label = "Add Mesh Pie"
-
-    def draw(self, context):
-        layout = self.layout
-        pie = layout.menu_pie()
-        prefs = get_keyops_prefs()
-
-        pie.operator("keyops.add_mesh", text="UV Sphere", icon="SHADING_WIRE").mesh_type = "UVSPHERE"  # LEFT
-
-        pie.operator("keyops.add_mesh", text="Cube", icon="MESH_CUBE").mesh_type = "CUBE"  # RIGHT
-
-        pie.operator("keyops.add_mesh", text="Cylinder", icon="MESH_CYLINDER").mesh_type = "CYLINDER"  # BOTTOM
-
-        pie.operator("keyops.add_mesh", text="Plane", icon="MESH_PLANE").mesh_type = "PLANE"  # TOP
-
-        pie.operator("keyops.add_mesh", text="Mod Cylinder", icon="MOD_SCREW").mesh_type = "MODCYLINDER"  # LEFT TOP
-
-        if prefs.add_object_pie_empty:
-            pie.operator("keyops.add_mesh", text="Empty", icon="EMPTY_ARROWS").mesh_type = "EMPTY"  # RIGHT TOP
-        else:
-            pie.operator("keyops.add_mesh", text="Monkey", icon="MESH_MONKEY").mesh_type = "MONKEY"  # RIGHT TOP
-
-        pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_UVSPHERE").mesh_type = "QUADSPHERE"  # LEFT BOTTOM
-
-        pie.operator("keyops.add_mesh", text="Circle", icon="MESH_CIRCLE").mesh_type = "CIRCLE"  # RIGHT BOTTOM  
-
-
-class ViewCameraPie(Menu):
-    bl_idname = "KEYOPS_MT_view_camera_pie"
-    bl_label = "View Camera Pie"
-
-    def draw(self, context):
-        layout = self.layout
-
-
-class AddModifierPie(Menu):
-    bl_idname = "KEYOPS_MT_add_modifier_pie"
-    bl_label = "Add Modifier Pie"
-
-    def draw(self, context):
-        layout = self.layout
-        pie = layout.menu_pie()
-        
-        global hardops
-
-        if hardops is None:
-            hardops = get_is_addon_enabled("HOps")
-
-        if hardops:
-            pie.operator("hops.st3_array", text="Array", icon="MOD_ARRAY")# LEFT
-        else:
-            pie.operator("object.modifier_add", text="Array", icon="MOD_ARRAY").type = "ARRAY" # LEFT
-
-        if hardops:
-            pie.operator("hops.adjust_tthick", text="Solidify", icon="MOD_SOLIDIFY") #RIGHT
-        else:
-            pie.operator("object.modifier_add", text="Solidify", icon="MOD_SOLIDIFY").type = "SOLIDIFY" #RIGHT
-
-        if hardops:
-            pie.operator("hops.adjust_bevel", text="Bevel", icon="MOD_BEVEL") #BOTTOM
-        else:
-            pie.operator("object.modifier_add", text="Bevel", icon="MOD_BEVEL").type = "BEVEL" #BOTTOM
-
-        pie.operator("keyops.add_modifier", text="Weighted Normal", icon="MOD_NORMALEDIT"). type = "WEIGHTED_NORMAL" #TOP
-      
-        pie.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE" #LEFT TOP
-
-        pie.operator("keyops.add_modifier", text="Weld", icon="AUTOMERGE_OFF").type = "WELD" #RIGHT TOP
-
-        pie.operator("keyops.add_modifier", text="Triangulate", icon="MOD_TRIANGULATE").type = "TRIANGULATE" #LEFT BOTTOM
-
-        if hardops:
-            pie.operator("hops.mod_shrinkwrap", text="Shrinkwrap", icon="MOD_SHRINKWRAP") #RIGHT BOTTOM
-        else:
-            pie.operator("object.modifier_add", text="Shrinkwrap", icon="MOD_SHRINKWRAP").type = "SHRINKWRAP" #RIGHT BOTTOM
-
 class SwitchWorkspace(bpy.types.Operator):
     bl_idname = "keyops.switch_workspace"
     bl_label = "Switch Workspace"
+    bl_options = {'INTERNAL'}
 
     workspace_name: bpy.props.StringProperty() # type: ignore
 
     def execute(self, context):
-        bpy.context.window.workspace = bpy.data.workspaces[self.workspace_name]
+        if self.workspace_name in bpy.data.workspaces:
+            bpy.context.window.workspace = bpy.data.workspaces[self.workspace_name]
+        else:
+            bpy.ops.workspace.append_activate(idname=self.workspace_name, filepath= bpy.utils.user_resource('CONFIG', path='startup.blend'))
         return {'FINISHED'}
+
 
 class WorkspacePie(Menu):
     bl_idname = "KEYOPS_MT_workspace_pie"
@@ -129,29 +55,6 @@ class WorkspacePie(Menu):
     def unregister():
         bpy.utils.unregister_class(SwitchWorkspace)
 
-class CursorPie(Menu):
-    bl_idname = "KEYOPS_MT_cursor_pie"
-    bl_label = "Cursor Pie"
-
-    def draw(self, context):
-        layout = self.layout
-        pie = layout.menu_pie()
-
-        pie.operator("keyops.origin_to_selection", text="Origin to 3D Cursor", icon="LAYER_USED").type= "origin_to_3d_cursor" #LEFT
-
-        pie.operator("keyops.origin_to_selection", text="Origin to Selection", icon="LAYER_USED").type= "origin_to_geometry" #RIGHT
-
-        pie.operator("view3d.snap_cursor_to_selected", text="Cursor to Selection", icon="CURSOR") #BOTTOM
-
-        pie.operator("view3d.snap_selected_to_cursor", text="Selection to Cursor", icon="RESTRICT_SELECT_OFF") #TOP
-
-        pie.operator("view3d.snap_selected_to_grid", text="Selection to Grid", icon="SNAP_GRID") #LEFT TOP
-        
-        pie.operator('view3d.snap_cursor_to_grid', text="Cursor to Grid", icon="SNAP_GRID") #RIGHT TOP
-
-        pie.operator("view3d.snap_cursor_to_center", text="Cursor to World Origin", icon="PIVOT_CURSOR") #LEFT BOTTOM
-        
-        pie.operator('view3d.snap_cursor_to_active', text="Cursor to Active", icon="CURSOR") #RIGHT BOTTOM
 
 class UVSpacePie(Menu):
     bl_idname = "KEYOPS_MT_uv_space_pie"
@@ -233,7 +136,7 @@ class UtilityPie(Menu):
         if uvpackmaster is None:
             uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
         if polyquilt is None:
-            polyquilt = get_is_addon_enabled("PolyQuilt")
+            polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
 
         pie.prop(context.scene.tool_settings, "use_edge_path_live_unwrap", text="Live Unwrap", toggle=True) #LEFT
 
@@ -253,11 +156,8 @@ class UtilityPie(Menu):
         elif bpy.context.mode == "OBJECT":
             pie.operator("keyops.make_single_user" , text="Make Single User") #LEFT BOTTOM
         
-        if bpy.app.version >= (4, 1, 0):
-            pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
-        else:
-            pie.operator("keyops.smooth_by_sharp", text="Smooth by Sharp Edge") #RIGHT BOTTOM
-        
+        pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
+      
         
     def register():
 
@@ -286,7 +186,7 @@ class UVQPie(Menu):
     if uvpackmaster is None:
         uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
     if polyquilt is None:
-        polyquilt = get_is_addon_enabled("PolyQuilt")
+        polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
 
 
     def draw(self, context):

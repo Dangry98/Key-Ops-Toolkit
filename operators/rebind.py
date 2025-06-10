@@ -1,7 +1,6 @@
 import bpy
 
 #combine to one class
-#fix remove pop up menu x
 
 class ContextMenuRebindW(bpy.types.Operator):
     bl_idname = "keyops.rebind_w"
@@ -37,7 +36,6 @@ class ContextMenuRebindW(bpy.types.Operator):
                     #     km.keymap_items.new("wm.call_menu", "W", "PRESS", shift=False, ctrl=False, alt=False).properties.name = kmi.properties.name
                     #     km.keymap_items.remove(kmi)
 
-
         return {'FINISHED'}
 
 class ContextMenuRebindRightClick(bpy.types.Operator):
@@ -63,8 +61,6 @@ class ContextMenuRebindRightClick(bpy.types.Operator):
                         keymap_item.type = "RIGHTMOUSE"
                     # elif "Outliner Context Menu" in keymap_item.name and keymap_item.type == "W":
                     #     keymap_item.type = "RIGHTMOUSE"
- 
-
         
         return {'FINISHED'}
 
@@ -134,41 +130,11 @@ class SpaceToViewPieShift(bpy.types.Operator):
                     if keymap_item.name == "View" and keymap_item.idname == "wm.call_menu_pie":
                         keymap_item.type = "ACCENT_GRAVE"
         return {'FINISHED'}
-  
-class RemoveDeleteMenuObjectModeMenu(bpy.types.Operator):
-    bl_idname = "keyops.remove_delete_menu_object_mode_menu"
-    bl_label = "KeyOps: Remove Delete Menu Object Mode Menu"
-    bl_description = "Remove Delete Menu Object Mode"
-
-    def execute(self, context):
-        for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-            if keymap.name == 'Object Mode':
-                for keymap_item in keymap.keymap_items:
-                    if keymap_item.name == "Delete" and keymap_item.type == "X":
-                        if keymap_item.properties.confirm == True:
-                            keymap_item.properties.confirm = False
-        return {'FINISHED'}
-    
-class AddDeleteMenuObjectModeMenu(bpy.types.Operator):
-    bl_idname = "keyops.add_delete_menu_object_mode_menu"
-    bl_label = "KeyOps: Add Delete Menu Object Mode Menu"
-    bl_description = "Add Delete Menu Object Mode"
-
-    def execute(self, context):
-        for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-            if keymap.name == 'Object Mode':
-                for keymap_item in keymap.keymap_items:
-                    if keymap_item.name == "Delete" and keymap_item.type == "X":
-                        if keymap_item.properties.confirm == False:
-                            keymap_item.properties.confirm = True
-        return {'FINISHED'}
 
 
 classes = [ContextMenuRebindW, 
         ContextMenuRebindRightClick, 
         AddObjectPieRebindShiftA, 
-        RemoveDeleteMenuObjectModeMenu,
-        AddDeleteMenuObjectModeMenu,
         SpaceToViewPieShift,
         ]
 
@@ -176,7 +142,7 @@ class Rebind(bpy.types.Operator):
     bl_idname = "keyops.rebind"
     bl_label = "KeyOps: Rebind"
     bl_description = "Move Pivot Key Press"
-    bl_options = {'REGISTER', 'PRESET'}
+    bl_options = {'INTERNAL'}
 
     type: bpy.props.StringProperty(default="") # type: ignore
 
@@ -207,7 +173,7 @@ class Rebind(bpy.types.Operator):
                 for keymap_item in keymap.keymap_items:
                     if keymap_item.name == "Select Mode" and keymap_item.type in ('ONE', 'TWO', 'THREE') and not all([not keymap_item.ctrl, not keymap_item.alt, not keymap_item.shift]):
                         keymap_item.active = True
- 
+            
         return {'FINISHED'}
             
     

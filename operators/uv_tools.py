@@ -1,7 +1,6 @@
 import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
-from ..utils.mesh_utils import modifier_toggle_visability_based
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
 #Only an very old version is still available, but I doubt it still works in new version of Blender  https://alexbel.gumroad.com/l/NbMya
@@ -174,6 +173,8 @@ class UVCut(bpy.types.Operator):
     bl_description = "Maya like Cut UVs"
     bl_options = {'REGISTER', 'UNDO'}
 
+    quick: bpy.props.BoolProperty(name="Quick", default=False, description="Quick Cut", options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+
     @classmethod
     def poll(cls, context):
         return context.mode == 'EDIT_MESH'
@@ -183,10 +184,16 @@ class UVCut(bpy.types.Operator):
             bpy.ops.keyops.smart_uv_sync()
             self.report({'WARNING'}, "UV Sync needs to be disabled for this operation")
             bpy.ops.uv.select_mode(type='EDGE')
+            return {'CANCELLED'}
 
         bpy.ops.uv.mark_seam('EXEC_DEFAULT', True)
         bpy.ops.uv.rip_move('EXEC_DEFAULT', True, TRANSFORM_OT_translate={'value': (0.00025, 0.00025, 0.0)}, UV_OT_rip={'location': (100.0, 100.0)})
+
+        if self.quick:
+            bpy.ops.uv.select_linked_pick('INVOKE_DEFAULT')
+            bpy.ops.transform.transform('INVOKE_DEFAULT')
         return {'FINISHED'}
+
 
 class SharpFromUVIslands(bpy.types.Operator):
     bl_idname = "keyops.sharp_from_uv_islands"
@@ -1337,6 +1344,7 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Unwrap In Place Tool")
 
             unwrap_in_place_tool.is_tool = True
+            unwrap_in_place_tool.is_mode_object = False
             unwrap_in_place_tool.is_mode_edit = False
             unwrap_in_place_tool.is_mode_sculpt = False
             unwrap_in_place_tool.is_type_curve = False
@@ -1420,7 +1428,7 @@ class UnwrapInPlace(bpy.types.Operator):
             group_001.label = "Match Bounding Box"
             group_001.name = "Group.001"
             group_001.node_tree = match_bounding_box_node_group()
-
+            
             #node Group Input.006
             group_input_006 = unwrap_in_place_tool.nodes.new("NodeGroupInput")
             group_input_006.name = "Group Input.006"
@@ -1454,12 +1462,6 @@ class UnwrapInPlace(bpy.types.Operator):
             duplicate_elements.domain = 'FACE'
             #Amount
             duplicate_elements.inputs[2].default_value = 1
-            
-            #node Capture Attribute
-            capture_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeCaptureAttribute")
-            capture_attribute.name = "Capture Attribute"
-            capture_attribute.data_type = 'FLOAT_VECTOR'
-            capture_attribute.domain = 'POINT'
             
             #node Switch
             switch = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
@@ -1496,6 +1498,7 @@ class UnwrapInPlace(bpy.types.Operator):
             #node Remove Named Attribute
             remove_named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeRemoveAttribute")
             remove_named_attribute.name = "Remove Named Attribute"
+            remove_named_attribute.pattern_mode = 'EXACT'
             #Name
             remove_named_attribute.inputs[1].default_value = "seam_Unwrap_In_Place"
             
@@ -1546,6 +1549,7 @@ class UnwrapInPlace(bpy.types.Operator):
             #node Transform Geometry
             transform_geometry = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
             transform_geometry.name = "Transform Geometry"
+            transform_geometry.mode = 'COMPONENTS'
             #Rotation
             transform_geometry.inputs[2].default_value = (0.0, 0.0, 0.0)
             #Scale
@@ -1687,6 +1691,7 @@ class UnwrapInPlace(bpy.types.Operator):
             #node Transform Geometry.001
             transform_geometry_001 = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
             transform_geometry_001.name = "Transform Geometry.001"
+            transform_geometry_001.mode = 'COMPONENTS'
             #Translation
             transform_geometry_001.inputs[1].default_value = (0.5, 0.5, 0.0)
             #Rotation
@@ -1725,6 +1730,21 @@ class UnwrapInPlace(bpy.types.Operator):
             #Epsilon
             compare_003.inputs[12].default_value = 0.0010000000474974513
             
+            #node Store Named Attribute
+            store_named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
+            store_named_attribute.name = "Store Named Attribute"
+            store_named_attribute.data_type = 'FLOAT_VECTOR'
+            store_named_attribute.domain = 'POINT'
+            #Name
+            store_named_attribute.inputs[2].default_value = "pos"
+            
+            #node Named Attribute.005
+            named_attribute_005 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
+            named_attribute_005.name = "Named Attribute.005"
+            named_attribute_005.data_type = 'FLOAT_VECTOR'
+            #Name
+            named_attribute_005.inputs[0].default_value = "pos"
+            
             
             
             
@@ -1733,7 +1753,7 @@ class UnwrapInPlace(bpy.types.Operator):
             group_output_001.location = (3731.859130859375, 158.48330688476562)
             set_position.location = (318.9644775390625, -283.7413330078125)
             named_attribute.location = (80.46863555908203, -529.8975219726562)
-            position_1.location = (-673.3154296875, -530.0293579101562)
+            position_1.location = (-643.6294555664062, -561.041015625)
             split_edges.location = (-120.47317504882812, -364.7484130859375)
             store_named_attribute_003.location = (1425.8426513671875, -320.0542907714844)
             uv_unwrap_001.location = (527.5487670898438, -552.85888671875)
@@ -1747,11 +1767,10 @@ class UnwrapInPlace(bpy.types.Operator):
             sample_index_001_1.location = (3076.62158203125, -17.763328552246094)
             index_1.location = (2562.821533203125, -172.6898193359375)
             duplicate_elements.location = (528.2855224609375, -266.8842468261719)
-            capture_attribute.location = (-500.2677917480469, -388.77728271484375)
             switch.location = (792.8668212890625, -605.5924072265625)
             uv_unwrap_002.location = (536.3257446289062, -727.11669921875)
             selection.location = (-229.96835327148438, -541.886474609375)
-            evaluate_on_domain.location = (65.70108032226562, -397.25653076171875)
+            evaluate_on_domain.location = (79.89872741699219, -380.45855712890625)
             named_attribute_002.location = (-63.35287857055664, -780.0927734375)
             named_attribute_003.location = (241.72677612304688, -737.4782104492188)
             remove_named_attribute.location = (3498.46875, 160.91714477539062)
@@ -1778,6 +1797,8 @@ class UnwrapInPlace(bpy.types.Operator):
             grid_001.location = (1965.2052001953125, 161.468994140625)
             transform_geometry_001.location = (2141.143310546875, 236.33486938476562)
             compare_003.location = (1833.024658203125, -36.365753173828125)
+            store_named_attribute.location = (-432.9498291015625, -363.1137390136719)
+            named_attribute_005.location = (873.2334594726562, -448.8204650878906)
             
             #Set dimensions
             group_input_001.width, group_input_001.height = 140.0, 100.0
@@ -1798,7 +1819,6 @@ class UnwrapInPlace(bpy.types.Operator):
             sample_index_001_1.width, sample_index_001_1.height = 140.0, 100.0
             index_1.width, index_1.height = 140.0, 100.0
             duplicate_elements.width, duplicate_elements.height = 140.0, 100.0
-            capture_attribute.width, capture_attribute.height = 140.0, 100.0
             switch.width, switch.height = 140.0, 100.0
             uv_unwrap_002.width, uv_unwrap_002.height = 140.0, 100.0
             selection.width, selection.height = 140.0, 100.0
@@ -1829,6 +1849,8 @@ class UnwrapInPlace(bpy.types.Operator):
             grid_001.width, grid_001.height = 140.0, 100.0
             transform_geometry_001.width, transform_geometry_001.height = 140.0, 100.0
             compare_003.width, compare_003.height = 140.0, 100.0
+            store_named_attribute.width, store_named_attribute.height = 140.0, 100.0
+            named_attribute_005.width, named_attribute_005.height = 140.0, 100.0
             
             #initialize unwrap_in_place_tool links
             #named_attribute.Attribute -> set_position.Position
@@ -1845,8 +1867,6 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool.links.new(set_position_001.outputs[0], store_named_attribute_004.inputs[0])
             #named_attribute_001.Attribute -> sample_index_001_1.Value
             unwrap_in_place_tool.links.new(named_attribute_001.outputs[0], sample_index_001_1.inputs[1])
-            #capture_attribute.Geometry -> split_edges.Mesh
-            unwrap_in_place_tool.links.new(capture_attribute.outputs[0], split_edges.inputs[0])
             #sample_index_001_1.Value -> store_named_attribute_006.Value
             unwrap_in_place_tool.links.new(sample_index_001_1.outputs[0], store_named_attribute_006.inputs[3])
             #store_named_attribute_004.Geometry -> sample_index_001_1.Geometry
@@ -1859,18 +1879,12 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool.links.new(group_001.outputs[0], store_named_attribute_004.inputs[3])
             #duplicate_elements_003.Geometry -> group_001.Target
             unwrap_in_place_tool.links.new(duplicate_elements_003.outputs[0], group_001.inputs[1])
-            #position_1.Position -> capture_attribute.Value
-            unwrap_in_place_tool.links.new(position_1.outputs[0], capture_attribute.inputs[1])
-            #capture_attribute.Attribute -> set_position_003.Position
-            unwrap_in_place_tool.links.new(capture_attribute.outputs[1], set_position_003.inputs[2])
             #uv_unwrap_001.UV -> switch.True
             unwrap_in_place_tool.links.new(uv_unwrap_001.outputs[0], switch.inputs[2])
             #uv_unwrap_002.UV -> switch.False
             unwrap_in_place_tool.links.new(uv_unwrap_002.outputs[0], switch.inputs[1])
             #switch.Output -> store_named_attribute_003.Value
             unwrap_in_place_tool.links.new(switch.outputs[0], store_named_attribute_003.inputs[3])
-            #group_input_001.Geometry -> capture_attribute.Geometry
-            unwrap_in_place_tool.links.new(group_input_001.outputs[0], capture_attribute.inputs[0])
             #group_input_006.Geometry -> store_named_attribute_006.Geometry
             unwrap_in_place_tool.links.new(group_input_006.outputs[0], store_named_attribute_006.inputs[0])
             #remove_named_attribute.Geometry -> group_output_001.Geometry
@@ -1983,8 +1997,17 @@ class UnwrapInPlace(bpy.types.Operator):
             unwrap_in_place_tool.links.new(domain_size.outputs[0], compare_003.inputs[0])
             #compare_003.Result -> switch_004.Switch
             unwrap_in_place_tool.links.new(compare_003.outputs[0], switch_004.inputs[0])
+            #position_1.Position -> store_named_attribute.Value
+            unwrap_in_place_tool.links.new(position_1.outputs[0], store_named_attribute.inputs[3])
+            #group_input_001.Geometry -> store_named_attribute.Geometry
+            unwrap_in_place_tool.links.new(group_input_001.outputs[0], store_named_attribute.inputs[0])
+            #store_named_attribute.Geometry -> split_edges.Mesh
+            unwrap_in_place_tool.links.new(store_named_attribute.outputs[0], split_edges.inputs[0])
+            #named_attribute_005.Attribute -> set_position_003.Position
+            unwrap_in_place_tool.links.new(named_attribute_005.outputs[0], set_position_003.inputs[2])
+            #evaluate_on_domain.Value -> store_named_attribute.Selection
+            unwrap_in_place_tool.links.new(evaluate_on_domain.outputs[0], store_named_attribute.inputs[1])
             return unwrap_in_place_tool
-
         visibility_modifier_dict_list = {}
 
         def modifier_toggle_visability_based2(): 
@@ -2013,10 +2036,6 @@ class UnwrapInPlace(bpy.types.Operator):
 
         #import time
         #total_time = time.time()
-
-        if bpy.app.version <= (4, 0, 2):
-            self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
-            return {'FINISHED'}
         
         for obj in bpy.context.selected_objects:
             if obj.type == 'MESH':
@@ -2260,7 +2279,7 @@ class ToggleSmoothSharp(bpy.types.Operator):
                         face.smooth = True
 
                 bmesh.update_edit_mesh(me, loop_triangles=False)
-                if bpy.app.version > (4, 1, 0):
+                if bpy.app.version < (4, 1, 0):
                     obj.data.auto_smooth_angle = 3.141590118408203
                     obj.data.use_auto_smooth = True
                 else:
@@ -2304,7 +2323,7 @@ class RemoveSeam(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     @classmethod
     def poll(cls, context):
-        return context.active_object.type == 'MESH'
+        return context.active_object is not None and context.active_object.type == 'MESH'
     
     def execute(self, context):
         bpy.ops.mesh.mark_seam(clear=True)
@@ -2478,7 +2497,8 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH' or context.mode == 'OBJECT'
+        return False
+        # return context.mode == 'EDIT_MESH' or context.mode == 'OBJECT'
     
     def draw(self, context):
         layout = self.layout
