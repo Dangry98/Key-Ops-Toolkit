@@ -1,0 +1,21 @@
+schema_version = "1.0.0"
+
+id = "Key_Ops_Toolkit"
+version = "0.2.198"
+name = "Key Ops: Toolkit"
+tagline = "Industri Standard Tools & Shortcuts to Speed Up Blender Workflow"
+maintainer = "MACHIN3, Dan-Gry"
+type = "add-on"
+
+website = "https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9"
+
+tags = ["Modeling", "Mesh", "Object", "UV", "3D View"]
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+files = "Export/Import .obj files and use of temp folder"

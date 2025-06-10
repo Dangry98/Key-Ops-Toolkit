@@ -1,25 +1,29 @@
 import bpy
 import rna_keymap_ui
 import os
+from bpy.utils import previews
+from .. import __package__ as base_package
 
 def get_is_addon_enabled(addon_name):
-    for addon in bpy.context.preferences.addons:
-        if addon.module == addon_name:
-            return True
-    return False
-
-def get_absolute_path():
-    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    list_of_addons = bpy.context.preferences.addons.keys()
+    list_of_addons = [addon.split(".")[-1] for addon in list_of_addons]
+    return addon_name in list_of_addons
 
 def get_addon_name():
-    return os.path.basename(get_absolute_path())
+    return base_package
 
 def get_keyops_prefs():
-    addon_name = get_addon_name()
-    if addon_name in bpy.context.preferences.addons:
-        return bpy.context.preferences.addons[addon_name].preferences
-    else:
-        return None
+    addon_prefs = bpy.context.preferences.addons[base_package]
+    return addon_prefs.preferences
+
+def get_addon_path(addon_name):
+    for addon in bpy.context.preferences.addons:
+        if str(addon_name) in addon.module:
+            return addon.module
+        
+def get_addon_preferences(addon_name):
+    name = get_addon_path(addon_name)
+    return bpy.context.preferences.addons[str(name)]
 
 #The following code is based on the MACHIN3 addon: MACHIN3tools
 #Check out there awesome addons here: https://machin3.io/
@@ -68,3 +72,26 @@ def draw_keymap(key_config, name, key_list, layout):
 
         drawn.append(is_drawn)
     return drawn
+
+def register_icons():
+    path = os.path.join(os.path.dirname(__file__), "..", "icons")
+    icons = previews.new()
+    for i in sorted(os.listdir(path)):
+        if i.endswith(".png"):
+            iconname = i[:-4]
+            filepath = os.path.join(path, i)
+            icons.load(iconname, filepath, 'IMAGE')
+    return icons
+
+def unregister_icons(icons):
+    previews.remove(icons)
+
+icons = None
+
+def get_icon(name):
+    global icons
+
+    if not icons:
+        from .. import icons
+    
+    return icons[name].icon_id
