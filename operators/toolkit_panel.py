@@ -1072,7 +1072,7 @@ class ToolkitPanel(bpy.types.Operator):
     instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
     seprate_by: bpy.props.EnumProperty(name="Separate By",
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
-                                              ("LOOSE", "By Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
+                                              ("LOOSE", "Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
                                         default="LOOSE") # type: ignore
     def invoke(self, context, event):
         global ev 

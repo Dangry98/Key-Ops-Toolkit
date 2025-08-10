@@ -504,7 +504,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     else:
         default_retology_tool = "mesh_tool.poly_quilt"
         #default_retology_tool = "builtin.select_box"
-        toggle_retopology_default = False
+        toggle_retopology_default = True
 
     enable_auto_delete: BoolProperty(name="Auto Delete", default=True, update=enable_deco("auto_delete")) # type: ignore
     enable_toggle_retopology: BoolProperty(name="Toggle Retopology", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
@@ -521,7 +521,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_cursor_pie: BoolProperty(name="Cursor Pie", default=True, update=enable_deco("cursor_pie")) # type: ignore
     enable_fast_merge: BoolProperty(name="Fast Merge & Connect", default=True, update=enable_deco("fast_merge")) # type: ignore
     enable_modi_key: BoolProperty(name="Modifier Key", default=True, update=enable_deco("modi_key")) # type: ignore
-    enable_cad_decimate: BoolProperty(name="CAD Decimate", default=False, update=enable_deco("cad_decimate"))     # type: ignore
+    enable_cad_decimate: BoolProperty(name="CAD Decimate", default=True, update=enable_deco("cad_decimate"))     # type: ignore
     enable_auto_lod: BoolProperty(name="Auto LOD", default=True, update=enable_deco("auto_lod")) # type: ignore
     enable_quick_bake_name: BoolProperty(name="Quick Bake Name", default=True, update=enable_deco("quick_bake_name")) # type: ignore
     enable_polycount_list: BoolProperty(name="Polycount List", default=True, update=enable_deco("polycount_list")) # type: ignore

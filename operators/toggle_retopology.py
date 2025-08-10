@@ -236,6 +236,10 @@ def draw_retopology_panel(self, context, draw_header=False):
 
     layout = self.layout.box()
     prefs = get_keyops_prefs()
+    
+    poly_quilt_exists = True
+    if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt_Fork"):
+        poly_quilt_exists = False
 
     if check_theme_once == False:
         theme = bpy.context.preferences.themes[0].view_3d
@@ -258,34 +262,41 @@ def draw_retopology_panel(self, context, draw_header=False):
         row.label(text="Theme settings are wrong")
     else:
         if overlay.show_retopology == True:
+            if not poly_quilt_exists:
+                row.active = False
             row = layout.row(align=True)
             row.scale_y = 1.5
             row.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
         else:
             row = layout.row(align=True)
+            if not poly_quilt_exists:
+                row.active = False
             row.scale_y = 1.5
             row.scale_x = 1.25
             row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
             row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
     row = layout.row()
+    if not poly_quilt_exists:
+        row.active = False
     row.operator("keyops.toggle_retopology", text="New Retopology at Active", icon="ADD").type = "new_target"
 
-    if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt_Fork"):
+    if not poly_quilt_exists:
         row = layout.row()
-        row.label(text="Poly Quilt is not installed", icon="QUESTION")
+        row.label(text="Active Tool PolyQuilt not installed", icon="ERROR")
         if not bpy.context.preferences.system.use_online_access:
             row = layout.row(align=True)
             row.label(text="Online Access is required")
             row = layout.row(align=True)
             row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
         row = layout.row()
+        row.scale_y = 1.2
         repo_index = 0
         pkg_id = "PolyQuilt_Fork"            
         props = row.operator("extensions.package_install", text="Install PolyQuilt")
         props.repo_index = repo_index
         props.pkg_id = pkg_id
         row = layout.row()
-        row.label(text="(Optional) or use another tools")
+        row.label(text="(Optional) or use another tool in settings")
 
 
     if bpy.context.preferences.use_preferences_save == True:

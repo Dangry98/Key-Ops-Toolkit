@@ -49,6 +49,12 @@ class QuickBakeName(bpy.types.Operator):
             return context.window_manager.invoke_props_dialog(self)
         else:
             return self.execute(context)
+        
+    # @classmethod
+    # def poll(cls, context):
+    #     if context.mode == "OBJECT" and len(context.selected_objects) >= 2:
+    #         return True
+    #     return False
 
     def draw(self, context):
         if self.type == "RENAME":
