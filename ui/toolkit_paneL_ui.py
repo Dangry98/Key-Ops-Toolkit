@@ -172,9 +172,9 @@ class NewToolkitPanel(bpy.types.Panel):
         row.scale_y = 1.4
         row.alignment = 'EXPAND'
         row.prop(context.scene, "toolkit_panel_mode", emboss=True)
-        row = layout.row(align=True)
-        row.scale_x = 12
-        row.scale_y = 1.25
+        # row = layout.row(align=True)
+        # row.scale_x = 12
+        # row.scale_y = 1.25
 
         object = 'OBJECT' in scene.toolkit_panel_mode
         modifiers = 'MODIFIERS' in scene.toolkit_panel_mode
