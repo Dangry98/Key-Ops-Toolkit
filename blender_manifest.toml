@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "Key_Ops_Toolkit"
-version = "0.2.198"
+version = "0.2.5"
 name = "Key Ops: Toolkit"
 tagline = "Industri Standard Tools & Shortcuts to Speed Up Blender Workflow"
 maintainer = "MACHIN3, Dan-Gry"
@@ -11,7 +11,7 @@ website = "https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-868
 
 tags = ["Modeling", "Mesh", "Object", "UV", "3D View"]
 
-blender_version_min = "4.2.0"
+blender_version_min = "4.5.0"
 
 license = [
   "SPDX:GPL-3.0-or-later",

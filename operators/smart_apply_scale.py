@@ -236,9 +236,18 @@ class SmartApplyScale(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     deselect : bpy.props.BoolProperty(name="Deselect problem objects", default=False) # type: ignore
-    scaleTextures: bpy.props.BoolProperty(name="Scale procedural displacement textures", default=False) # type: ignore
+    scaleTextures: bpy.props.BoolProperty(name="Scale displacement textures", default=False) # type: ignore
     makeClonesReal: bpy.props.BoolProperty(name="Make objects single user", default=False) # type: ignore
-    geomtryNodes: bpy.props.BoolProperty(name="Geometry Nodes", default=True, description="Only works if the input has Distance Subtype (m)") # type: ignore
+    geomtryNodes: bpy.props.BoolProperty(name="Fix Geometry Nodes Modifiers", default=True, description="Only works if the input has Distance Subtype (m)") # type: ignore
+    auto_fix_normals: bpy.props.BoolProperty(name="Auto Fix normals", default=True, description="Recalculate normals after applying scale if inverted scale") # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "deselect")
+        layout.prop(self, "scaleTextures")
+        layout.prop(self, "makeClonesReal")
+        layout.prop(self, "geomtryNodes")
+        layout.prop(self, "auto_fix_normals")
 
     def execute(self, context):
         objects = context.selected_objects
@@ -316,7 +325,15 @@ class SmartApplyScale(bpy.types.Operator):
         if warningMessage:
             self.report({'WARNING'}, warningMessage + "Some issues are possible ")
 
+        if self.auto_fix_normals:
+            objs_with_neg_scale = [obj for obj in objects if obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0]
+
         apply_scale(bpy.context.selected_objects)
+
+        if self.auto_fix_normals:
+            for obj in objs_with_neg_scale:
+                s = obj.scale
+                obj.data.flip_normals()
 
         objectsSelectSet(clones, True)
         if self.deselect:

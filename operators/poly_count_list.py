@@ -312,7 +312,7 @@ def draw_polycount_list_ui(self, context):
         row.prop(props, "auto_update_polycount", text="Auto", icon="FILE_REFRESH", toggle=False)
         # row.popover(panel="POLYCOUNT_PT_AutoUpdate_Settings", icon="PREFERENCES", text="")
         row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
-        row.prop(props, "polycount_use_selection_only", text="Only selected", icon="RESTRICT_SELECT_OFF", toggle=False)
+        row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
         row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
 
         col_flow = layout.column_flow(columns=0, align=True)
