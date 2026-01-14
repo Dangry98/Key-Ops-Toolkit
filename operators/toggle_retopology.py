@@ -301,17 +301,17 @@ def draw_retopology_panel(self, context, draw_header=False):
 
     if bpy.context.preferences.use_preferences_save == True:
         row = layout.row()
-        row.scale_y = 0.6
+        row.scale_y = 0.8
 
         row.label(text="AutoSave Prefs is enabled", icon="ERROR")
         row = layout.row()
-        row.scale_y = 0.6
+        row.scale_y = 0.8
 
         row.label(text="Please Disable")
         row.prop(bpy.context.preferences, "use_preferences_save", text="Disable", toggle=True)
         #link to website
         row = layout.row()
-        row.scale_y = 0.6
+        row.scale_y = 0.8
         row.operator("wm.url_open", text="More Info").url = "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"
 class Retopolgy_Panel(bpy.types.Panel):
     bl_label = "Retopology"

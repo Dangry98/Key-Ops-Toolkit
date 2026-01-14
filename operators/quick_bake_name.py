@@ -74,7 +74,7 @@ class QuickBakeName(bpy.types.Operator):
             row = layout.row()
 
     def execute(self, context):
-        if self.type == "RENAME":
+        if self.type == "RENAME": 
             new_name = self.new_name
             old_name = bpy.context.object.name.split("_low")[0]
             old_name = old_name.split("_high")[0]

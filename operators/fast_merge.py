@@ -77,7 +77,7 @@ class FastMerge(bpy.types.Operator):
                     if self.preserve_uvs:
                         uv_layer = bm.loops.layers.uv.active
                         #fixes error in some very rare cases, but might not be worth the potential performance hit
-                        if nearest_vertex.link_loops:
+                        if uv_layer and nearest_vertex.link_loops:
                             for vert in selected_verts:
                                 for loop in vert.link_loops:
                                     if loop[uv_layer] and nearest_vertex.link_loops[0][uv_layer]:
