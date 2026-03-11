@@ -15,8 +15,9 @@ polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
 ev = []
 total_tris = 0
-latest_updated_objects_in_depsgrapth = []
+latest_updateded_objects_in_depsgrapth = []
 list_cache = {}
+obj_lookup_cache = {}
 
 class PolyCountProperties(PropertyGroup):
     polycount_use_selection_only: BoolProperty(  # type: ignore
@@ -115,7 +116,9 @@ def sortList(item):
         return item[1]
 
 def get_poly_count(context, force_update_all=False):
-    global total_tris, latest_updated_objects_in_depsgrapth
+    global total_tris, latest_updateded_objects_in_depsgrapth, obj_lookup_cache
+
+    obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
     selection = None
     c = context
     props = c.scene.polycount_props
@@ -146,8 +149,9 @@ def get_poly_count(context, force_update_all=False):
     # replace mesh cache with just global polycount cache
     # import time
     # start_time = time.time()
+
     for obj in selection:
-        if obj.name in latest_updated_objects_in_depsgrapth or obj not in list_cache:
+        if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
             eval_obj = obj.evaluated_get(depsgraph)
             mesh = eval_obj.to_mesh()
             if mesh is not None:
@@ -161,10 +165,9 @@ def get_poly_count(context, force_update_all=False):
             tris, verts, edges, faces = list_cache[obj]
 
         total_tris += tris
-        polycount.append((obj.name, tris, verts, edges, faces))  # Store directly in polycount list
+        polycount.append((obj.name, tris, verts, edges, faces))  # Store directly in polycount list, we should not receate it each time, instead the list_cache should be used everwhere!
 
-    latest_updated_objects_in_depsgrapth = []
-    # print("Time taken to get polycount: ", time.time() - start_time)
+    latest_updateded_objects_in_depsgrapth = []
 
     if show_collection_instances:
         for obj in c.scene.objects:
@@ -188,7 +191,6 @@ def get_poly_count(context, force_update_all=False):
                             collection_faces += faces
 
                 polycount.append((collection_instance_name, collection_tris, collection_verts, collection_edges, collection_faces))
-    # print(time.time() - start)  
 
     if polycount_sorting == 'NAME':
         name_ascending = not polycount_sorting_ascending
@@ -199,22 +201,24 @@ def get_poly_count(context, force_update_all=False):
     total_tris = 0
     for obj in polycount:
         total_tris += obj[1]
+    # print("Time taken to get polycount: {:.2f} ms".format((time.time() - start_time) * 1000))
 
-    return {'FINISHED'}
 
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
-    global latest_updated_objects_in_depsgrapth, list_cache
+    global latest_updateded_objects_in_depsgrapth, list_cache
     scene_tab_is_open = False
     
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
-                latest_updated_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
+                latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
                 scene_tab_is_open = True
                 break
-    if scene.toolkit_panel_mode == 'POLYCOUNT_LIST':
+            
+    if 'POLYCOUNT_LIST' in scene.toolkit_panel_mode:
+        latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
         scene_tab_is_open = True
-        
+
     if not scene_tab_is_open:
         # reset list_cache, since it will need to be recomputed once the scene tab is opened again
         if list_cache:
@@ -259,193 +263,193 @@ ui_updates = 0
 last_draw_time = 0
 
 def draw_polycount_list_ui(self, context):
-        draw_time = time.time()
-        name_offset_row = 0.725
+    draw_time = time.time()
+    name_offset_row = 0.725
 
-        layout = self.layout
-        global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time
+    layout = self.layout
+    global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache
 
-        props = context.scene.polycount_props
-        filter_list_show = props.filter_list_show
+    props = context.scene.polycount_props
+    filter_list_show = props.filter_list_show
 
-        show_tris = 'TRIS' in filter_list_show
-        show_verts = 'VERT' in filter_list_show
-        show_edges = 'EDGE' in filter_list_show
-        show_faces = 'FACE' in filter_list_show
+    show_tris = 'TRIS' in filter_list_show
+    show_verts = 'VERT' in filter_list_show
+    show_edges = 'EDGE' in filter_list_show
+    show_faces = 'FACE' in filter_list_show
 
-        ui_updates += 1
-        
-        if props.auto_update_polycount:
-            if ui_updates >= props.update_rate:
-                polycount.clear()
-                get_poly_count(context)
-                ui_updates = 0
-        
-        if props.show_total_tris:
-            row = layout.row(align=True)
-            if props.round_numbers:
-                row.label(text="Total Tris: {}".format(trim_numbers(total_tris)))
-            else:
-                row.label(text="Total Tris: " + "{:,}".format(total_tris))
-            sub = row.row(align=True)
-            sub.alignment = 'LEFT'
-            # sub.enabled = False
-            if props.show_draw_time:  
-                if last_draw_time * 1000 > 30:
-                    sub.alert = True
-                sub.label(text="{:.1f} ms".format(last_draw_time * 1000))
-
-        row = layout.row(align=True)
-        if len(polycount) > 2500 and props.auto_update_polycount:
-        #     row.label(text="Warning: > 500 objects, auto update might be slow", icon="ERROR")
-        #     # update_rate = props.update_rate
-        #     row.scale_x = 0.4
-        #     row.prop(props, "update_rate", text="Update Rate")
-
-        # if redraw time is over 0.05s, show that update rate can be changed
-            row.label(text="Auto Update might be slow", icon="INFO")
-            # update_rate = props.update_rate
-            row.scale_x = 0.45
-            row.prop(props, "update_rate", text="Update Rate")
-
-        row = layout.row(align=True)
-        row.prop(props, "auto_update_polycount", text="Auto", icon="FILE_REFRESH", toggle=False)
-        # row.popover(panel="POLYCOUNT_PT_AutoUpdate_Settings", icon="PREFERENCES", text="")
-        row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
-        row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
-        row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
-
-        col_flow = layout.column_flow(columns=0, align=True)
-        row = col_flow.row(align=True)
-
-        if polycount_sorting == 'NAME':
-            if polycount_sorting_ascending:
-                row.operator("keyops.polycount_user_interaction", text="Object Name", icon="TRIA_DOWN").poly_sort = 'NAME'
-            else:
-                row.operator("keyops.polycount_user_interaction", text="Object Name", icon="TRIA_UP").poly_sort = 'NAME'
-        else:
-            row.operator("keyops.polycount_user_interaction", text="Object Name").poly_sort = 'NAME'
-
-        row = row.row(align=True)
-        row.scale_x = name_offset_row
-
-        if show_tris:
-            if polycount_sorting == 'TRIS':
-                if polycount_sorting_ascending:
-                    row.operator("keyops.polycount_user_interaction", text="Tris", icon="TRIA_DOWN").poly_sort = 'TRIS'
-                else:
-                    row.operator("keyops.polycount_user_interaction", text="Tris", icon="TRIA_UP").poly_sort = 'TRIS'
-            else:
-                row.operator("keyops.polycount_user_interaction", text="Tris").poly_sort = 'TRIS'
-
-        if show_verts:
-            if polycount_sorting == 'VERTS':
-                if polycount_sorting_ascending:
-                    row.operator("keyops.polycount_user_interaction", text="Verts", icon="TRIA_DOWN").poly_sort = 'VERTS'
-                else:
-                    row.operator("keyops.polycount_user_interaction", text="Verts", icon="TRIA_UP").poly_sort = 'VERTS'
-            else:
-                row.operator("keyops.polycount_user_interaction", text="Verts").poly_sort = 'VERTS'
-
-        if show_edges:
-            if polycount_sorting == 'EDGES':
-                if polycount_sorting_ascending:
-                    row.operator("keyops.polycount_user_interaction", text="Edges", icon="TRIA_DOWN").poly_sort = 'EDGES'
-                else:
-                    row.operator("keyops.polycount_user_interaction", text="Edges", icon="TRIA_UP").poly_sort = 'EDGES'
-            else:
-                row.operator("keyops.polycount_user_interaction", text="Edges").poly_sort = 'EDGES'
-
-        if show_faces:
-            if polycount_sorting == 'FACE':
-                if polycount_sorting_ascending:
-                    row.operator("keyops.polycount_user_interaction", text="Face", icon="TRIA_DOWN").poly_sort = 'FACE'
-                else:
-                    row.operator("keyops.polycount_user_interaction", text="Face", icon="TRIA_UP").poly_sort = 'FACE'
-            else:
-                row.operator("keyops.polycount_user_interaction", text="Face").poly_sort = 'FACE'
-        # import time
-        # start = time.time()
-        box = col_flow.box()
-        col_flow = box.column_flow(columns=0, align=True)
-        if len(polycount) > 0:
-            round_numbers = props.round_numbers
-            show_collection_instances = props.show_collection_instances
-            show_obj_type = props.show_obj_type
-            max_list_length = props.max_list_length
-            selecteion = context.selected_objects
-
-            mesh_icon = get_icon("mesh")   
-            curve_icon = get_icon("curve")
-            
-            found_active = False
-
-            for i, obj in enumerate(polycount):
-                if i >= max_list_length:
-                    break
-                
-                # data
-                obj_name = str(obj[0])
-                object = bpy.data.objects.get(obj_name)
-                if object is None: # object was deleted most likely
-                    continue
-
-                row = col_flow.row(align=True)
-                selected = object in selecteion
+    ui_updates += 1
     
-                if show_obj_type:
-                    object_type = object.type
-                    
-                    if object_type in {'MESH', 'CURVE'}:
-                        if object_type == 'MESH':
-                            icon_value = mesh_icon
-                        elif object_type == 'CURVE':
-                            icon_value = curve_icon
+    if props.auto_update_polycount:
+        if ui_updates >= props.update_rate:
+            polycount.clear()
+            get_poly_count(context)
+            ui_updates = 0
+    
+    if props.show_total_tris:
+        row = layout.row(align=True)
+        if props.round_numbers:
+            row.label(text="Total Tris: {}".format(trim_numbers(total_tris)))
+        else:
+            row.label(text="Total Tris: " + "{:,}".format(total_tris))
+        sub = row.row(align=True)
+        sub.alignment = 'LEFT'
+        # sub.enabled = False
+        if props.show_draw_time:  
+            if last_draw_time * 1000 > 30:
+                sub.alert = True
+            sub.label(text="{:.1f} ms".format(last_draw_time * 1000))
 
-                        display_name = obj_name
-                        if not found_active:
-                            if object == context.active_object:
-                                found_active = True
-                                display_name = "*" + obj_name  
-                                
-                        row.operator("keyops.polycount_user_interaction", text=str(display_name), icon_value=icon_value, depress=selected, emboss=selected).make_active = obj_name
-                    else:
-                        # Check if the object is an instanced collection
-                        if show_collection_instances and object.instance_type == 'COLLECTION':
-                            icon = 'OUTLINER_OB_GROUP_INSTANCE'
-                        else:
-                            icon = 'OUTLINER_OB_' + object_type if object_type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META', 'ARMATURE', 'CAMERA', 'LIGHT', 'LATTICE', 'EMPTY', 'SPEAKER', 'LIGHT_PROBE'} else 'OBJECT_DATAMODE'
+    row = layout.row(align=True)
+    if len(polycount) > 2500 and props.auto_update_polycount:
+    #     row.label(text="Warning: > 500 objects, auto update might be slow", icon="ERROR")
+    #     # update_rate = props.update_rate
+    #     row.scale_x = 0.4
+    #     row.prop(props, "update_rate", text="Update Rate")
 
-                        row.operator("keyops.polycount_user_interaction", text=str(obj_name), icon=icon, depress=selected, emboss=selected).make_active = obj_name
-                else:
-                    row.operator("keyops.polycount_user_interaction", text=str(obj_name), depress=selected, emboss=selected).make_active = obj_name
+    # if redraw time is over 0.05s, show that update rate can be changed
+        row.label(text="Auto Update might be slow", icon="INFO")
+        # update_rate = props.update_rate
+        row.scale_x = 0.45
+        row.prop(props, "update_rate", text="Update Rate")
 
-                row = row.row(align=True)
-                row.scale_x = name_offset_row
+    row = layout.row(align=True)
+    row.prop(props, "auto_update_polycount", text="Auto", icon="FILE_REFRESH", toggle=False)
+    # row.popover(panel="POLYCOUNT_PT_AutoUpdate_Settings", icon="PREFERENCES", text="")
+    row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
+    row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
+    row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
+
+    col_flow = layout.column_flow(columns=0, align=True)
+    row = col_flow.row(align=True)
+
+    if polycount_sorting == 'NAME':
+        if polycount_sorting_ascending:
+            row.operator("keyops.polycount_user_interaction", text="Object Name", icon="TRIA_DOWN").poly_sort = 'NAME'
+        else:
+            row.operator("keyops.polycount_user_interaction", text="Object Name", icon="TRIA_UP").poly_sort = 'NAME'
+    else:
+        row.operator("keyops.polycount_user_interaction", text="Object Name").poly_sort = 'NAME'
+
+    row = row.row(align=True)
+    row.scale_x = name_offset_row
+
+    if show_tris:
+        if polycount_sorting == 'TRIS':
+            if polycount_sorting_ascending:
+                row.operator("keyops.polycount_user_interaction", text="Tris", icon="TRIA_DOWN").poly_sort = 'TRIS'
+            else:
+                row.operator("keyops.polycount_user_interaction", text="Tris", icon="TRIA_UP").poly_sort = 'TRIS'
+        else:
+            row.operator("keyops.polycount_user_interaction", text="Tris").poly_sort = 'TRIS'
+
+    if show_verts:
+        if polycount_sorting == 'VERTS':
+            if polycount_sorting_ascending:
+                row.operator("keyops.polycount_user_interaction", text="Verts", icon="TRIA_DOWN").poly_sort = 'VERTS'
+            else:
+                row.operator("keyops.polycount_user_interaction", text="Verts", icon="TRIA_UP").poly_sort = 'VERTS'
+        else:
+            row.operator("keyops.polycount_user_interaction", text="Verts").poly_sort = 'VERTS'
+
+    if show_edges:
+        if polycount_sorting == 'EDGES':
+            if polycount_sorting_ascending:
+                row.operator("keyops.polycount_user_interaction", text="Edges", icon="TRIA_DOWN").poly_sort = 'EDGES'
+            else:
+                row.operator("keyops.polycount_user_interaction", text="Edges", icon="TRIA_UP").poly_sort = 'EDGES'
+        else:
+            row.operator("keyops.polycount_user_interaction", text="Edges").poly_sort = 'EDGES'
+
+    if show_faces:
+        if polycount_sorting == 'FACE':
+            if polycount_sorting_ascending:
+                row.operator("keyops.polycount_user_interaction", text="Face", icon="TRIA_DOWN").poly_sort = 'FACE'
+            else:
+                row.operator("keyops.polycount_user_interaction", text="Face", icon="TRIA_UP").poly_sort = 'FACE'
+        else:
+            row.operator("keyops.polycount_user_interaction", text="Face").poly_sort = 'FACE'
+    # import time
+    # start = time.time()
+    box = col_flow.box()
+    col_flow = box.column_flow(columns=0, align=True)
+    if len(polycount) > 0:
+        round_numbers = props.round_numbers
+        show_collection_instances = props.show_collection_instances
+        show_obj_type = props.show_obj_type
+        max_list_length = props.max_list_length
+        selecteion = context.selected_objects
+
+        mesh_icon = get_icon("mesh")   
+        curve_icon = get_icon("curve")
+        
+        found_active = False
+
+        for i, obj in enumerate(polycount):
+            if i >= max_list_length:
+                break
             
-                if show_tris: 
-                    text = trim_numbers(obj[1]) if round_numbers else "{:,.0f}".format(obj[1])
-                    row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
-                if show_verts:
-                    text = trim_numbers(obj[2]) if round_numbers else "{:,.0f}".format(obj[2])
-                    row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
-                if show_edges:
-                    text = trim_numbers(obj[3]) if round_numbers else "{:,.0f}".format(obj[3])
-                    row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
-                if show_faces:
-                    text = trim_numbers(obj[4]) if round_numbers else "{:,.0f}".format(obj[4])
-                    row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
-                
-                #add reached max list length warning
-                if i == max_list_length - 1:
-                    row = col_flow.row(align=True)
-                    row.alignment = 'LEFT'
-                    row.scale_x = 2
-                    row.label(text="Max List Length Reached", icon="QUESTION")
-                    row.prop(props, "max_list_length", text="Current:")
-            # print(time.time() - start)
+            # data
+            obj_name = str(obj[0])
+            object = obj_lookup_cache.get(obj_name)
+            if object == None: # object was deleted most likely
+                continue
 
-        last_draw_time = time.time() - draw_time
+            row = col_flow.row(align=True)
+            selected = object in selecteion
+
+            if show_obj_type:
+                object_type = object.type
+                
+                if object_type in {'MESH', 'CURVE'}:
+                    if object_type == 'MESH':
+                        icon_value = mesh_icon
+                    elif object_type == 'CURVE':
+                        icon_value = curve_icon
+
+                    display_name = obj_name
+                    if not found_active:
+                        if object == context.active_object:
+                            found_active = True
+                            display_name = "*" + obj_name  
+                            
+                    row.operator("keyops.polycount_user_interaction", text=str(display_name), icon_value=icon_value, depress=selected, emboss=selected).make_active = obj_name
+                else:
+                    # Check if the object is an instanced collection
+                    if show_collection_instances and object.instance_type == 'COLLECTION':
+                        icon = 'OUTLINER_OB_GROUP_INSTANCE'
+                    else:
+                        icon = 'OUTLINER_OB_' + object_type if object_type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META', 'ARMATURE', 'CAMERA', 'LIGHT', 'LATTICE', 'EMPTY', 'SPEAKER', 'LIGHT_PROBE'} else 'OBJECT_DATAMODE'
+
+                    row.operator("keyops.polycount_user_interaction", text=str(obj_name), icon=icon, depress=selected, emboss=selected).make_active = obj_name
+            else:
+                row.operator("keyops.polycount_user_interaction", text=str(obj_name), depress=selected, emboss=selected).make_active = obj_name
+
+            row = row.row(align=True)
+            row.scale_x = name_offset_row
+        
+            if show_tris: 
+                text = trim_numbers(obj[1]) if round_numbers else "{:,.0f}".format(obj[1])
+                row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
+            if show_verts:
+                text = trim_numbers(obj[2]) if round_numbers else "{:,.0f}".format(obj[2])
+                row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
+            if show_edges:
+                text = trim_numbers(obj[3]) if round_numbers else "{:,.0f}".format(obj[3])
+                row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
+            if show_faces:
+                text = trim_numbers(obj[4]) if round_numbers else "{:,.0f}".format(obj[4])
+                row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
+            
+            #add reached max list length warning
+            if i == max_list_length - 1:
+                row = col_flow.row(align=True)
+                row.alignment = 'LEFT'
+                row.scale_x = 2
+                row.label(text="Max List Length Reached", icon="QUESTION")
+                row.prop(props, "max_list_length", text="Current:")
+        # print(time.time() - start)
+
+    last_draw_time = time.time() - draw_time
 class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
     bl_label = "Polycount List"
     bl_idname = "KEYOPS_PT_poly_count_list_panel"
