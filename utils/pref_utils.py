@@ -12,9 +12,25 @@ def get_is_addon_enabled(addon_name):
 def get_addon_name():
     return base_package
 
+class KeyOpsPrefsMock:
+    def __getattr__(self, name):
+        return False
+
 def get_keyops_prefs():
-    addon_prefs = bpy.context.preferences.addons[base_package]
-    return addon_prefs.preferences
+    if not hasattr(bpy.context, "preferences"):
+        return KeyOpsPrefsMock()
+
+    addons = bpy.context.preferences.addons
+
+    if base_package in addons:
+        return addons[base_package].preferences
+
+    addon_id = base_package.split(".")[-1]
+    for name, addon in addons.items():
+        if name == addon_id or name.endswith(f".{addon_id}"):
+            return addon.preferences
+
+    return KeyOpsPrefsMock()
 
 def get_addon_path(addon_name):
     for addon in bpy.context.preferences.addons:
@@ -23,7 +39,9 @@ def get_addon_path(addon_name):
         
 def get_addon_preferences(addon_name):
     name = get_addon_path(addon_name)
-    return bpy.context.preferences.addons[str(name)]
+    if not name:
+        return KeyOpsPrefsMock()
+    return bpy.context.preferences.addons.get(str(name), KeyOpsPrefsMock())
 
 #The following code is based on the MACHIN3 addon: MACHIN3tools
 #Check out there awesome addons here: https://machin3.io/
