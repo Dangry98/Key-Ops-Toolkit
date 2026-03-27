@@ -171,14 +171,14 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
             if self.enable_auto_delete:
                 bb = b.box()
-                bb
 
                 def check_delete_menu_keymap():
                     for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
                         if keymap.name == 'Object Mode':
                             for keymap_item in keymap.keymap_items:
-                                if keymap_item.name == "Delete" and keymap_item.type == "X":
+                                if keymap_item.idname == "object.delete" and keymap_item.type == "X":
                                     return keymap_item.properties.confirm
+                    return False
                 self.auto_delete_confirm_object_mode = check_delete_menu_keymap()
 
                 column = bb.column()
