@@ -189,7 +189,7 @@ class MaterialIndex(bpy.types.Operator):
         return {'FINISHED'}
     
     def register():
-        bpy.utils.register_class(MaterialIndexPanel)
+        # bpy.utils.register_class(MaterialIndexPanel)
         bpy.utils.register_class(MATERIALINDEX_OT_refresh)
         bpy.utils.register_class(MaterialItem)
         bpy.utils.register_class(MaterialListProperty)
@@ -200,7 +200,7 @@ class MaterialIndex(bpy.types.Operator):
         bpy.types.Scene.material_list_property = PointerProperty(type=MaterialListProperty)
 
     def unregister():
-        bpy.utils.unregister_class(MaterialIndexPanel)
+        # bpy.utils.unregister_class(MaterialIndexPanel)
         bpy.utils.unregister_class(MATERIALINDEX_OT_refresh)
         bpy.utils.unregister_class(MaterialItem)
         bpy.utils.unregister_class(MaterialListProperty)

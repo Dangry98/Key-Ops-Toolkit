@@ -238,36 +238,38 @@ class HideShowLowHigh(bpy.types.Operator):
         return {'FINISHED'}
     
 
-def draw_quick_bake_name(self, context, draw_header=False):       
-    def draw_toggle_viewport(context, group, layout):
-        row = layout.row()
-        row.label(text=group.lower())
-        op = row.operator("keyops.hide_show_low_high", text="SHOW")
-        op.group = group
-        op.action = 'SHOW'
-        op = row.operator("keyops.hide_show_low_high", text="HIDE")
-        op.group = group
-        op.action = 'HIDE'
+def draw_quick_bake_name(self, context, draw_header=False):   
+    prefs = get_keyops_prefs()
+    if prefs.enable_quick_bake_name:
+        def draw_toggle_viewport(context, group, layout):
+            row = layout.row()
+            row.label(text=group.lower())
+            op = row.operator("keyops.hide_show_low_high", text="SHOW")
+            op.group = group
+            op.action = 'SHOW'
+            op = row.operator("keyops.hide_show_low_high", text="HIDE")
+            op.group = group
+            op.action = 'HIDE'
 
-    layout = self.layout
-    box = layout.box()
-    row = box.row(align=True)
-    if draw_header:
-        row.label(text="Quick Bake Name", icon='MATSHADERBALL')
+        layout = self.layout
+        box = layout.box()
         row = box.row(align=True)
-    row.operator("keyops.quick_bake_name", text="Quick Bake Name")
-    row.scale_y = 1.3
-    row.scale_x = 0.7
-    row.operator("keyops.quick_bake_name", text="Rename").type = "RENAME"
+        if draw_header:
+            row.label(text="Quick Bake Name", icon='MATSHADERBALL')
+            row = box.row(align=True)
+        row.operator("keyops.quick_bake_name", text="Quick Bake Name")
+        row.scale_y = 1.3
+        row.scale_x = 0.7
+        row.operator("keyops.quick_bake_name", text="Rename").type = "RENAME"
 
-    row = box.row(align=True)
-    row.scale_y = 0.95
-    row.operator("keyops.quick_bake_name", text="Add _high").type = "set_high_name"
-    row.operator("keyops.quick_bake_name", text="Add _low").type = "set_low_name"
-    
-    draw_toggle_viewport(context, 'HIGH', box)
-    draw_toggle_viewport(context, 'LOW', box)
-    # draw_toggle_viewport(context, 'ALL', box)
+        row = box.row(align=True)
+        row.scale_y = 0.95
+        row.operator("keyops.quick_bake_name", text="Set _high").type = "set_high_name"
+        row.operator("keyops.quick_bake_name", text="Set _low").type = "set_low_name"
+        
+        draw_toggle_viewport(context, 'HIGH', box)
+        draw_toggle_viewport(context, 'LOW', box)
+        # draw_toggle_viewport(context, 'ALL', box)
 
 class QuickBakeNamePanel(bpy.types.Panel):
     bl_description = "Quick Bake Name Panel"
@@ -281,7 +283,9 @@ class QuickBakeNamePanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        if context.mode == "OBJECT":
+        prefs = get_keyops_prefs()
+
+        if context.mode == "OBJECT" and prefs.enable_quick_bake_name:
             return True
         
     def draw_header(self, context):

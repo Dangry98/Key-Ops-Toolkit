@@ -10,7 +10,7 @@ from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
 from ..utils.pref_utils import get_keyops_prefs, get_icon
 
-polycount = []
+polycount = []  
 polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
 ev = []
@@ -215,7 +215,7 @@ def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
                 scene_tab_is_open = True
                 break
             
-    if 'POLYCOUNT_LIST' in scene.toolkit_panel_mode:
+    if 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode:
         latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
         scene_tab_is_open = True
 

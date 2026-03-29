@@ -4,22 +4,40 @@ from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled, get_addon
 xray_select = None
 theme_wrong = False
 check_theme_once = False
+BLENDER_VERSION = bpy.app.version
 
 def set_poly_quilt_maya_theme():
-    addon_prefs = get_addon_preferences("PolyQuilt")
-    addon_prefs.preferences['highlight_color'] = (1.0, 1.0, 0.2, 1.0)
-    addon_prefs.preferences['makepoly_color'] = (0.201555, 0.896269, 0.300544, 0.5)
-    addon_prefs.preferences['split_color'] = (1.0, 1.0, 0.2, 1.0)
-    addon_prefs.preferences['delete_color'] = (1.0, 0.1, 0.1, 1.0)
-    #prefs.toggle_retopology_color_enum = "maya"
+    if get_is_addon_enabled("PolyQuilt_Fork"):
+        # if less than blender 5.0
+        addon_prefs = get_addon_preferences("PolyQuilt")
+        if BLENDER_VERSION < (5, 0, 0):
+            addon_prefs.preferences['highlight_color'] = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences['makepoly_color'] = (0.201555, 0.896269, 0.300544, 0.5)
+            addon_prefs.preferences['split_color'] = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences['delete_color'] = (1.0, 0.1, 0.1, 1.0)
+            #prefs.toggle_retopology_color_enum = "maya"
+        else:
+            addon_prefs.preferences.highlight_color = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences.makepoly_color = (0.201555, 0.896269, 0.300544, 0.5)
+            addon_prefs.preferences.split_color = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences.delete_color = (1.0, 0.1, 0.1, 1.0)
+            #prefs.toggle_retopology_color_enum = "maya"
 
 def set_poly_quilt_default_theme():
-    addon_prefs = get_addon_preferences("PolyQuilt")
-    addon_prefs.preferences['highlight_color'] = (1.0, 1.0, 0.2, 1.0)
-    addon_prefs.preferences['makepoly_color'] = (0.4, 0.7, 0.9, 1.0)
-    addon_prefs.preferences['split_color'] = (0.1, 1.0, 0.25, 1.0)
-    addon_prefs.preferences['delete_color'] = (1.0, 0.1, 0.1, 1.0)
-    #prefs.toggle_retopology_color_enum = "blender_default"
+    if get_is_addon_enabled("PolyQuilt_Fork"):
+        addon_prefs = get_addon_preferences("PolyQuilt")
+        if BLENDER_VERSION < (5, 0, 0):
+            addon_prefs.preferences['highlight_color'] = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences['makepoly_color'] = (0.4, 0.7, 0.9, 1.0)
+            addon_prefs.preferences['split_color'] = (0.1, 1.0, 0.25, 1.0)
+            addon_prefs.preferences['delete_color'] = (1.0, 0.1, 0.1, 1.0)
+            #prefs.toggle_retopology_color_enum = "blender_default"
+        else:
+            addon_prefs.preferences.highlight_color = (1.0, 1.0, 0.2, 1.0)
+            addon_prefs.preferences.makepoly_color = (0.4, 0.7, 0.9, 1.0)
+            addon_prefs.preferences.split_color = (0.1, 1.0, 0.25, 1.0)
+            addon_prefs.preferences.delete_color = (1.0, 0.1, 0.1, 1.0)
+            #prefs.toggle_retopology_color_enum = "blender_default"
 
 def save_current_snap_settings_to_prefs():
     prefs = get_keyops_prefs()  
@@ -99,9 +117,8 @@ class ToggleRetopology(bpy.types.Operator):
             return {'FINISHED'}
 
         if self.type == "reset_theme_to_default":
-            set_poly_quilt_default_theme()
+            set_poly_quilt_default_theme()            
             return {'FINISHED'}
-
 
         if xray_select is None:
             xray_select = get_is_addon_enabled("space_view3d_xray_selection_tools")
@@ -262,42 +279,40 @@ def draw_retopology_panel(self, context, draw_header=False):
         row.label(text="Theme settings are wrong")
     else:
         if overlay.show_retopology == True:
-            if not poly_quilt_exists:
-                row.active = False
             row = layout.row(align=True)
+         
             row.scale_y = 1.5
             row.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
         else:
             row = layout.row(align=True)
-            if not poly_quilt_exists:
-                row.active = False
+        
             row.scale_y = 1.5
             row.scale_x = 1.25
             row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
             row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
     row = layout.row()
-    if not poly_quilt_exists:
-        row.active = False
+
     row.operator("keyops.toggle_retopology", text="New Retopology at Active", icon="ADD").type = "new_target"
 
     if not poly_quilt_exists:
-        row = layout.row()
+        box = layout.box()
+        row = box.row()
         row.label(text="Active Tool PolyQuilt not installed", icon="ERROR")
         if not bpy.context.preferences.system.use_online_access:
-            row = layout.row(align=True)
+            row = box.row(align=True)
             row.label(text="Online Access is required")
-            row = layout.row(align=True)
+            row = box.row(align=True)
             row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
-        row = layout.row()
+        row = box.row()
         row.scale_y = 1.2
         repo_index = 0
         pkg_id = "PolyQuilt_Fork"            
         props = row.operator("extensions.package_install", text="Install PolyQuilt")
         props.repo_index = repo_index
         props.pkg_id = pkg_id
-        row = layout.row()
-        row.label(text="(Optional) or use another tool in settings")
-
+        row = box.row()
+        row.label(text="(Optional) or choose another tool")
+        row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
 
     if bpy.context.preferences.use_preferences_save == True:
         row = layout.row()

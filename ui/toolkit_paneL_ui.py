@@ -7,10 +7,44 @@ from ..operators.toggle_retopology import draw_retopology_panel
 from ..operators.cad_decimate import draw_cad_decimate_panel
 from ..operators.toolkit_panel import draw_edit_mode_panel, draw_modifier_panel
 import functools
+from ..utils.pref_utils import get_keyops_prefs
 
 show_object_panel = False
+startup = True
 
-def object_panel(self, context):
+def set_default_panels():
+    prefs = get_keyops_prefs()
+    wm = bpy.context.window_manager
+    if prefs.enable_toolkit_panel:
+        wm.toolkit_panel_mode |= {'OBJECT'}
+
+    if prefs.enable_toolkit_panel:
+        wm.toolkit_panel_mode |= {'MODIFIERS'}
+
+def get_toolkit_panel_items(scene, context):
+    global startup
+    prefs = get_keyops_prefs()
+    
+    items = []
+    if prefs.enable_toolkit_panel:
+        items.append(('OBJECT', "", "Show Object panel", get_icon("mesh_cube"), 1))
+    if prefs.enable_toolkit_panel:
+        items.append(('MODIFIERS', "", "Show Modifiers panel", get_icon("modifier"), 2))
+    if prefs.enable_auto_lod:
+        items.append(('LOD', "", "Show LOD panel", get_icon("mesh_icosphere2"), 4))
+    if prefs.enable_cad_decimate:
+        items.append(('CAD_DECIMATE', "", "Show CAD Decimate panel", get_icon("mod_decim"), 8))
+    if prefs.enable_polycount_list:
+        items.append(("POLYCOUNT_LIST", "", "Show Polycount List panel", get_icon("polycount"), 16))
+
+    # should deafult to object and modifiers if both are available, otherwise just show the one that is available
+    if startup:
+        startup = False        
+        set_default_panels()
+
+    return items
+
+def draw_object_panel(self, context):
     layout = self.layout
     wm = context.window_manager
     
@@ -31,7 +65,6 @@ def object_panel(self, context):
     row.operator("keyops.toolkit_panel", text="Combine", icon_value=get_icon("union")).type = "Smart_Join_Objects"
     row.operator("keyops.toolkit_panel", text="Seperate", icon_value=get_icon("slice")).type = "seprate_objects_by"
 
-
     row = col.row(align=True)
     row.scale_y = 1.4
     row.operator("keyops.toolkit_panel", text="Apply Modifiers",  icon_value=get_icon("mesh")).type = "Instant_Apply_Modifiers"
@@ -49,7 +82,7 @@ def object_panel(self, context):
     row.operator("keyops.toolkit_panel", text="Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
     
     
-    if context.mode == 'OBJECT':
+    if context and context.mode == 'OBJECT':
         # box.label(text="Booleans")
         row = box.row(align=True)
         row = box.row(align=True)
@@ -57,9 +90,9 @@ def object_panel(self, context):
         # row = box.row(align=True)
         row.scale_y = 1.5
         row.scale_x = 4
-        row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("diffrance")).type = "DIFFERENCE"
+        row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("difference")).type = "DIFFERENCE"
         row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("union")).type = "UNION"
-        row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("intersection")).type = "INTERSECT"
+        row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("intersect")).type = "INTERSECT"
         row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("slice")).type = "SLICE"
         # row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("hole")).type = "SLICE"
 
@@ -88,7 +121,7 @@ def redraw_ui(self, context):
     for area in bpy.context.screen.areas:
         if area.type == 'VIEW_3D':
             for region in area.regions:
-                if region.type == 'UI' and area.ui_type == 'New Toolkit':
+                if region.type == 'UI' and area.ui_type == 'Toolkit':
                     area.tag_redraw()
                     break
 
@@ -122,12 +155,12 @@ class ToggleToolkitPanelEnum(bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
-        scene = context.scene
+        wm = context.window_manager
         global ev
         if "shift" in ev:
-            scene.toolkit_panel_mode ^= {self.type}
+            wm.toolkit_panel_mode ^= {self.type}
         else:
-            scene.toolkit_panel_mode = {self.type}
+            wm.toolkit_panel_mode = {self.type}
 
         ev = []
         return {'FINISHED'}
@@ -141,11 +174,14 @@ class NewToolkitPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'New Toolkit'
 
-    # @classmethod
-    # def poll(cls, context):
-    #     return context.active_object is not None and context.active_object.mode == 'EDIT'
+    @classmethod
+    def poll(cls, context):
+        return get_toolkit_panel_items(context.scene, context)
 
     def draw_header(self, context):
+        if not context.window_manager.toolkit_panel_mode:
+            set_default_panels()
+
         layout = self.layout
         row = layout.row(align=True)
         row.scale_x = 0.94
@@ -157,12 +193,13 @@ class NewToolkitPanel(bpy.types.Panel):
     def draw_header_preset(self, context):
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("preferences.addon_show", text="", icon='PREFERENCES', emboss=False).module = get_addon_name()
+        row.operator("preferences.addon_show", text="", icon='PREFERENCES', emboss=True).module = get_addon_name()
      
 
     def draw(self, context):
         global show_object_panel
         scene = context.scene
+        wm = context.window_manager
         layout = self.layout
         # layout.prop_tabs_enum(scene, "toolkit_panel_mode", icon_only=False)
         row = layout.row(align=True)
@@ -171,16 +208,17 @@ class NewToolkitPanel(bpy.types.Panel):
         row.scale_x = 12
         row.scale_y = 1.4
         row.alignment = 'EXPAND'
-        row.prop(context.scene, "toolkit_panel_mode", emboss=True)
+        row.prop(wm, "toolkit_panel_mode", emboss=True)
+        prefs = get_keyops_prefs()
         # row = layout.row(align=True)
         # row.scale_x = 12
         # row.scale_y = 1.25
 
-        object = 'OBJECT' in scene.toolkit_panel_mode
-        modifiers = 'MODIFIERS' in scene.toolkit_panel_mode
-        lod = 'LOD' in scene.toolkit_panel_mode
-        cad_decimate = 'CAD_DECIMATE' in scene.toolkit_panel_mode
-        polycount_list = 'POLYCOUNT_LIST' in scene.toolkit_panel_mode
+        object = 'OBJECT' in wm.toolkit_panel_mode
+        modifiers = 'MODIFIERS' in wm.toolkit_panel_mode
+        lod = 'LOD' in wm.toolkit_panel_mode
+        cad_decimate = 'CAD_DECIMATE' in wm.toolkit_panel_mode
+        polycount_list = 'POLYCOUNT_LIST' in wm.toolkit_panel_mode
 
         # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("mesh_cube"), depress=object, emboss=object).type = "OBJECT"
         # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("modifier"), depress=modifiers, emboss=modifiers).type = "MODIFIERS"
@@ -189,12 +227,15 @@ class NewToolkitPanel(bpy.types.Panel):
         # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon="SORTSIZE", depress=polycount_list, emboss=polycount_list).type = "POLYCOUNT_LIST"
         
         if object:
+            prefs = get_keyops_prefs()
             draw_retopology_panel(self, context, draw_header=True)
             if context.mode == 'OBJECT':
-                object_panel(self, context)
+                if prefs.enable_toolkit_panel:
+                    draw_object_panel(self, context)
                 draw_quick_bake_name(self, context, draw_header=True)
             elif context.mode == 'EDIT_MESH':
-                draw_edit_mode_panel(self, context, draw_header=True)
+                if prefs.enable_toolkit_panel:
+                    draw_edit_mode_panel(self, context, draw_header=True)
         if modifiers:
             draw_modifier_panel(self, context, draw_header=True)
         if lod:
@@ -226,18 +267,12 @@ class NewToolkitPanel(bpy.types.Panel):
             description="Change enum icon dynamically",
             default=False
         )
-        bpy.types.Scene.toolkit_panel_mode = bpy.props.EnumProperty(
+        
+        bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
             name="Toolkit Panel Mode",
             description="Manage which panels should show",
-            items=[
-                ('OBJECT', "", "Show Object panel", get_icon("mesh_cube"), 1),
-                ('MODIFIERS', "", "Show Modifiers panel", get_icon("modifier"), 2),
-                ('LOD', "", "Show LOD panel", get_icon("mesh_icosphere2"), 4),
-                ('CAD_DECIMATE', "", "Show CAD Decimate panel", get_icon("mod_decim"), 8),
-                ("POLYCOUNT_LIST", "", "Show Polycount List panel", get_icon("polycount"), 16),
-            ],
+            items=get_toolkit_panel_items,
             options={'ENUM_FLAG'},
-            default={'OBJECT', 'MODIFIERS'},
         )
 
         bpy.types.Scene.show_object_panel = bpy.props.BoolProperty(
@@ -269,7 +304,7 @@ class NewToolkitPanel(bpy.types.Panel):
         
     def unregister():
         del bpy.types.Scene.some_toggle
-        del bpy.types.Scene.toolkit_panel_mode
+        del bpy.types.WindowManager.toolkit_panel_mode
         del bpy.types.Scene.show_object_panel
         del bpy.types.Scene.show_modifiers_panel
         del bpy.types.Scene.show_lod_panel

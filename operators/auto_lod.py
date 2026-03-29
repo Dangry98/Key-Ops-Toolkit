@@ -139,11 +139,11 @@ class AutoLOD(bpy.types.Operator):
 
         orginal_objects = selected_objects.copy()
 
-        if props.iterativ_lod_suffix:
-            for obj in orginal_objects:
-                if "_LOD_" in obj.name:
-                    obj.name = obj.name[:-13]
-                obj["LOD"] = str(0)
+        # if props.iterativ_lod_suffix:
+        #     for obj in orginal_objects:
+        #         if "_LOD_" in obj.name:
+        #             obj.name = obj.name[:-13]
+        #         obj["LOD"] = str(0)
  
 
         if props.delete_loose_edges:
@@ -158,14 +158,13 @@ class AutoLOD(bpy.types.Operator):
                 new_object = obj.copy()
                 new_object.data = obj.data.copy()
 
-                if not props.iterativ_lod_suffix:
-                    lod_name = f"{obj.name}{suffix}{(i + 1)}"
-                else:
-                    start_prefix = "_LOD_"
-                    underscore = "_"
+                # if not props.iterativ_lod_suffix:
+                lod_name = f"{obj.name}{suffix}{(i + 1)}"
+                # else:
+                #     start_prefix = "_LOD_"
 
-                    lod_name = f"{obj.name}{start_prefix}{underscore * (i + 1)}{i + 1}{underscore * (6 - i)}"
-                    new_object["LOD"] = str(i + 1)
+                #     lod_name = f"{obj.name}{start_prefix}" + f"{(i + 1)}"
+                #     new_object["LOD"] = str(i + 1)
 
                 new_object.name = lod_name
 
@@ -238,9 +237,9 @@ class AutoLOD(bpy.types.Operator):
         # Rename the original objects with the suffix
         for obj in orginal_objects:
             if obj.type == 'MESH':
-                if props.iterativ_lod_suffix:
-                    obj.name = obj.name + "_LOD_0_______"
-                else:
+                # if props.iterativ_lod_suffix:
+                #     obj.name = obj.name + "_LOD_0_______"
+                # else:
                     obj.name = f"{obj.name}{suffix}0"
 
         # create collections for each orginal object and name them the same name as the orginal object - suffix
@@ -273,13 +272,12 @@ def draw_lod_panel(self, context, draw_header=False):
         row.label(text="Generate LOD", icon_value=get_icon("mesh_icosphere2"))
     row = box.row()
 
-    if not props.iterativ_lod_suffix:
-        row.prop(props, "suffix")
-        row.prop(props, "iterativ_lod_suffix", text="Auto")
-    else:
-        row.alignment = 'LEFT'
-        row.label(text="suffix:")
-        row.prop(props, "iterativ_lod_suffix", text="Auto")
+    # if not props.iterativ_lod_suffix:
+    #     row.prop(props, "iterativ_lod_suffix", text="Auto")
+    # else:
+    row.alignment = 'LEFT'
+    row.prop(props, "suffix")
+    # row.prop(props, "iterativ_lod_suffix", text="Auto")
     row = box.row(align=True)
     row.prop(props, "lod_parent_object", text="Parent")
 

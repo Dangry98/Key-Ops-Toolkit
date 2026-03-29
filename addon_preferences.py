@@ -305,13 +305,13 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 if self.add_object_pie_Enum == "CUSTOM":
                     row.prop(self, "add_object_pie_bpy_ops", text ="")
 
-            if self.enable_toolkit_panel:
-                bb = b.box()
-                bb
-                column = bb.column()
-                row = column.row()
-                row.label(text="Toolkit Panel")
-                row.prop(self, "max_layout", text="3ds Max Inspired Layout")
+            # if self.enable_toolkit_panel:
+            #     bb = b.box()
+            #     bb
+            #     column = bb.column()
+            #     row = column.row()
+            #     row.label(text="Toolkit Panel")
+            #     row.prop(self, "max_layout", text="3ds Max Inspired Layout")
 
             if self.enable_material_index:
                 bb = b.box()

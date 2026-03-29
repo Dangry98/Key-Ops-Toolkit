@@ -3,10 +3,12 @@ from ..utils.pref_utils import get_is_addon_enabled
 from mathutils import Vector, Matrix
 from bpy.types import Menu
 from ..utils.utilities import force_show_obj
+from ..utils.pref_utils import get_icon
 
 hardops = None
 modifier_list = None
 started_in_edit_mode = False
+BLENDER_VERSION = bpy.app.version
 
 class Dummy_AddModifier(bpy.types.Operator):
     bl_description = "Add a modifier"
@@ -189,21 +191,23 @@ booleon_descriptions = {
 class AddBooleanModifier(bpy.types.Operator):
     bl_description = "Add a boolean modifier"
     bl_idname = "object.add_boolean_modifier_operator"
-    bl_label = ""
+    bl_label = "Add Boolean"
     bl_options = {'REGISTER', 'UNDO'}
 
     type: bpy.props.StringProperty(name="Type", description="", default="") #type:ignore
     solver: bpy.props.EnumProperty(name="Solver", description="", items=(
             ('EXACT', 'Exact', ''),
-            ('FAST', 'Fast', '')),
+            ('FAST', 'Fast', ''),
+            ('MANIFOLD', 'Manifold', '')),
             default='FAST') #type:ignore
     
-    parant: bpy.props.BoolProperty(name="Parent", description="", default=False) #type:ignore
+    parant: bpy.props.BoolProperty(name="Parent Boolean", description="", default=False) #type:ignore
     apply: bpy.props.BoolProperty(name="Apply", description="", default=False) #type:ignore
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH' 
+        return context.mode == "OBJECT" 
+        # return len(context.selected_objects) >= 2 
 
     @classmethod   
     def description(cls, context, operator):
@@ -212,7 +216,10 @@ class AddBooleanModifier(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.label(text="Boolean", icon="MOD_BOOLEAN")
+        # booleon type
+        row.label(text=self.type.title(), icon_value=get_icon(self.type.lower()))
+        row = layout.row()
+        row.label(text="Boolean Solver")
         row = layout.row()
         row.prop(self, "solver", expand=True)
         row = layout.row()
@@ -223,9 +230,12 @@ class AddBooleanModifier(bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 2 objects")
             return {'CANCELLED'}
         
-        cutters = set(bpy.context.selected_objects)
         active = bpy.context.active_object
-        cutters.remove(active)
+        cutters = [obj for obj in bpy.context.selected_objects if obj != active]
+        slice_booleon_diffrance_objs = []
+
+        if self.type == 'SLICE':
+            cutters.append(active)
 
         def move_to_cutter_collection(objs):
             cutter_collection = bpy.data.collections.get("Cutters")
@@ -235,9 +245,10 @@ class AddBooleanModifier(bpy.types.Operator):
                 bpy.context.scene.collection.children.link(cutter_collection)
 
             for obj in objs:
-                for coll in obj.users_collection:
-                    coll.objects.unlink(obj)
-                    cutter_collection.objects.link(obj)
+                if obj.display_type == 'WIRE':
+                    for coll in obj.users_collection:
+                        coll.objects.unlink(obj)
+                        cutter_collection.objects.link(obj)
         
             if cutter_collection.hide_viewport == True or context.view_layer.layer_collection.children[cutter_collection.name].hide_viewport == True:
                 cutter_collection.hide_viewport = False
@@ -247,7 +258,6 @@ class AddBooleanModifier(bpy.types.Operator):
 
             for obj in objs:
                 obj.hide_set(False)
-                obj.select_set(True)
 
         operations = {
             'UNION': 'UNION',
@@ -255,6 +265,15 @@ class AddBooleanModifier(bpy.types.Operator):
             'INTERSECT': 'INTERSECT',
             'SLICE': 'SLICE'
         }
+
+        solver = self.solver
+        old_version = BLENDER_VERSION < (4, 5)
+        if old_version and self.solver == 'MANIFOLD':
+            self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, using Fast solver instead")
+            self.solver = 'FAST'
+        # if 5.0 and up
+        if not old_version and self.solver == 'FAST':
+            solver = "FLOAT"
                     
         for obj in cutters:
             if self.parant:
@@ -265,36 +284,48 @@ class AddBooleanModifier(bpy.types.Operator):
 
             if self.type == 'SLICE':
                 if obj != active:
-                    mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = "DIFFERENCE"
-                    mod.solver = self.solver
-                    mod.object = obj
+                    slice_booleon_diffrance_objs.append(obj)
                     toggle_wire_solid_display(context, obj, value='WIRE')
-                else:
-                    # duplicate the object and add a intesect boolean modifier to it
-                    duplicate = obj.copy()
-                    duplicate.data = obj.data.copy()
-                    context.collection.objects.link(duplicate)
-                    duplicate.select_set(True)
-                    context.view_layer.objects.active = duplicate
-                    mod = duplicate.modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = "INTERSECT"
-                    mod.solver = self.solver
-                    mod.object = active
-                    toggle_wire_solid_display(context, obj, value='WIRE')
-
+               
             else:
                 if obj != active:
                     mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
                     mod.operation = operations[self.type]
-                    mod.solver = self.solver
+                    mod.solver = solver
                     mod.object = obj
                     toggle_wire_solid_display(context, obj, value='WIRE')
-            
-        active.select_set(False)
+
+        if self.type == 'SLICE':
+            if slice_booleon_diffrance_objs:
+                duplicates = []
+                for i, obj in enumerate(slice_booleon_diffrance_objs):
+                    # origna object gets the intersect boolean modifier and the cutters get the difference boolean modifier
+                    duplicate = active.copy()
+                    duplicate.data = active.data.copy()
+                    obj_collections = active.users_collection[0]
+                    obj_collections.objects.link(duplicate)
+                    duplicates.append(duplicate)
+
+                for i, obj in enumerate(slice_booleon_diffrance_objs):
+                    mod = duplicates[i].modifiers.new(type='BOOLEAN', name='Boolean')
+                    mod.operation = "INTERSECT"
+                    mod.solver = solver
+                    mod.object = obj
+                    
+                    mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
+                    mod.operation = "DIFFERENCE"
+                    mod.solver = solver
+                    mod.object = obj
+
 
         move_to_cutter_collection(cutters)
 
+        for obj in context.selected_objects:
+            obj.select_set(False)   
+
+        if cutters:
+            cutters[0].select_set(True)
+            context.view_layer.objects.active =  cutters[0]
         return {'FINISHED'}
 
         

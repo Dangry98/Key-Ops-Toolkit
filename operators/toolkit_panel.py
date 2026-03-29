@@ -9,6 +9,8 @@ from .smart_apply_scale import SmartApplyScale
 from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
 
+BLENDER_VERSION = bpy.app.version
+
 # fix attribute toggle in edit mode/objet mode
 
 def offset_uv():
@@ -2309,8 +2311,14 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.scale_y = 1.5
         row.operator("mesh.select_more", text="", icon="ADD")
         row.operator("mesh.select_less", text="", icon="REMOVE")
-        row.operator("mesh.loop_multi_select", text="Loop").ring=False
-        row.operator("mesh.loop_multi_select", text="Ring").ring=True
+
+        if BLENDER_VERSION < (4, 5, 0):
+            row.operator("mesh.loop_multi_select", text="Loop").ring=False
+            row.operator("mesh.loop_multi_select", text="Ring").ring=True
+        else:
+            row.operator("mesh.select_edge_loop_multi", text="Loop")
+            row.operator("mesh.select_edge_ring_multi", text="Ring")
+
         row = box.row(align=False)
         row.operator("mesh.region_to_loop", text="Boundary")
         row.operator("mesh.loop_to_region", text="Inner Region")
@@ -2366,7 +2374,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         if sel_mode[0]:
             row = box.row(align=False)
             row.operator("mesh.edge_face_add", text="Fill")
-            row.operator("mesh.set_edge_flow", text="Set Flow")
+            if get_is_addon_enabled("EdgeFlow"):
+                row.operator("mesh.set_edge_flow", text="Set Flow")
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
@@ -2411,7 +2420,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         # Edit geometry
         row = box.row(align=False)
         row = box.row(align=False)
-        row = box.row(align=False)
 
         row.label(text="Edit Geometry")
         row = box.row(align=False)
@@ -2437,12 +2445,15 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row = box.row(align=False)
         row.operator("mesh.subdivide", text="Subdivide")
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
-        row = box.row(align=False)
-        row.operator("mesh.looptools_flatten", text="Make Planar")
-        row.operator("mesh.looptools_circle", text="Circle")
-        row = box.row(align=False)
-        row.alignment = 'CENTER'
-        row.operator("mesh.looptools_relax", text="Relax")
+
+        if get_is_addon_enabled("looptools"):
+            row = box.row(align=False)
+            row.operator("mesh.looptools_flatten", text="Make Planar")
+            row.operator("mesh.looptools_circle", text="Circle")
+            row = box.row(align=False)
+            row.alignment = 'CENTER'
+            row.operator("mesh.looptools_relax", text="Relax")
+
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
         row.operator("mesh.reveal", text="Unhide All")
@@ -2452,7 +2463,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
 
         # Cylinder
         row = box.row(align=False)
-        row.label(text="Cylinder")
+        row.label(text="Cylinder", icon="MESH_CYLINDER")
+        row.operator("keyops.toolkit_panel", text="from Edge", icon="MOD_SCREW").type = "change_cylinder_segments_modifier"
         row = box.row(align=False)
         row.operator("keyops.toolkit_panel", text="Un-Subdivide").type = "un_subdivide_cylinder"
         row.operator("keyops.toolkit_panel", text="Subdivide").type = "subdivide_cylinder"
