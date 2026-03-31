@@ -2,7 +2,7 @@ import bpy.types
 from ..utils.pref_utils import get_is_addon_enabled
 from mathutils import Vector, Matrix
 from bpy.types import Menu
-from ..utils.utilities import force_show_obj
+from ..utils.utilities import force_show_obj, is_object_mesh
 from ..utils.pref_utils import get_icon
 
 hardops = None
@@ -28,15 +28,15 @@ start_active_obj_booleon_scroll = None
 boolean_index = 0
 previus_bool_visibility = {}
 
-def toggle_visibility(context, new_index, start=False):
+def toggle_visibility(context, new_index, start=False, dont_hide_last=False):
     global boolean_objects, boolean_index, start_active_obj_booleon_scroll
- 
+    
     boolean_index = new_index
-
     for i, obj in enumerate(boolean_objects):
         if obj:
             if (i != new_index):
-                obj.hide_set(True)
+                if not obj.hide_get():
+                    obj.hide_set(not dont_hide_last)
                 if obj.select_get():
                     obj.select_set(False)
             else:
@@ -95,20 +95,20 @@ class BooleanScroll(bpy.types.Operator):
         # Draw shortcuts in status bar
         context.workspace.status_text_set(
             "Scroll up/down : Next/Previous | "
+            "Shift : Keep Showing Cutter | "
             "Left Mouse : Confirm " + chr(0x2714) + " | "
             "Right Mouse : Cancel " + chr(0x2716) + " | "
             "Alt H : Show All | "
             "Q/E : Move up/down"
         )
-
         if (event.type == 'WHEELDOWNMOUSE' or event.type == 'PAGE_DOWN' or event.type == 'NUMPAD_PLUS' or event.type == 'S') and event.value == 'PRESS':
             next_index = (boolean_index + 1) % len(boolean_objects)
-            toggle_visibility(context, next_index)
+            toggle_visibility(context, next_index, dont_hide_last=event.shift)
             return {'RUNNING_MODAL'}
             
         elif (event.type == 'WHEELUPMOUSE' or event.type == 'PAGE_UP' or event.type == 'NUMPAD_MINUS' or event.type == 'W') and event.value == 'PRESS':
             prev_index = (boolean_index - 1) % len(boolean_objects)
-            toggle_visibility(context, prev_index)
+            toggle_visibility(context, prev_index, dont_hide_last=event.shift)
             return {'RUNNING_MODAL'}
         
         elif event.type == 'LEFTMOUSE' or event.type == 'SPACE' or event.type == 'NUMPAD_ENTER' or event.type == 'ENTER':
@@ -206,7 +206,9 @@ class AddBooleanModifier(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "OBJECT" 
+        # return context.mode == "OBJECT" and is_object_mesh(context.object)
+        if context.object:
+            return context.mode == "OBJECT" and context.object.type == "MESH"
         # return len(context.selected_objects) >= 2 
 
     @classmethod   
@@ -225,13 +227,14 @@ class AddBooleanModifier(bpy.types.Operator):
         row = layout.row()
         row.prop(self, "parant", expand=True)
 
+    # TODO All booelons should be geometry nodes, so we can support cutting holes and booleon any object type like curves/text!
     def execute(self, context):
-        if len(context.selected_objects) < 2:
-            self.report({'WARNING'}, "Select at least 2 objects")
+        active = context.object
+        cutters = [obj for obj in bpy.context.selected_objects if obj != active and obj.type == "MESH"]
+        if len(cutters) < 1:
+            self.report({'WARNING'}, "Select at least 2 Mesh Objects")
             return {'CANCELLED'}
         
-        active = bpy.context.active_object
-        cutters = [obj for obj in bpy.context.selected_objects if obj != active]
         slice_booleon_diffrance_objs = []
 
         if self.type == 'SLICE':
@@ -269,8 +272,8 @@ class AddBooleanModifier(bpy.types.Operator):
         solver = self.solver
         old_version = BLENDER_VERSION < (4, 5)
         if old_version and self.solver == 'MANIFOLD':
-            self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, using Fast solver instead")
-            self.solver = 'FAST'
+            self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, falling back to Fast solver")
+            solver = 'FAST'
         # if 5.0 and up
         if not old_version and self.solver == 'FAST':
             solver = "FLOAT"
@@ -457,6 +460,16 @@ class AddModifier(bpy.types.Operator):
                 if bpy.app.version >= (4, 2, 1):
                     mod.keep_custom_normals = self.keep_custom_normals
                 mod.show_in_editmode = False
+                if bpy.app.version >= (4, 2, 1):
+                    has_pin = False
+                    for modifier in obj.modifiers:
+                        if modifier.use_pin_to_last:
+                            has_pin = True
+                            break
+                    if has_pin:
+                        mod.use_pin_to_last = True
+                        active_index = obj.modifiers.find(mod.name)
+                        obj.modifiers.move(active_index, len(obj.modifiers) - 1)
 
         if self.type == 'WEIGHTED_NORMAL':
             for obj in [o for o in context.selected_objects if o.type == 'MESH']:

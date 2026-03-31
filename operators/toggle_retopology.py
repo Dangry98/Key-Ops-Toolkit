@@ -4,7 +4,14 @@ from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled, get_addon
 xray_select = None
 theme_wrong = False
 check_theme_once = False
+cached_theme_colors = None
 BLENDER_VERSION = bpy.app.version
+
+def reset_retopo_themes_on_unregister_addon():
+    if bpy.context.preferences.use_preferences_save == True:
+        prefs = get_keyops_prefs()
+        if prefs.enable_toggle_retopology:
+            load_theme_colors_from_prefs()
 
 def set_poly_quilt_maya_theme():
     if get_is_addon_enabled("PolyQuilt_Fork"):
@@ -62,7 +69,7 @@ def load_snap_settings_from_prefs():
     settings.snap_elements = snapping_settings_list_to_apply
 
 def save_current_theme_colors_to_prefs():
-    global theme_wrong
+    global theme_wrong, cached_theme_colors
     prefs = get_keyops_prefs()
     theme = bpy.context.preferences.themes[0].view_3d
     prefs.savede_colors_theme_settings_string = f"{theme.edge_width},{','.join(map(str, theme.face_retopology))},{','.join(map(str, theme.face_select))},{','.join(map(str, theme.edge_select))},{','.join(map(str, theme.vertex_select))},{','.join(map(str, theme.edge_mode_select))},{','.join(map(str, theme.face_mode_select))}"
@@ -75,13 +82,25 @@ def save_current_theme_colors_to_prefs():
         prefs.savede_colors_theme_settings_string_backup2 = prefs.savede_colors_theme_settings_string
         theme_wrong = False
 
-def load_theme_colors_from_prefs():
-    prefs = get_keyops_prefs()
+    cached_theme_colors = str(prefs.savede_colors_theme_settings_string_backup2)
+
+def load_theme_colors_from_prefs(use_cache=False):
+    theme_settings = ""
     theme = bpy.context.preferences.themes[0].view_3d
-    if prefs.savede_colors_theme_settings_string:
+
+    if use_cache:
+        global cached_theme_colors
+        if cached_theme_colors:
+            theme_settings = cached_theme_colors.split(",")
+    else:
+        prefs = get_keyops_prefs()
+        if not prefs.savede_colors_theme_settings_string:
+            # print("Keyops Failed to load retopo theme color from addon prefrences")
+            return
         
         theme_settings = prefs.savede_colors_theme_settings_string.split(",")
 
+    if theme_settings:
         theme.edge_width = int(theme_settings[0])
         theme.face_retopology = (float(theme_settings[1]), float(theme_settings[2]), float(theme_settings[3]), float(theme_settings[4]))
         theme.face_select = (float(theme_settings[5]), float(theme_settings[6]), float(theme_settings[7]), float(theme_settings[8]))
@@ -94,13 +113,52 @@ class ToggleRetopology(bpy.types.Operator):
     bl_idname = "keyops.toggle_retopology"
     bl_label = "KeyOps: Toggle Retopology"
     bl_description = "Toggle Retopology Mode"
-    bl_options = {'UNDO', 'PRESET', 'INTERNAL'}
+    bl_options = {'UNDO', 'INTERNAL'}
 
     type: bpy.props.StringProperty(default="")#type:ignore
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'EDIT_MESH' or context.mode == 'OBJECT' and context.active_object is not None and context.active_object.type == 'MESH'
+    
+    def invoke(self, context, event):
+        prefs = get_keyops_prefs()
+        if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt_Fork"):
+            return context.window_manager.invoke_popup(self, width=265)
+        return self.execute(context)
+    
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        row = box.row()
+        prefs = get_keyops_prefs()
+
+        if prefs.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled("PolyQuilt_Fork"):
+            row.label(icon_value=get_icon("polyquilt"))
+            row.label(text="Active Retopology Tool not installed")
+            if not bpy.context.preferences.system.use_online_access:
+                row = box.row(align=True)
+                row.label(text="Online Access is required")
+                row = box.row(align=True)
+                row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
+            row = box.row(align=True)
+            row.scale_y = 1.3
+            row.scale_x = 1.3
+            repo_index = 0
+            pkg_id = "PolyQuilt_Fork"            
+            props = row.operator("extensions.package_install", text="Install PolyQuilt", icon="IMPORT")
+            props.repo_index = repo_index
+            props.pkg_id = pkg_id
+            row.operator("wm.url_open", text="", icon="URL").url="https://extensions.blender.org/add-ons/polyquilt-fork/"
+            row = box.row()
+            row.label(text="(Optional) or choose another tool")
+            row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
+        else:
+            row.label(text="PolyQuilt succesfully installed", icon="CHECKMARK")
+            row = box.row()
+            row.scale_y = 1.35
+            row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
+            
 
     def execute(self, context):
         global xray_select
@@ -243,6 +301,8 @@ class ToggleRetopology(bpy.types.Operator):
     def unregister():
         bpy.utils.unregister_class(Retopolgy_Panel)
         bpy.utils.unregister_class(RETOPOLOGY_PT_Settings)
+        # load_theme_colors_from_prefs(use_cache=False)
+    
 
 def draw_retopology_panel(self, context, draw_header=False):
     prefs = get_keyops_prefs()
@@ -274,6 +334,7 @@ def draw_retopology_panel(self, context, draw_header=False):
     overlay = bpy.context.space_data.overlay
     if theme_wrong:
         row = layout.row(align=True)
+        row.scale_y =1.35
         row.operator("keyops.toggle_retopology", text="Reset Theme to Backup", icon="ERROR").type = "exit"
         row = layout.row(align=True)
         row.label(text="Theme settings are wrong")
@@ -281,53 +342,35 @@ def draw_retopology_panel(self, context, draw_header=False):
         if overlay.show_retopology == True:
             row = layout.row(align=True)
          
-            row.scale_y = 1.5
+            row.scale_y = 1.35
             row.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
         else:
             row = layout.row(align=True)
         
-            row.scale_y = 1.5
-            row.scale_x = 1.25
+            row.scale_y = 1.35
+            row.scale_x = 1.15
             row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
             row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
     row = layout.row()
 
     row.operator("keyops.toggle_retopology", text="New Retopology at Active", icon="ADD").type = "new_target"
 
-    if not poly_quilt_exists:
-        box = layout.box()
-        row = box.row()
-        row.label(text="Active Tool PolyQuilt not installed", icon="ERROR")
-        if not bpy.context.preferences.system.use_online_access:
-            row = box.row(align=True)
-            row.label(text="Online Access is required")
-            row = box.row(align=True)
-            row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
-        row = box.row()
-        row.scale_y = 1.2
-        repo_index = 0
-        pkg_id = "PolyQuilt_Fork"            
-        props = row.operator("extensions.package_install", text="Install PolyQuilt")
-        props.repo_index = repo_index
-        props.pkg_id = pkg_id
-        row = box.row()
-        row.label(text="(Optional) or choose another tool")
-        row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
+    # if bpy.context.preferences.use_preferences_save == True:
+    #     row = layout.row()
+    #     row.scale_y = 0.8
 
-    if bpy.context.preferences.use_preferences_save == True:
-        row = layout.row()
-        row.scale_y = 0.8
+    #     row.label(text="AutoSave Prefs is enabled", icon="ERROR")
+    #     row = layout.row()
+    #     row.scale_y = 0.8
 
-        row.label(text="AutoSave Prefs is enabled", icon="ERROR")
-        row = layout.row()
-        row.scale_y = 0.8
+    #     row.label(text="Please Disable")
+    #     row.prop(bpy.context.preferences, "use_preferences_save", text="Disable", toggle=True)
+    #     #link to website
+    #     row = layout.row()
+    #     row.scale_y = 0.8
+    #     row.operator("wm.url_open", text="More Info").url = "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"
 
-        row.label(text="Please Disable")
-        row.prop(bpy.context.preferences, "use_preferences_save", text="Disable", toggle=True)
-        #link to website
-        row = layout.row()
-        row.scale_y = 0.8
-        row.operator("wm.url_open", text="More Info").url = "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3"
+
 class Retopolgy_Panel(bpy.types.Panel):
     bl_label = "Retopology"
     bl_idname = "RETOPOLOGY_PT_Panel"

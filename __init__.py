@@ -102,6 +102,9 @@ def register():
     #     print(addon.module)        
 
 def unregister():
+    from .operators.toggle_retopology import reset_retopo_themes_on_unregister_addon
+    reset_retopo_themes_on_unregister_addon()
+
     for cls in default_classes:
         bpy.utils.unregister_class(cls)
  

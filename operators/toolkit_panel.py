@@ -8,934 +8,11 @@ from .add_modifier import AddModifier
 from .smart_apply_scale import SmartApplyScale
 from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
+from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group, get_all_bouding_box_node_group
 
 BLENDER_VERSION = bpy.app.version
 
 # fix attribute toggle in edit mode/objet mode
-
-def offset_uv():
-	offset_uv = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Offset UV")
-
-	offset_uv.color_tag = 'NONE'
-	offset_uv.description = ""
-
-	offset_uv.is_modifier = True
-	
-	#offset_uv interface
-	#Socket Geometry
-	geometry_socket = offset_uv.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-	geometry_socket.attribute_domain = 'POINT'
-	
-	#Socket Geometry
-	geometry_socket_1 = offset_uv.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-	geometry_socket_1.attribute_domain = 'POINT'
-	
-	#Socket Selection
-	selection_socket = offset_uv.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
-	selection_socket.default_value = False
-	selection_socket.attribute_domain = 'POINT'
-	selection_socket.hide_value = True
-	
-	#Socket Offset UV X
-	offset_uv_x_socket = offset_uv.interface.new_socket(name = "Offset UV X", in_out='INPUT', socket_type = 'NodeSocketFloat')
-	offset_uv_x_socket.default_value = 1.0
-	offset_uv_x_socket.min_value = -10000.0
-	offset_uv_x_socket.max_value = 10000.0
-	offset_uv_x_socket.subtype = 'NONE'
-	offset_uv_x_socket.attribute_domain = 'POINT'
-	
-	#Socket Offset UV Y
-	offset_uv_y_socket = offset_uv.interface.new_socket(name = "Offset UV Y", in_out='INPUT', socket_type = 'NodeSocketFloat')
-	offset_uv_y_socket.default_value = 0.0
-	offset_uv_y_socket.min_value = -10000.0
-	offset_uv_y_socket.max_value = 10000.0
-	offset_uv_y_socket.subtype = 'NONE'
-	offset_uv_y_socket.attribute_domain = 'POINT'
-	
-	#Socket UV Name
-	uv_name_socket = offset_uv.interface.new_socket(name = "UV Name", in_out='INPUT', socket_type = 'NodeSocketString')
-	uv_name_socket.default_value = "UVMap"
-	uv_name_socket.attribute_domain = 'POINT'
-	
-	
-	#initialize offset_uv nodes
-	#node Named Attribute
-	named_attribute = offset_uv.nodes.new("GeometryNodeInputNamedAttribute")
-	named_attribute.name = "Named Attribute"
-	named_attribute.data_type = 'FLOAT_VECTOR'
-	
-	#node Vector Math
-	vector_math = offset_uv.nodes.new("ShaderNodeVectorMath")
-	vector_math.name = "Vector Math"
-	vector_math.operation = 'ADD'
-	
-	#node Combine XYZ
-	combine_xyz = offset_uv.nodes.new("ShaderNodeCombineXYZ")
-	combine_xyz.name = "Combine XYZ"
-	#Z
-	combine_xyz.inputs[2].default_value = 0.0
-	
-	#node Store Named Attribute
-	store_named_attribute = offset_uv.nodes.new("GeometryNodeStoreNamedAttribute")
-	store_named_attribute.name = "Store Named Attribute"
-	store_named_attribute.data_type = 'FLOAT2'
-	store_named_attribute.domain = 'CORNER'
-	
-	#node Group Output
-	group_output = offset_uv.nodes.new("NodeGroupOutput")
-	group_output.name = "Group Output"
-	group_output.is_active_output = True
-	
-	#node Group Input
-	group_input = offset_uv.nodes.new("NodeGroupInput")
-	group_input.name = "Group Input"
-	
-	
-	
-	
-	#Set locations
-	named_attribute.location = (-200.4461669921875, -366.95660400390625)
-	vector_math.location = (10.429038047790527, -312.1781005859375)
-	combine_xyz.location = (-190.34738159179688, -165.83035278320312)
-	store_named_attribute.location = (228.44163513183594, -150.38143920898438)
-	group_output.location = (419.38494873046875, -153.27713012695312)
-	group_input.location = (-503.3841552734375, -143.69046020507812)
-	
-	#Set dimensions
-	named_attribute.width, named_attribute.height = 140.0, 100.0
-	vector_math.width, vector_math.height = 140.0, 100.0
-	combine_xyz.width, combine_xyz.height = 140.0, 100.0
-	store_named_attribute.width, store_named_attribute.height = 140.0, 100.0
-	group_output.width, group_output.height = 140.0, 100.0
-	group_input.width, group_input.height = 140.0, 100.0
-	
-	#initialize offset_uv links
-	#store_named_attribute.Geometry -> group_output.Geometry
-	offset_uv.links.new(store_named_attribute.outputs[0], group_output.inputs[0])
-	#group_input.Geometry -> store_named_attribute.Geometry
-	offset_uv.links.new(group_input.outputs[0], store_named_attribute.inputs[0])
-	#named_attribute.Attribute -> vector_math.Vector
-	offset_uv.links.new(named_attribute.outputs[0], vector_math.inputs[0])
-	#vector_math.Vector -> store_named_attribute.Value
-	offset_uv.links.new(vector_math.outputs[0], store_named_attribute.inputs[3])
-	#group_input.Selection -> store_named_attribute.Selection
-	offset_uv.links.new(group_input.outputs[1], store_named_attribute.inputs[1])
-	#combine_xyz.Vector -> vector_math.Vector
-	offset_uv.links.new(combine_xyz.outputs[0], vector_math.inputs[1])
-	#group_input.Offset UV X -> combine_xyz.X
-	offset_uv.links.new(group_input.outputs[2], combine_xyz.inputs[0])
-	#group_input.Offset UV Y -> combine_xyz.Y
-	offset_uv.links.new(group_input.outputs[3], combine_xyz.inputs[1])
-	#group_input.UV Name -> named_attribute.Name
-	offset_uv.links.new(group_input.outputs[4], named_attribute.inputs[0])
-	#group_input.UV Name -> store_named_attribute.Name
-	offset_uv.links.new(group_input.outputs[4], store_named_attribute.inputs[2])
-	return offset_uv
-
-def triplanar_uv_mapping_node_group():
-    triplanar_uv_mapping = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Triplanar UV Mapping")
-
-    triplanar_uv_mapping.color_tag = 'NONE'
-    triplanar_uv_mapping.description = ""
-
-    triplanar_uv_mapping.is_modifier = True
-
-    #triplanar_uv_mapping interface
-    #Socket Geometry
-    geometry_socket = triplanar_uv_mapping.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket.attribute_domain = 'POINT'
-
-    #Socket Geometry
-    geometry_socket_1 = triplanar_uv_mapping.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket_1.attribute_domain = 'POINT'
-
-    #Socket Selection
-    selection_socket = triplanar_uv_mapping.interface.new_socket(name = "Selection", in_out='INPUT', socket_type = 'NodeSocketBool')
-    selection_socket.default_value = False
-    selection_socket.attribute_domain = 'POINT'
-    selection_socket.hide_value = True
-
-    #Socket Name
-    name_socket = triplanar_uv_mapping.interface.new_socket(name = "Name", in_out='INPUT', socket_type = 'NodeSocketString')
-    name_socket.default_value = ""
-    # name_socket.subtype = 'NONE'
-    name_socket.attribute_domain = 'POINT'
-
-    #Panel Offset
-    offset_panel = triplanar_uv_mapping.interface.new_panel("Offset")
-    #Socket World Offset
-    world_offset_socket = triplanar_uv_mapping.interface.new_socket(name = "World Offset", in_out='INPUT', socket_type = 'NodeSocketBool', parent = offset_panel)
-    world_offset_socket.default_value = False
-    world_offset_socket.attribute_domain = 'POINT'
-
-    #Socket Offset Y
-    offset_y_socket = triplanar_uv_mapping.interface.new_socket(name = "Offset Y", in_out='INPUT', socket_type = 'NodeSocketFloat', parent = offset_panel)
-    offset_y_socket.default_value = 0.5
-    offset_y_socket.min_value = -10000.0
-    offset_y_socket.max_value = 10000.0
-    # offset_y_socket.subtype = 'NONE'
-    offset_y_socket.attribute_domain = 'POINT'
-
-    #Socket Offset X
-    offset_x_socket = triplanar_uv_mapping.interface.new_socket(name = "Offset X", in_out='INPUT', socket_type = 'NodeSocketFloat', parent = offset_panel)
-    offset_x_socket.default_value = 0.5
-    offset_x_socket.min_value = -10000.0
-    offset_x_socket.max_value = 10000.0
-    # offset_x_socket.subtype = 'NONE'
-    offset_x_socket.attribute_domain = 'POINT'
-
-
-    #Panel Scale
-    scale_panel = triplanar_uv_mapping.interface.new_panel("Scale")
-    #Socket World Scale
-    world_scale_socket = triplanar_uv_mapping.interface.new_socket(name = "World Scale", in_out='INPUT', socket_type = 'NodeSocketBool', parent = scale_panel)
-    world_scale_socket.default_value = True
-    world_scale_socket.attribute_domain = 'POINT'
-
-    #Socket Scale
-    scale_socket = triplanar_uv_mapping.interface.new_socket(name = "Scale", in_out='INPUT', socket_type = 'NodeSocketFloat', parent = scale_panel)
-    scale_socket.default_value = 0.5
-    scale_socket.min_value = 0.0
-    scale_socket.max_value = 10000.0
-    scale_socket.subtype = 'DISTANCE'
-    scale_socket.attribute_domain = 'POINT'
-
-
-    #Panel Rotation
-    rotation_panel = triplanar_uv_mapping.interface.new_panel("Rotation")
-    #Socket World Rotation
-    world_rotation_socket = triplanar_uv_mapping.interface.new_socket(name = "World Rotation", in_out='INPUT', socket_type = 'NodeSocketBool', parent = rotation_panel)
-    world_rotation_socket.default_value = False
-    world_rotation_socket.attribute_domain = 'POINT'
-    world_rotation_socket.hide_in_modifier = True
-
-    #Socket Angle
-    angle_socket = triplanar_uv_mapping.interface.new_socket(name = "Angle", in_out='INPUT', socket_type = 'NodeSocketFloat', parent = rotation_panel)
-    angle_socket.default_value = 0.0
-    angle_socket.min_value = -360.0
-    angle_socket.max_value = 360.0
-    angle_socket.subtype = 'ANGLE'
-    angle_socket.attribute_domain = 'POINT'
-
-
-
-    #initialize triplanar_uv_mapping nodes
-    #node Group Input
-    group_input = triplanar_uv_mapping.nodes.new("NodeGroupInput")
-    group_input.name = "Group Input"
-    group_input.outputs[3].hide = True
-    group_input.outputs[6].hide = True
-    group_input.outputs[7].hide = True
-    group_input.outputs[8].hide = True
-    group_input.outputs[9].hide = True
-    group_input.outputs[10].hide = True
-
-    #node Group Output
-    group_output = triplanar_uv_mapping.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-    group_output.inputs[1].hide = True
-
-    #node Store Named Attribute
-    store_named_attribute = triplanar_uv_mapping.nodes.new("GeometryNodeStoreNamedAttribute")
-    store_named_attribute.name = "Store Named Attribute"
-    store_named_attribute.data_type = 'FLOAT2'
-    store_named_attribute.domain = 'CORNER'
-
-    #node Combine XYZ
-    combine_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
-    combine_xyz.name = "Combine XYZ"
-    combine_xyz.inputs[2].hide = True
-    #Z
-    combine_xyz.inputs[2].default_value = 0.0
-
-    #node Vector Rotate.001
-    vector_rotate_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
-    vector_rotate_001.name = "Vector Rotate.001"
-    vector_rotate_001.invert = False
-    vector_rotate_001.rotation_type = 'AXIS_ANGLE'
-    vector_rotate_001.inputs[2].hide = True
-    vector_rotate_001.inputs[4].hide = True
-    #Axis
-    vector_rotate_001.inputs[2].default_value = (0.0, 0.0, 1.0)
-
-    #node Separate XYZ.001
-    separate_xyz_001 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
-    separate_xyz_001.name = "Separate XYZ.001"
-
-    #node Compare.002
-    compare_002 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
-    compare_002.name = "Compare.002"
-    compare_002.data_type = 'FLOAT'
-    compare_002.mode = 'ELEMENT'
-    compare_002.operation = 'GREATER_THAN'
-
-    #node Compare.003
-    compare_003 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
-    compare_003.name = "Compare.003"
-    compare_003.data_type = 'FLOAT'
-    compare_003.mode = 'ELEMENT'
-    compare_003.operation = 'GREATER_THAN'
-
-    #node Position
-    position = triplanar_uv_mapping.nodes.new("GeometryNodeInputPosition")
-    position.name = "Position"
-
-    #node Vector Math
-    vector_math = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math.name = "Vector Math"
-    vector_math.operation = 'MULTIPLY'
-
-    #node Switch
-    switch = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch.name = "Switch"
-    switch.input_type = 'VECTOR'
-    #True
-    switch.inputs[2].default_value = (1.0, 0.0, 1.0)
-
-    #node Switch.001
-    switch_001 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch_001.name = "Switch.001"
-    switch_001.input_type = 'VECTOR'
-    #False
-    switch_001.inputs[1].default_value = (1.0, 1.0, 0.0)
-    #True
-    switch_001.inputs[2].default_value = (0.0, 1.0, 1.0)
-
-    #node Switch.003
-    switch_003 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch_003.name = "Switch.003"
-    switch_003.input_type = 'VECTOR'
-    #False
-    switch_003.inputs[1].default_value = (0.0, 0.0, 0.0)
-    #True
-    switch_003.inputs[2].default_value = (0.0, -1.5707999467849731, 0.0)
-
-    #node Switch.002
-    switch_002 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch_002.name = "Switch.002"
-    switch_002.input_type = 'VECTOR'
-    #True
-    switch_002.inputs[2].default_value = (-1.5707999467849731, 0.0, 0.0)
-
-    #node Normal
-    normal = triplanar_uv_mapping.nodes.new("GeometryNodeInputNormal")
-    normal.name = "Normal"
-
-    #node Vector Math.001
-    vector_math_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_001.name = "Vector Math.001"
-    vector_math_001.operation = 'ABSOLUTE'
-
-    #node Separate XYZ
-    separate_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
-    separate_xyz.name = "Separate XYZ"
-
-    #node Compare
-    compare = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
-    compare.name = "Compare"
-    compare.data_type = 'FLOAT'
-    compare.mode = 'ELEMENT'
-    compare.operation = 'GREATER_THAN'
-
-    #node Compare.001
-    compare_001 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
-    compare_001.name = "Compare.001"
-    compare_001.data_type = 'FLOAT'
-    compare_001.mode = 'ELEMENT'
-    compare_001.operation = 'GREATER_THAN'
-
-    #node Boolean Math
-    boolean_math = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
-    boolean_math.name = "Boolean Math"
-    boolean_math.operation = 'AND'
-
-    #node Boolean Math.001
-    boolean_math_001 = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
-    boolean_math_001.name = "Boolean Math.001"
-    boolean_math_001.operation = 'AND'
-
-    #node Vector Rotate
-    vector_rotate = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
-    vector_rotate.name = "Vector Rotate"
-    vector_rotate.invert = False
-    vector_rotate.rotation_type = 'EULER_XYZ'
-    #Center
-    vector_rotate.inputs[1].default_value = (0.0, 0.0, 0.0)
-
-    #node Vector Math.004
-    vector_math_004 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_004.name = "Vector Math.004"
-    vector_math_004.operation = 'MULTIPLY'
-
-    #node Object Info.001
-    object_info_001 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
-    object_info_001.name = "Object Info.001"
-    object_info_001.transform_space = 'ORIGINAL'
-    #As Instance
-    object_info_001.inputs[1].default_value = False
-
-    #node Self Object.001
-    self_object_001 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
-    self_object_001.name = "Self Object.001"
-
-    #node Group Input.002
-    group_input_002 = triplanar_uv_mapping.nodes.new("NodeGroupInput")
-    group_input_002.name = "Group Input.002"
-    group_input_002.outputs[0].hide = True
-    group_input_002.outputs[1].hide = True
-    group_input_002.outputs[2].hide = True
-    group_input_002.outputs[3].hide = True
-    group_input_002.outputs[4].hide = True
-    group_input_002.outputs[5].hide = True
-    group_input_002.outputs[7].hide = True
-    group_input_002.outputs[8].hide = True
-    group_input_002.outputs[9].hide = True
-    group_input_002.outputs[10].hide = True
-
-    #node Switch.004
-    switch_004 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch_004.name = "Switch.004"
-    switch_004.input_type = 'VECTOR'
-
-    #node Vector Math.006
-    vector_math_006 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_006.name = "Vector Math.006"
-    vector_math_006.operation = 'SCALE'
-    vector_math_006.inputs[1].hide = True
-    vector_math_006.inputs[2].hide = True
-    vector_math_006.outputs[1].hide = True
-
-    #node Group Input.004
-    group_input_004 = triplanar_uv_mapping.nodes.new("NodeGroupInput")
-    group_input_004.name = "Group Input.004"
-    group_input_004.outputs[0].hide = True
-    group_input_004.outputs[1].hide = True
-    group_input_004.outputs[2].hide = True
-    group_input_004.outputs[3].hide = True
-    group_input_004.outputs[4].hide = True
-    group_input_004.outputs[5].hide = True
-    group_input_004.outputs[6].hide = True
-    group_input_004.outputs[8].hide = True
-    group_input_004.outputs[10].hide = True
-
-    #node Vector Math.007
-    vector_math_007 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_007.name = "Vector Math.007"
-    vector_math_007.operation = 'ADD'
-    vector_math_007.inputs[2].hide = True
-    vector_math_007.inputs[3].hide = True
-    vector_math_007.outputs[1].hide = True
-
-    #node Object Info.003
-    object_info_003 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
-    object_info_003.name = "Object Info.003"
-    object_info_003.mute = True
-    object_info_003.transform_space = 'ORIGINAL'
-    #As Instance
-    object_info_003.inputs[1].default_value = False
-
-    #node Self Object.003
-    self_object_003 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
-    self_object_003.name = "Self Object.003"
-    self_object_003.mute = True
-
-    #node Group Input.003
-    group_input_003 = triplanar_uv_mapping.nodes.new("NodeGroupInput")
-    group_input_003.name = "Group Input.003"
-    group_input_003.outputs[0].hide = True
-    group_input_003.outputs[1].hide = True
-    group_input_003.outputs[2].hide = True
-    group_input_003.outputs[3].hide = True
-    group_input_003.outputs[4].hide = True
-    group_input_003.outputs[5].hide = True
-    group_input_003.outputs[6].hide = True
-    group_input_003.outputs[7].hide = True
-    group_input_003.outputs[8].hide = True
-    group_input_003.outputs[10].hide = True
-
-    #node Boolean Math.003
-    boolean_math_003 = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
-    boolean_math_003.name = "Boolean Math.003"
-    boolean_math_003.operation = 'NOT'
-
-    #node Math
-    math = triplanar_uv_mapping.nodes.new("ShaderNodeMath")
-    math.name = "Math"
-    math.operation = 'ADD'
-    math.use_clamp = False
-
-    #node Separate XYZ.002
-    separate_xyz_002 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
-    separate_xyz_002.name = "Separate XYZ.002"
-
-    #node Combine XYZ.001
-    combine_xyz_001 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
-    combine_xyz_001.name = "Combine XYZ.001"
-    #X
-    combine_xyz_001.inputs[0].default_value = 0.0
-    #Y
-    combine_xyz_001.inputs[1].default_value = -1.5707999467849731
-
-    #node Separate XYZ.003
-    separate_xyz_003 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
-    separate_xyz_003.name = "Separate XYZ.003"
-
-    #node Combine XYZ.002
-    combine_xyz_002 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
-    combine_xyz_002.name = "Combine XYZ.002"
-    #X
-    combine_xyz_002.inputs[0].default_value = -1.5707999467849731
-    #Y
-    combine_xyz_002.inputs[1].default_value = 0.0
-
-    #node Math.001
-    math_001 = triplanar_uv_mapping.nodes.new("ShaderNodeMath")
-    math_001.name = "Math.001"
-    math_001.operation = 'MULTIPLY'
-    math_001.use_clamp = False
-    #Value_001
-    math_001.inputs[1].default_value = -1.0
-
-    #node Vector Math.010
-    vector_math_010 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_010.name = "Vector Math.010"
-    vector_math_010.operation = 'ADD'
-    vector_math_010.inputs[2].hide = True
-    vector_math_010.inputs[3].hide = True
-    vector_math_010.outputs[1].hide = True
-
-    #node Position.002
-    position_002 = triplanar_uv_mapping.nodes.new("GeometryNodeInputPosition")
-    position_002.name = "Position.002"
-
-    #node Separate XYZ.004
-    separate_xyz_004 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
-    separate_xyz_004.name = "Separate XYZ.004"
-
-    #node Combine XYZ.003
-    combine_xyz_003 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
-    combine_xyz_003.name = "Combine XYZ.003"
-    #X
-    combine_xyz_003.inputs[0].default_value = 0.0
-    #Y
-    combine_xyz_003.inputs[1].default_value = 0.0
-
-    #node Object Info.004
-    object_info_004 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
-    object_info_004.name = "Object Info.004"
-    object_info_004.transform_space = 'ORIGINAL'
-    #As Instance
-    object_info_004.inputs[1].default_value = False
-
-    #node Self Object.004
-    self_object_004 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
-    self_object_004.name = "Self Object.004"
-
-    #node Vector Math.009
-    vector_math_009 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
-    vector_math_009.name = "Vector Math.009"
-    vector_math_009.operation = 'ADD'
-    vector_math_009.inputs[2].hide = True
-    vector_math_009.inputs[3].hide = True
-    vector_math_009.outputs[1].hide = True
-
-    #node Group Input.005
-    group_input_005 = triplanar_uv_mapping.nodes.new("NodeGroupInput")
-    group_input_005.name = "Group Input.005"
-    group_input_005.outputs[0].hide = True
-    group_input_005.outputs[1].hide = True
-    group_input_005.outputs[2].hide = True
-    group_input_005.outputs[4].hide = True
-    group_input_005.outputs[5].hide = True
-    group_input_005.outputs[6].hide = True
-    group_input_005.outputs[7].hide = True
-    group_input_005.outputs[8].hide = True
-    group_input_005.outputs[9].hide = True
-    group_input_005.outputs[10].hide = True
-
-    #node Switch.005
-    switch_005 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
-    switch_005.name = "Switch.005"
-    switch_005.input_type = 'VECTOR'
-
-
-
-
-
-    #Set locations
-    group_input.location = (1618.71875, -177.65013122558594)
-    group_output.location = (3218.12109375, -119.95706176757812)
-    store_named_attribute.location = (3024.74951171875, -120.89886474609375)
-    combine_xyz.location = (2440.536865234375, -269.6875)
-    vector_rotate_001.location = (2607.607421875, -369.5301208496094)
-    separate_xyz_001.location = (-850.6109619140625, -997.3045043945312)
-    compare_002.location = (-585.7400512695312, -844.56103515625)
-    compare_003.location = (-585.2684936523438, -1009.624267578125)
-    position.location = (-46.76734924316406, -392.42816162109375)
-    vector_math.location = (806.116455078125, -627.3997192382812)
-    switch.location = (412.1543884277344, -818.9706420898438)
-    switch_001.location = (151.3099365234375, -899.8958129882812)
-    switch_003.location = (842.8276977539062, -849.111083984375)
-    switch_002.location = (1219.5185546875, -736.88232421875)
-    normal.location = (-1246.9434814453125, -1070.3668212890625)
-    vector_math_001.location = (-1053.5908203125, -1015.7783813476562)
-    separate_xyz.location = (-538.8992919921875, -1285.957763671875)
-    compare.location = (-322.9216003417969, -1095.156982421875)
-    compare_001.location = (-294.9595642089844, -1298.4024658203125)
-    boolean_math.location = (-104.07305908203125, -1270.914794921875)
-    boolean_math_001.location = (-143.67474365234375, -724.1923828125)
-    vector_rotate.location = (1799.5244140625, -642.817138671875)
-    vector_math_004.location = (239.3844757080078, -417.611572265625)
-    object_info_001.location = (-48.02244186401367, -450.4876403808594)
-    self_object_001.location = (-233.47183227539062, -499.84259033203125)
-    group_input_002.location = (74.32839965820312, -233.9241943359375)
-    switch_004.location = (454.7678527832031, -385.1258544921875)
-    vector_math_006.location = (2319.488037109375, -365.44622802734375)
-    group_input_004.location = (2072.93798828125, -502.40576171875)
-    vector_math_007.location = (2850.14794921875, -323.29901123046875)
-    object_info_003.location = (327.0261535644531, -1213.8956298828125)
-    self_object_003.location = (177.04380798339844, -1415.77587890625)
-    group_input_003.location = (2417.1044921875, -656.2293701171875)
-    boolean_math_003.location = (1442.992431640625, -1154.0697021484375)
-    math.location = (1195.0794677734375, -1200.3321533203125)
-    separate_xyz_002.location = (797.0464477539062, -1394.712890625)
-    combine_xyz_001.location = (980.4664916992188, -1386.6495361328125)
-    separate_xyz_003.location = (755.58447265625, -1579.6807861328125)
-    combine_xyz_002.location = (1147.4310302734375, -1500.011474609375)
-    math_001.location = (956.2252807617188, -1576.642822265625)
-    vector_math_010.location = (478.9027404785156, -1590.67919921875)
-    position_002.location = (245.85205078125, -1612.192626953125)
-    separate_xyz_004.location = (629.2012939453125, -1178.031494140625)
-    combine_xyz_003.location = (1055.3148193359375, -1041.5009765625)
-    object_info_004.location = (495.8307189941406, -56.04844665527344)
-    self_object_004.location = (293.0511779785156, -194.81289672851562)
-    vector_math_009.location = (1090.20458984375, -269.9072265625)
-    group_input_005.location = (1182.134033203125, -545.7793579101562)
-    switch_005.location = (1422.7188720703125, -503.6679992675781)
-
-    #Set dimensions
-    group_input.width, group_input.height = 140.0, 100.0
-    group_output.width, group_output.height = 140.0, 100.0
-    store_named_attribute.width, store_named_attribute.height = 140.0, 100.0
-    combine_xyz.width, combine_xyz.height = 140.0, 100.0
-    vector_rotate_001.width, vector_rotate_001.height = 140.0, 100.0
-    separate_xyz_001.width, separate_xyz_001.height = 140.0, 100.0
-    compare_002.width, compare_002.height = 140.0, 100.0
-    compare_003.width, compare_003.height = 140.0, 100.0
-    position.width, position.height = 140.0, 100.0
-    vector_math.width, vector_math.height = 140.0, 100.0
-    switch.width, switch.height = 140.0, 100.0
-    switch_001.width, switch_001.height = 140.0, 100.0
-    switch_003.width, switch_003.height = 140.0, 100.0
-    switch_002.width, switch_002.height = 140.0, 100.0
-    normal.width, normal.height = 140.0, 100.0
-    vector_math_001.width, vector_math_001.height = 140.0, 100.0
-    separate_xyz.width, separate_xyz.height = 140.0, 100.0
-    compare.width, compare.height = 140.0, 100.0
-    compare_001.width, compare_001.height = 140.0, 100.0
-    boolean_math.width, boolean_math.height = 140.0, 100.0
-    boolean_math_001.width, boolean_math_001.height = 140.0, 100.0
-    vector_rotate.width, vector_rotate.height = 140.0, 100.0
-    vector_math_004.width, vector_math_004.height = 140.0, 100.0
-    object_info_001.width, object_info_001.height = 140.0, 100.0
-    self_object_001.width, self_object_001.height = 140.0, 100.0
-    group_input_002.width, group_input_002.height = 140.0, 100.0
-    switch_004.width, switch_004.height = 140.0, 100.0
-    vector_math_006.width, vector_math_006.height = 140.0, 100.0
-    group_input_004.width, group_input_004.height = 140.0, 100.0
-    vector_math_007.width, vector_math_007.height = 140.0, 100.0
-    object_info_003.width, object_info_003.height = 140.0, 100.0
-    self_object_003.width, self_object_003.height = 140.0, 100.0
-    group_input_003.width, group_input_003.height = 140.0, 100.0
-    boolean_math_003.width, boolean_math_003.height = 140.0, 100.0
-    math.width, math.height = 140.0, 100.0
-    separate_xyz_002.width, separate_xyz_002.height = 140.0, 100.0
-    combine_xyz_001.width, combine_xyz_001.height = 140.0, 100.0
-    separate_xyz_003.width, separate_xyz_003.height = 140.0, 100.0
-    combine_xyz_002.width, combine_xyz_002.height = 140.0, 100.0
-    math_001.width, math_001.height = 140.0, 100.0
-    vector_math_010.width, vector_math_010.height = 132.3218994140625, 100.0
-    position_002.width, position_002.height = 140.0, 100.0
-    separate_xyz_004.width, separate_xyz_004.height = 140.0, 100.0
-    combine_xyz_003.width, combine_xyz_003.height = 140.0, 100.0
-    object_info_004.width, object_info_004.height = 140.0, 100.0
-    self_object_004.width, self_object_004.height = 140.0, 100.0
-    vector_math_009.width, vector_math_009.height = 140.0, 100.0
-    group_input_005.width, group_input_005.height = 140.0, 100.0
-    switch_005.width, switch_005.height = 140.0, 100.0
-
-    #initialize triplanar_uv_mapping links
-    #store_named_attribute.Geometry -> group_output.Geometry
-    triplanar_uv_mapping.links.new(store_named_attribute.outputs[0], group_output.inputs[0])
-    #group_input.Geometry -> store_named_attribute.Geometry
-    triplanar_uv_mapping.links.new(group_input.outputs[0], store_named_attribute.inputs[0])
-    #group_input.Selection -> store_named_attribute.Selection
-    triplanar_uv_mapping.links.new(group_input.outputs[1], store_named_attribute.inputs[1])
-    #group_input.Name -> store_named_attribute.Name
-    triplanar_uv_mapping.links.new(group_input.outputs[2], store_named_attribute.inputs[2])
-    #normal.Normal -> vector_math_001.Vector
-    triplanar_uv_mapping.links.new(normal.outputs[0], vector_math_001.inputs[0])
-    #vector_math_001.Vector -> separate_xyz.Vector
-    triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz.inputs[0])
-    #separate_xyz.X -> compare.A
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare.inputs[0])
-    #separate_xyz.Y -> compare.B
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[1], compare.inputs[1])
-    #separate_xyz.X -> compare_001.A
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare_001.inputs[0])
-    #separate_xyz.Z -> compare_001.B
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[2], compare_001.inputs[1])
-    #compare.Result -> boolean_math.Boolean
-    triplanar_uv_mapping.links.new(compare.outputs[0], boolean_math.inputs[0])
-    #compare_001.Result -> boolean_math.Boolean
-    triplanar_uv_mapping.links.new(compare_001.outputs[0], boolean_math.inputs[1])
-    #vector_math_001.Vector -> separate_xyz_001.Vector
-    triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz_001.inputs[0])
-    #separate_xyz_001.Z -> compare_003.B
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[2], compare_003.inputs[1])
-    #compare_002.Result -> boolean_math_001.Boolean
-    triplanar_uv_mapping.links.new(compare_002.outputs[0], boolean_math_001.inputs[0])
-    #compare_003.Result -> boolean_math_001.Boolean
-    triplanar_uv_mapping.links.new(compare_003.outputs[0], boolean_math_001.inputs[1])
-    #separate_xyz_001.Y -> compare_002.A
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_002.inputs[0])
-    #separate_xyz_001.X -> compare_002.B
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[0], compare_002.inputs[1])
-    #separate_xyz_001.Y -> compare_003.A
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_003.inputs[0])
-    #switch.Output -> vector_math.Vector
-    triplanar_uv_mapping.links.new(switch.outputs[0], vector_math.inputs[1])
-    #switch_001.Output -> switch.False
-    triplanar_uv_mapping.links.new(switch_001.outputs[0], switch.inputs[1])
-    #boolean_math.Boolean -> switch_001.Switch
-    triplanar_uv_mapping.links.new(boolean_math.outputs[0], switch_001.inputs[0])
-    #boolean_math_001.Boolean -> switch.Switch
-    triplanar_uv_mapping.links.new(boolean_math_001.outputs[0], switch.inputs[0])
-    #switch_003.Output -> switch_002.False
-    triplanar_uv_mapping.links.new(switch_003.outputs[0], switch_002.inputs[1])
-    #boolean_math.Boolean -> switch_003.Switch
-    triplanar_uv_mapping.links.new(boolean_math.outputs[0], switch_003.inputs[0])
-    #boolean_math_001.Boolean -> switch_002.Switch
-    triplanar_uv_mapping.links.new(boolean_math_001.outputs[0], switch_002.inputs[0])
-    #group_input.Offset X -> combine_xyz.X
-    triplanar_uv_mapping.links.new(group_input.outputs[5], combine_xyz.inputs[0])
-    #group_input.Offset Y -> combine_xyz.Y
-    triplanar_uv_mapping.links.new(group_input.outputs[4], combine_xyz.inputs[1])
-    #position.Position -> vector_math_004.Vector
-    triplanar_uv_mapping.links.new(position.outputs[0], vector_math_004.inputs[0])
-    #self_object_001.Self Object -> object_info_001.Object
-    triplanar_uv_mapping.links.new(self_object_001.outputs[0], object_info_001.inputs[0])
-    #object_info_001.Scale -> vector_math_004.Vector
-    triplanar_uv_mapping.links.new(object_info_001.outputs[3], vector_math_004.inputs[1])
-    #group_input_002.World Scale -> switch_004.Switch
-    triplanar_uv_mapping.links.new(group_input_002.outputs[6], switch_004.inputs[0])
-    #vector_math_004.Vector -> switch_004.True
-    triplanar_uv_mapping.links.new(vector_math_004.outputs[0], switch_004.inputs[2])
-    #position.Position -> switch_004.False
-    triplanar_uv_mapping.links.new(position.outputs[0], switch_004.inputs[1])
-    #switch_004.Output -> vector_math.Vector
-    triplanar_uv_mapping.links.new(switch_004.outputs[0], vector_math.inputs[0])
-    #group_input_004.Scale -> vector_math_006.Scale
-    triplanar_uv_mapping.links.new(group_input_004.outputs[7], vector_math_006.inputs[3])
-    #vector_rotate.Vector -> vector_math_006.Vector
-    triplanar_uv_mapping.links.new(vector_rotate.outputs[0], vector_math_006.inputs[0])
-    #combine_xyz.Vector -> vector_math_007.Vector
-    triplanar_uv_mapping.links.new(combine_xyz.outputs[0], vector_math_007.inputs[1])
-    #vector_rotate_001.Vector -> vector_math_007.Vector
-    triplanar_uv_mapping.links.new(vector_rotate_001.outputs[0], vector_math_007.inputs[0])
-    #vector_math_007.Vector -> store_named_attribute.Value
-    triplanar_uv_mapping.links.new(vector_math_007.outputs[0], store_named_attribute.inputs[3])
-    #self_object_003.Self Object -> object_info_003.Object
-    triplanar_uv_mapping.links.new(self_object_003.outputs[0], object_info_003.inputs[0])
-    #math.Value -> boolean_math_003.Boolean
-    triplanar_uv_mapping.links.new(math.outputs[0], boolean_math_003.inputs[0])
-    #boolean_math_001.Boolean -> math.Value
-    triplanar_uv_mapping.links.new(boolean_math_001.outputs[0], math.inputs[0])
-    #boolean_math.Boolean -> math.Value
-    triplanar_uv_mapping.links.new(boolean_math.outputs[0], math.inputs[1])
-    #object_info_003.Rotation -> separate_xyz_002.Vector
-    triplanar_uv_mapping.links.new(object_info_003.outputs[2], separate_xyz_002.inputs[0])
-    #object_info_003.Rotation -> separate_xyz_003.Vector
-    triplanar_uv_mapping.links.new(object_info_003.outputs[2], separate_xyz_003.inputs[0])
-    #separate_xyz_003.Y -> math_001.Value
-    triplanar_uv_mapping.links.new(separate_xyz_003.outputs[1], math_001.inputs[0])
-    #math_001.Value -> combine_xyz_002.Z
-    triplanar_uv_mapping.links.new(math_001.outputs[0], combine_xyz_002.inputs[2])
-    #position_002.Position -> vector_math_010.Vector
-    triplanar_uv_mapping.links.new(position_002.outputs[0], vector_math_010.inputs[1])
-    #object_info_003.Location -> vector_math_010.Vector
-    triplanar_uv_mapping.links.new(object_info_003.outputs[1], vector_math_010.inputs[0])
-    #separate_xyz_002.X -> combine_xyz_001.Z
-    triplanar_uv_mapping.links.new(separate_xyz_002.outputs[0], combine_xyz_001.inputs[2])
-    #object_info_003.Rotation -> separate_xyz_004.Vector
-    triplanar_uv_mapping.links.new(object_info_003.outputs[2], separate_xyz_004.inputs[0])
-    #separate_xyz_004.Z -> combine_xyz_003.Z
-    triplanar_uv_mapping.links.new(separate_xyz_004.outputs[2], combine_xyz_003.inputs[2])
-    #self_object_004.Self Object -> object_info_004.Object
-    triplanar_uv_mapping.links.new(self_object_004.outputs[0], object_info_004.inputs[0])
-    #vector_math.Vector -> vector_math_009.Vector
-    triplanar_uv_mapping.links.new(vector_math.outputs[0], vector_math_009.inputs[1])
-    #object_info_004.Location -> vector_math_009.Vector
-    triplanar_uv_mapping.links.new(object_info_004.outputs[1], vector_math_009.inputs[0])
-    #vector_math_006.Vector -> vector_rotate_001.Vector
-    triplanar_uv_mapping.links.new(vector_math_006.outputs[0], vector_rotate_001.inputs[0])
-    #group_input_003.Angle -> vector_rotate_001.Angle
-    triplanar_uv_mapping.links.new(group_input_003.outputs[9], vector_rotate_001.inputs[3])
-    #switch_002.Output -> vector_rotate.Rotation
-    triplanar_uv_mapping.links.new(switch_002.outputs[0], vector_rotate.inputs[4])
-    #vector_math.Vector -> switch_005.False
-    triplanar_uv_mapping.links.new(vector_math.outputs[0], switch_005.inputs[1])
-    #vector_math_009.Vector -> switch_005.True
-    triplanar_uv_mapping.links.new(vector_math_009.outputs[0], switch_005.inputs[2])
-    #switch_005.Output -> vector_rotate.Vector
-    triplanar_uv_mapping.links.new(switch_005.outputs[0], vector_rotate.inputs[0])
-    #group_input_005.World Offset -> switch_005.Switch
-    triplanar_uv_mapping.links.new(group_input_005.outputs[3], switch_005.inputs[0])
-    #combine_xyz.Vector -> vector_rotate_001.Center
-    triplanar_uv_mapping.links.new(combine_xyz.outputs[0], vector_rotate_001.inputs[1])
-    return triplanar_uv_mapping
-
-def get_all_bouding_box_node_group(obj_name):
-    get_all_bouding_box = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Get All Bouding Box")
-
-    get_all_bouding_box.color_tag = 'NONE'
-    get_all_bouding_box.description = ""
-
-    get_all_bouding_box.is_modifier = True
-	
-    #get_all_bouding_box interface
-    #Socket Geometry
-    geometry_socket = get_all_bouding_box.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket.attribute_domain = 'POINT'
-
-    #Socket Geometry
-    geometry_socket_1 = get_all_bouding_box.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket_1.attribute_domain = 'POINT'
-
-
-    #initialize get_all_bouding_box nodes
-    #node Group Input
-    group_input = get_all_bouding_box.nodes.new("NodeGroupInput")
-    group_input.name = "Group Input"
-
-    #node Group Output
-    group_output = get_all_bouding_box.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-
-    #node Bounding Box
-    bounding_box = get_all_bouding_box.nodes.new("GeometryNodeBoundBox")
-    bounding_box.name = "Bounding Box"
-
-    #node Realize Instances
-    realize_instances = get_all_bouding_box.nodes.new("GeometryNodeRealizeInstances")
-    realize_instances.name = "Realize Instances"
-    #Selection
-    realize_instances.inputs[1].default_value = True
-    #Realize All
-    realize_instances.inputs[2].default_value = True
-    #Depth
-    realize_instances.inputs[3].default_value = 0
-
-    #node Join Geometry
-    join_geometry = get_all_bouding_box.nodes.new("GeometryNodeJoinGeometry")
-    join_geometry.name = "Join Geometry"
-
-    iteration = -1
-    for i in obj_name:
-        iteration += 1
-        object_info = "object_info" + str((iteration))
-
-        object_info = get_all_bouding_box.nodes.new("GeometryNodeObjectInfo")
-        object_info.name = "Object Info." + str((iteration))
-        object_info.hide = True
-        object_info.transform_space = 'RELATIVE'
-
-        #As Instance
-        object_info.inputs[1].default_value = True
-        object_info.location = (-389.14093017578125, -171.42857360839844*iteration/3)
-
-        get_all_bouding_box.links.new(object_info.outputs[4], join_geometry.inputs[0])
-
-        if str(obj_name[iteration]) in bpy.data.objects:
-            object_info.inputs[0].default_value = bpy.data.objects[str(obj_name[iteration])]
-
-
-    #Set locations
-    group_input.location = (-340.0, 0.0)
-    group_output.location = (556.55908203125, -48.850746154785156)
-    bounding_box.location = (17.911235809326172, -45.44710159301758)
-    realize_instances.location = (198.05038452148438, -57.47685241699219)
-    join_geometry.location = (-169.419677734375, -114.13054656982422)
-
-    #initialize get_all_bouding_box links
-    #object_info_0.Geometry -> join_geometry.Geometry
-    get_all_bouding_box.links.new(bounding_box.outputs[0], group_output.inputs[0])
-    #join_geometry.Geometry -> realize_instances.Geometry
-    get_all_bouding_box.links.new(join_geometry.outputs[0], realize_instances.inputs[0])
-    #realize_instances.Geometry -> bounding_box_001.Geometry
-    get_all_bouding_box.links.new(realize_instances.outputs[0], bounding_box.inputs[0])
-
-    #object_info.Geometry -> join_geometry.Geometry
-    get_all_bouding_box.links.new(object_info.outputs[4], join_geometry.inputs[0])
-    return get_all_bouding_box
-
-def duplicate_linked_modifiers_node_group():
-	duplicate_linked_modifiers = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Duplicate Linked Modifiers")
-
-	duplicate_linked_modifiers.color_tag = 'NONE'
-	duplicate_linked_modifiers.description = ""
-
-	duplicate_linked_modifiers.is_modifier = True
-	
-	#duplicate_linked_modifiers interface
-	#Socket Geometry
-	geometry_socket = duplicate_linked_modifiers.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-	geometry_socket.attribute_domain = 'POINT'
-	
-	#Socket Geometry
-	geometry_socket_1 = duplicate_linked_modifiers.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-	geometry_socket_1.attribute_domain = 'POINT'
-	
-	#Socket Object
-	object_socket = duplicate_linked_modifiers.interface.new_socket(name = "Object", in_out='INPUT', socket_type = 'NodeSocketObject')
-	object_socket.attribute_domain = 'POINT'
-	
-	#Socket As Instance
-	as_instance_socket = duplicate_linked_modifiers.interface.new_socket(name = "As Instance", in_out='INPUT', socket_type = 'NodeSocketBool')
-	as_instance_socket.default_value = True
-	as_instance_socket.attribute_domain = 'POINT'
-	
-	
-	#initialize duplicate_linked_modifiers nodes
-	#node Group Input
-	group_input = duplicate_linked_modifiers.nodes.new("NodeGroupInput")
-	group_input.name = "Group Input"
-	
-	#node Group Output
-	group_output = duplicate_linked_modifiers.nodes.new("NodeGroupOutput")
-	group_output.name = "Group Output"
-	group_output.is_active_output = True
-	
-	#node Object Info
-	object_info = duplicate_linked_modifiers.nodes.new("GeometryNodeObjectInfo")
-	object_info.name = "Object Info"
-	object_info.transform_space = 'ORIGINAL'
-	
-	#Set locations
-	group_input.location = (-251.35650634765625, -25.58302116394043)
-	group_output.location = (200.0, 0.0)
-	object_info.location = (-25.55487823486328, 89.14085388183594)
-	
-	#initialize duplicate_linked_modifiers links
-	#object_info.Geometry -> group_output.Geometry
-	duplicate_linked_modifiers.links.new(object_info.outputs[4], group_output.inputs[0])
-	#group_input.Object -> object_info.Object
-	duplicate_linked_modifiers.links.new(group_input.outputs[1], object_info.inputs[0])
-	#group_input.As Instance -> object_info.As Instance
-	duplicate_linked_modifiers.links.new(group_input.outputs[2], object_info.inputs[1])
-	return duplicate_linked_modifiers
 
 def make_duplicate_linked(self, context):
     if not bpy.data.node_groups.get("Duplicate Linked Modifiers"):
@@ -1024,7 +101,7 @@ def get_description(type: str) -> str:
 class ToolkitPanel(bpy.types.Operator):
     bl_description = "Object Panel Operator"
     bl_idname = "keyops.toolkit_panel"
-    bl_label = "Object Operator"
+    bl_label = ""
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -1070,12 +147,12 @@ class ToolkitPanel(bpy.types.Operator):
     ovveride_color: bpy.props.BoolProperty(name="Override Color", default=False) # type: ignore
     ovveride_color_vec: bpy.props.FloatVectorProperty(name="Color", default=(0.0, 0.0, 0.0, 1.0), subtype='COLOR', size=4) # type: ignore
     individual: bpy.props.BoolProperty(name="Individual", description="Snap each object to the floor individually (hold Alt when clicking button)", default=False, options={'SKIP_SAVE'}) # type: ignore
-    exact: bpy.props.BoolProperty(name="Exact", description="Exact snap to floor, but slower (hold Ctrl when clicking button)", default=True, options={'SKIP_SAVE'}) # type: ignore
     instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
     seprate_by: bpy.props.EnumProperty(name="Separate By",
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
                                               ("LOOSE", "Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
                                         default="LOOSE") # type: ignore
+    addon_id: bpy.props.StringProperty(default="", options={'SKIP_SAVE', 'HIDDEN'}) # type: ignore
     def invoke(self, context, event):
         global ev 
         ev = []
@@ -1085,7 +162,11 @@ class ToolkitPanel(bpy.types.Operator):
             ev.append("Shift")
         if event.alt:
             ev.append("Alt")
-        return self.execute(context)
+
+        if self.type == "operation_missing":
+            return context.window_manager.invoke_props_dialog(self, confirm_text="Install", width=275)
+        else:
+            return self.execute(context)
     
     @classmethod
     def description(cls, context, properties):
@@ -1107,8 +188,8 @@ class ToolkitPanel(bpy.types.Operator):
             layout.prop(self, "scale_triplanar")
             layout.prop(self, "rotation_triplanar")
             layout.prop(self, "appy_triplanar")
-        if self.type == "Smart_Join_Objects":
-            layout.label(text="Quick Join Objects", icon="EVENT_J")
+        elif self.type == "Smart_Join_Objects":
+            layout.label(text="Quick Join Objects", icon_value=get_icon("union"))
             # layout.prop(self, "set_material_index")   
             layout.prop(self, "join_objects")  
             layout.prop(self, "join_children")   
@@ -1116,39 +197,74 @@ class ToolkitPanel(bpy.types.Operator):
             layout.prop(self, "rename_uv_layer")
             layout.prop(self, "recalculate_normals")
             layout.prop(self, "triangulate")
-        if self.type == "set_sphere_normal":
+        elif self.type == "set_sphere_normal":
             layout.prop(self, "mix_factor")
             layout.prop(self, "scale")
             layout.prop(self, "subdivide")
             layout.prop(self, "set_orgin_to_geometry")
-        if self.type == "set_normal_from_selection":
+        elif self.type == "set_normal_from_selection":
             layout.prop(self, "mix_factor")
-        if self.type == "subdivide_cylinder":
+        elif self.type == "subdivide_cylinder":
             layout.prop(self, "triangulate_end")
             layout.prop(self, "angle_to_add")
             layout.prop(self, "use_full_edge_loops")
-        if self.type == "un_subdivide_cylinder":
+        elif self.type == "un_subdivide_cylinder":
             layout.prop(self, "angle_to_skip")
             layout.prop(self, "full_edge_loops")
-        if self.type == "Instant_Apply_Modifiers":
-            layout.label(text="Instant Apply All Modifiers", icon="OUTLINER_OB_MESH")
+        elif self.type == "Instant_Apply_Modifiers":
+            layout.label(text="Apply All Modifiers", icon_value=get_icon("mesh"))
             layout.prop(self, "convert_to_options", text="Convert To")
-        if self.type == "snap_to_floor":
+        elif self.type == "snap_to_floor":
             layout.label(text="Snap to Grid Floor", icon="VIEW_PERSPECTIVE")
             layout.prop(self, "individual")
-            layout.prop(self, "exact", text="Exact")
-        if self.type == "duplicate_linked_modifiers":
+        elif self.type == "duplicate_linked_modifiers":
             layout.label(text="Duplicate Linked Modifiers", icon="LINKED")
             layout.prop(self, "instance")
-        if self.type == "change_hard_bevel_width":
+        elif self.type == "change_hard_bevel_width":
             layout.prop(self, "scale")
-        if self.type == "seprate_objects_by":
+        elif self.type == "seprate_objects_by":
+            layout.label(text="Seperate", icon_value=get_icon("slice"))
             layout.scale_x = 1.2
-            layout.prop(self, "seprate_by")
+            layout.prop(self, "seprate_by", text="by")
+        elif self.type == "clear_custom_normals":
+            layout.label(text="Clear Normals", icon="X")
 
+        elif self.type == "operation_missing":
+            layout = self.layout
+            row = layout.row()
+            row.label(text=f"{self.addon_id} is missing!", icon="INFO")
+            row = layout.row()
+            row.label(text=f"Please install if you want to use this operation.")
 
     def execute(self, context):
         prefs = get_keyops_prefs()
+
+        def add_UV_offset_modifier(obj):
+            if obj.modifiers.get("Offset UV") is None:
+                obj.modifiers.new('Offset UV', 'NODES')
+                obj.modifiers['Offset UV'].node_group = bpy.data.node_groups['Offset UV']
+                if bpy.context.mode == 'OBJECT':
+                    obj.modifiers["Offset UV"]["Socket_2"] = True
+
+                if bpy.context.mode == 'EDIT_MESH': 
+                    mod = obj.modifiers["Offset UV"]
+                    mod["Socket_2_use_attribute"] = True
+                    mod["Socket_2_attribute_name"] = "Offset_UV"
+
+        def set_offset_uv_true_false(obj, true_false=True):
+            if obj.data.total_vert_sel > 0:
+                named_attributes = obj.data.attributes
+                attribute_name = "Offset_UV"
+                set_act = named_attributes.get(attribute_name)
+                if set_act is not None:
+                    select_atribute(attribute_name)
+                else:
+                    obj.data.attributes.new(name="Offset_UV", domain='FACE', type='BOOLEAN')
+                    select_atribute(attribute_name)
+
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.mesh.attribute_set(value_bool=true_false)
+
         
         if self.type == "Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
@@ -1204,7 +320,7 @@ class ToolkitPanel(bpy.types.Operator):
 
             bpy.context.view_layer.objects.active = active_object
 
-        if self.type == "Remove_Triplanar_UV_Mapping":
+        elif self.type == "Remove_Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
 
             for obj in bpy.context.selected_objects:
@@ -1214,36 +330,10 @@ class ToolkitPanel(bpy.types.Operator):
                         bpy.context.object.modifiers.remove(bpy.context.object.modifiers['Triplanar UV Mapping'])
             bpy.context.view_layer.objects.active = active_object
 
-        def add_UV_offset_modifier(obj):
-            if obj.modifiers.get("Offset UV") is None:
-                obj.modifiers.new('Offset UV', 'NODES')
-                obj.modifiers['Offset UV'].node_group = bpy.data.node_groups['Offset UV']
-                if bpy.context.mode == 'OBJECT':
-                    obj.modifiers["Offset UV"]["Socket_2"] = True
-
-                if bpy.context.mode == 'EDIT_MESH': 
-                    mod = obj.modifiers["Offset UV"]
-                    mod["Socket_2_use_attribute"] = True
-                    mod["Socket_2_attribute_name"] = "Offset_UV"
-
-        def set_offset_uv_true_false(obj, true_false=True):
-            if obj.data.total_vert_sel > 0:
-                named_attributes = obj.data.attributes
-                attribute_name = "Offset_UV"
-                set_act = named_attributes.get(attribute_name)
-                if set_act is not None:
-                    select_atribute(attribute_name)
-                else:
-                    obj.data.attributes.new(name="Offset_UV", domain='FACE', type='BOOLEAN')
-                    select_atribute(attribute_name)
-
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.mesh.attribute_set(value_bool=true_false)
-
-        if self.type == "offset_uv":
+        elif self.type == "offset_uv":
             active_object = bpy.context.active_object
             if bpy.data.node_groups.get("Offset UV") is None:
-                offset_uv()
+                offset_uv_node_group()
 
             for area in bpy.context.screen.areas:
                 if area.type == 'IMAGE_EDITOR':
@@ -1271,7 +361,7 @@ class ToolkitPanel(bpy.types.Operator):
 
                 bpy.context.view_layer.objects.active = active_object
 
-        if self.type == "Remove_Offset_UV":
+        elif self.type == "Remove_Offset_UV":
             if context.mode != 'EDIT_MESH':
                 active_object = bpy.context.active_object
 
@@ -1286,8 +376,7 @@ class ToolkitPanel(bpy.types.Operator):
                     if obj.type == 'MESH':
                         set_offset_uv_true_false(obj, False)
 
-
-        if self.type == "change_hard_bevel_width":
+        elif self.type == "change_hard_bevel_width":
             context = bpy.context
             ob = context.edit_object
             me = ob.data
@@ -1306,7 +395,7 @@ class ToolkitPanel(bpy.types.Operator):
             for f in selection:
                 f.select = True
 
-        if self.type == "set_sphere_normal":
+        elif self.type == "set_sphere_normal":
             current_selectded_objects = bpy.context.selected_objects
             if bpy.context.mode == 'EDIT_MESH':
                 bpy.ops.object.editmode_toggle()
@@ -1335,7 +424,7 @@ class ToolkitPanel(bpy.types.Operator):
                 data_transfer_modifier.mix_factor = self.mix_factor
                 data_transfer_modifier.object = sphere_object
 
-        if self.type == "set_normal_from_selection":
+        elif self.type == "set_normal_from_selection":
             if bpy.context.mode == 'OBJECT':
                 bpy.ops.object.editmode_toggle()
             bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
@@ -1359,7 +448,7 @@ class ToolkitPanel(bpy.types.Operator):
             data_transfer_modifier.mix_factor = self.mix_factor
             data_transfer_modifier.object = duplicated_object
             
-        if self.type == "set_bevel_segment_amount":
+        elif self.type == "set_bevel_segment_amount":
             new_selected_meshes = bpy.context.selected_objects
             for selected_obj in new_selected_meshes:
                 if selected_obj.type == 'MESH':
@@ -1388,7 +477,10 @@ class ToolkitPanel(bpy.types.Operator):
                                 if modifier.width < bevel_offset:
                                     modifier.segments = bpy.context.scene.bevel_segment_amount
 
-        if self.type == "bevel_segment_amount_by_%":
+        elif self.type == "operation_missing":
+            bpy.ops.extensions.package_install(repo_index=0, pkg_id=self.addon_id)
+
+        elif self.type == "bevel_segment_amount_by_%":
             new_selected_meshes = bpy.context.selected_objects
 
             for selected_obj in new_selected_meshes:
@@ -1420,7 +512,7 @@ class ToolkitPanel(bpy.types.Operator):
                                     segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.bevel_segment_by_percent / 100)
                                     modifier.segments = int(segment_amount)
                                                             
-        if self.type == "hide_bevels_by_offset":
+        elif self.type == "hide_bevels_by_offset":
             new_selected_meshes = bpy.context.selected_objects
 
             for selected_obj in new_selected_meshes:
@@ -1449,7 +541,7 @@ class ToolkitPanel(bpy.types.Operator):
                                 if modifier.width < bevel_offset:
                                     modifier.show_viewport = False
 
-        if self.type == "seprate_objects_by":
+        elif self.type == "seprate_objects_by":
             if bpy.context.mode == 'EDIT_MESH':
                 bpy.ops.object.mode_set(mode='OBJECT')
             if self.seprate_by == "MATERIAL":
@@ -1457,8 +549,7 @@ class ToolkitPanel(bpy.types.Operator):
             elif self.seprate_by == "LOOSE":
                 bpy.ops.mesh.separate(type='LOOSE')
 
-
-        if self.type == "unique_collection_duplicat":
+        elif self.type == "unique_collection_duplicat":
             if bpy.data.collections.get("high"):
                 self.default_name = "low"
             else:
@@ -1478,7 +569,7 @@ class ToolkitPanel(bpy.types.Operator):
                 for mod in booleans:
                     mod.object.data = mod.object.data.copy()
 
-        if self.type == "Smart_Join_Objects":
+        elif self.type == "Smart_Join_Objects":
             #import time
             #exec_time = time.time()
             if bpy.context.mode == 'EDIT_MESH':                                                             
@@ -1561,7 +652,7 @@ class ToolkitPanel(bpy.types.Operator):
             #can crash sometimes, dont know why, debug
             #needs a way to make sure to presver normals, maybe add custom split normals data if it does not have it?, no does not work
             #print(f"Total Time: {time.time() - exec_time:.4f} seconds")
-        if self.type == "Instant_Apply_Modifiers":
+        elif self.type == "Instant_Apply_Modifiers":
             import time
             perf_time = time.time()
 
@@ -1629,7 +720,7 @@ class ToolkitPanel(bpy.types.Operator):
                 bpy.ops.object.convert(target='GPENCIL')
             return {'FINISHED'}
 
-        if self.type == "toggle_high_low":
+        elif self.type == "toggle_high_low":
             if bpy.context.scene.collection.children.get("high") is not None and bpy.context.scene.collection.children.get("low") is not None:
                 high_index = bpy.context.scene.collection.children.find("high") + 1
                 low_index = bpy.context.scene.collection.children.find("low") + 1
@@ -1641,7 +732,7 @@ class ToolkitPanel(bpy.types.Operator):
             else:
                 self.report({'WARNING'}, "high or low collections not found")
     
-        if self.type == "high":
+        elif self.type == "high":
             if bpy.context.scene.collection.children.get("high") is None:
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "low":
                     bpy.context.scene.collection.children[0].name = "high"
@@ -1651,7 +742,7 @@ class ToolkitPanel(bpy.types.Operator):
                 get_index_of_high = bpy.context.scene.collection.children.find("high") + 1
                 bpy.ops.object.move_to_collection(collection_index=get_index_of_high)
 
-        if self.type == "low":
+        elif self.type == "low":
             if bpy.context.scene.collection.children.get("low") is None:
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "high":
                     bpy.context.scene.collection.children[0].name = "low"
@@ -1661,7 +752,7 @@ class ToolkitPanel(bpy.types.Operator):
                 get_index_of_low = bpy.context.scene.collection.children.find("low") + 1
                 bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
 
-        if self.type == "un_subdivide_cylinder":
+        elif self.type == "un_subdivide_cylinder":
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
             for obj in bpy.context.selected_objects:
@@ -1717,7 +808,7 @@ class ToolkitPanel(bpy.types.Operator):
                     bpy.ops.mesh.select_by_attribute()
                     obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
                     
-        if self.type == "subdivide_cylinder":
+        elif self.type == "subdivide_cylinder":
             if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
                 mesh_obj = bpy.context.active_object
 
@@ -1799,9 +890,10 @@ class ToolkitPanel(bpy.types.Operator):
                     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
             else:
+                bpy.ops.keyops.toolkit_panel("INVOKE_DEFAULT", type="operation_missing", addon_id="EdgeFlow")
                 self.report({'WARNING'}, "EdgeFlow addon not installed, please install it to use this operator")
 
-        if self.type == "change_cylinder_segments_modifier":
+        elif self.type == "change_cylinder_segments_modifier":
             bpy.ops.mesh.select_all(action='INVERT')
             bpy.ops.mesh.delete(type='EDGE')
 
@@ -1813,20 +905,28 @@ class ToolkitPanel(bpy.types.Operator):
             mod.steps = 32
             bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
 
-        if self.type == "clear_custom_normals":
+        elif self.type == "clear_custom_normals":
             selection = bpy.context.selected_objects
+            old_version = BLENDER_VERSION < (4, 5)
 
-            for obj in selection:
-                if obj.type == 'MESH':
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+            if old_version:
+                for obj in selection:
+                    if obj.type == 'MESH':
+                        bpy.context.view_layer.objects.active = obj
+                        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+            else:
+                for obj in selection:
+                    if obj.type == 'MESH':
+                        for atri in obj.data.attributes:
+                            if atri.name == "custom_normal":
+                                obj.data.attributes.remove(atri)
 
-        if self.type == "cleanup":
+        elif self.type == "cleanup":
             bpy.ops.object.select_all(action='DESELECT')
             bpy.ops.object.select_all(action='SELECT')
             bpy.ops.object.delete(use_global=False)
 
-        if self.type == "set_vertex_color":
+        elif self.type == "set_vertex_color":
             if bpy.context.space_data.shading.color_type != 'VERTEX':
                 bpy.context.space_data.shading.color_type = 'VERTEX'
 
@@ -1851,21 +951,22 @@ class ToolkitPanel(bpy.types.Operator):
                 color = self.ovveride_color_vec
             bpy.ops.mesh.attribute_set(value_color=(color[0], color[1], color[2], color[3]))
        
-        if self.type == "duplicate_linked_modifiers":
+        elif self.type == "duplicate_linked_modifiers":
             make_duplicate_linked(self, context)
             return {'FINISHED'}
-        if self.type == "duplicate_linked_modifiers_and_move":
+        elif self.type == "duplicate_linked_modifiers_and_move":
             make_duplicate_linked(self, context)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
             
             return {'FINISHED'}
 
-        if self.type == "snap_to_floor":
+        elif self.type == "snap_to_floor":
+            # import time
+            # exec_time = time.time()
             global ev
             if "Alt" in ev:
                 self.individual = True
-            if "Ctrl" in ev:
-                self.exact = False
+
             ev = []
 
             if not bpy.context.selected_objects:
@@ -1877,97 +978,45 @@ class ToolkitPanel(bpy.types.Operator):
 
             if not self.individual:
                 all_bounds = []
+                new_selected_objects = [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE']]
 
-                if self.exact:
-                    active = context.active_object
-                    new_selected_objects = [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE']]
-                    empty = [o for o in context.selected_objects if o.type in ['EMPTY', 'LATTICE']]
-                    obj_names = []
-                    for obj in new_selected_objects:
-                        name = obj.name
-                        obj_names.append(name)
+                active = context.active_object
+                empty = [o for o in context.selected_objects if o.type in ['EMPTY', 'LATTICE']]
+                from ..utils.utilities import get_AABB_bounding_box_coords
+                all_bounds = get_AABB_bounding_box_coords(new_selected_objects)
 
-                    bpy.ops.mesh.primitive_plane_add(enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
 
-                    if bpy.data.node_groups.get("Get All Bouding Box"):
-                        n = bpy.data.node_groups["Get All Bouding Box"]
-                        bpy.data.node_groups.remove(n)
-
-                    get_all_bouding_box_node_group(obj_names)
-        
-                    if bpy.context.object.modifiers.get("Get All Bouding Box") is None:
-                        bpy.context.object.modifiers.new('Get All Bouding Box', 'NODES')
-                        bpy.context.object.modifiers['Get All Bouding Box'].node_group = bpy.data.node_groups['Get All Bouding Box']
-                    
-                    bounding_box = [o for o in context.selected_objects if o.type in ['MESH']]
-                    
-                    #need to update in order for the new bouding box created in geomtry nodes to be evaluated
-                    context.view_layer.update()
-
-                if self.exact:
-                    for obj in bounding_box:
-                        eval = obj.evaluated_get(depsgraph)
-                        me = eval.to_mesh()
-                        all_bounds += [obj.matrix_world @ v.co for v in me.vertices]   
-                        eval.to_mesh_clear()
-                else:
-                    for obj in [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE']]:
-                        obj_bounds = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-                        all_bounds += obj_bounds
-
-                if not self.exact:
-                    for obj in [o for o in context.selected_objects if o.type == 'EMPTY']:
-                        all_bounds.append(obj.location)
-                else:
-                    for obj in empty:
-                        all_bounds.append(obj.location)
+                for obj in empty:
+                    all_bounds.append(obj.location)
                 
                 if not all_bounds: return {"CANCELLED"}
 
-                if not self.exact:
-                    z_min = min(c[2] for c in all_bounds)
-                else:
-                    z_min = min(v.z for v in all_bounds)
+                z_min = min(v[2] for v in all_bounds)
+                
+                for obj in context.selected_objects:
+                    obj.matrix_world.translation -= Vector((0, 0, z_min))
 
-                if self.exact:
-                    objs = bpy.data.objects
-                    objs.remove(objs[str(bounding_box[0].name)], do_unlink=True)
+                # bpy.ops.transform.translate(value=(0, 0, -z_min), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(False, False, True), mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False)
 
-                    for obj in new_selected_objects + empty:
-                        obj.select_set(True)
-                 
-                    bpy.context.view_layer.objects.active = active
-                    
-                bpy.ops.transform.translate(value=(0, 0, -z_min), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(False, False, True), mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False)
             else:
-                # import time
-                # exec_time = time.time()
                 selection = bpy.context.selected_objects
 
                 def move_individual_to_floor(selection):
                     for obj in selection:
                         if obj.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE', 'FONT', 'META']:
-                            #if roation is 0,0,0, then we should be able to use the bound box to get accurate z value
-                            # otherwise we need to calculate the min z value in world coordinates directly
-                            roation = obj.rotation_euler
-                            if roation.x == 0 and roation.y == 0 and obj.type != 'SURFACE' or not self.exact:
-                                if obj.bound_box:
-                                    minz = min((obj.matrix_world @ Vector(corner)).z for corner in obj.bound_box)
-                                    obj.matrix_world.translation.z -= minz
-                            else:
-                                eval = obj.evaluated_get(depsgraph)
-                                me = eval.to_mesh()
+                            eval = obj.evaluated_get(depsgraph)
+                            me = eval.to_mesh()
+                            
+                            if me.vertices:
+                                # Calculate the minimum Z value in world coordinates directly
+                                minz = float('inf')
+                                for v in me.vertices:
+                                    z = (obj.matrix_world @ v.co).z
+                                    if z < minz:
+                                        minz = z
                                 
-                                if me.vertices:
-                                    # Calculate the minimum Z value in world coordinates directly
-                                    minz = float('inf')
-                                    for v in me.vertices:
-                                        z = (obj.matrix_world @ v.co).z
-                                        if z < minz:
-                                            minz = z
-                                    
-                                    obj.matrix_world.translation.z -= minz
-                                eval.to_mesh_clear()
+                                obj.matrix_world.translation.z -= minz
+                            eval.to_mesh_clear()
                         
                         elif obj.type == 'EMPTY':
                             obj.matrix_world.translation.z -= obj.location.z
@@ -1979,7 +1028,7 @@ class ToolkitPanel(bpy.types.Operator):
                 if selection:
                     selection = [obj for obj in selection if obj in bpy.context.selected_objects]
                     move_individual_to_floor(selection)
-                # print(f"Total Time: {time.time() - exec_time:.4f} seconds")
+            # print(f"Total Time: {time.time() - exec_time:.4f} seconds")
         return {'FINISHED'}
     
     def register():
@@ -2185,7 +1234,8 @@ def draw_modifier_panel(self, context, draw_header=False):
         if draw_header:
             col.label(text="Modifiers", icon_value=get_icon("modifier"))
         row = col.row(align=True)
-        row.label(text="UV Tools")
+        col = box.column(align=False) 
+
         row = col.row(align=True)
         column = row.column(align=True) 
         row = column.split(factor=0.57, align=True)
@@ -2245,10 +1295,11 @@ def draw_modifier_panel(self, context, draw_header=False):
             row.prop(context.scene, "bevel_segment_by_percent", text="")
 
             row = layout.row()
-            row.scale_x = 0.35
+            row.scale_x = 0.4
             row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-            row.prop(context.scene, "compensate_for_scale", text="")
-            subrow = row.row(align=False)
+            sub = row.row()
+            sub.prop(context.scene, "compensate_for_scale", text="")
+            subrow = sub.row(align=False)
             subrow.scale_x = 0.4
             subrow.prop(context.scene, "bevel_offset", text="")
 class ModifierPanel(bpy.types.Panel):
@@ -2283,6 +1334,14 @@ class ModifierPanel(bpy.types.Panel):
         del bpy.types.Scene.bevel_offset
         del bpy.types.Scene.compensate_for_scale
         del bpy.types.Scene.bevel_segments_type
+
+def draw_edge_flow(row):
+    if get_is_addon_enabled("EdgeFlow"):
+        row.operator("mesh.set_edge_flow", text="Set Flow")
+    else:
+        op = row.operator("keyops.toolkit_panel", text="Set Flow")
+        op.type = "operation_missing"
+        op.addon_id = "EdgeFlow"
 
 # click vert, edge andface again should go to object mode!        
 def draw_edit_mode_panel(self, context, draw_header=False):
@@ -2374,8 +1433,9 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         if sel_mode[0]:
             row = box.row(align=False)
             row.operator("mesh.edge_face_add", text="Fill")
-            if get_is_addon_enabled("EdgeFlow"):
-                row.operator("mesh.set_edge_flow", text="Set Flow")
+            draw_edge_flow(row)
+           
+              
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
@@ -2386,7 +1446,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row.operator("mesh.edge_face_add", text="Fill")
             row = box.row(align=False)
             row.alignment = 'CENTER'
-            row.operator("mesh.set_edge_flow", text="Set Flow")
+            draw_edge_flow(row)
             if sel_mode[0]:
                 row = box.row(align=False)
                 row.alignment = 'CENTER'
@@ -2403,7 +1463,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
 
             row = box.row(align=False)
             row.operator("mesh.edge_face_add", text="Fill")
-            row.operator("mesh.set_edge_flow", text="Set Flow")
+            draw_edge_flow(row)
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
@@ -2446,13 +1506,24 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.subdivide", text="Subdivide")
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
 
+        row = box.row(align=False)
         if get_is_addon_enabled("looptools"):
-            row = box.row(align=False)
             row.operator("mesh.looptools_flatten", text="Make Planar")
             row.operator("mesh.looptools_circle", text="Circle")
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.looptools_relax", text="Relax")
+        else:
+            def looptools_missing_op(row, text):
+                op = row.operator("keyops.toolkit_panel", text=text)
+                op.type = "operation_missing"
+                op.addon_id = "looptools"
+                
+            looptools_missing_op(row, "Make Planar")
+            looptools_missing_op(row, "Circle")
+            row = box.row(align=False)
+            row.alignment = 'CENTER'
+            looptools_missing_op(row, "Relax")
 
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
@@ -2647,148 +1718,3 @@ class EDIT_PT_Settings(bpy.types.Panel):
         row = col.row(align=True)
         row.prop(prefs, "max_layout", text="3ds Max Inspired Layout")
         
-
-# class NewToolkitPanel(bpy.types.Panel):
-#     bl_description = "Object Mode Panel"
-#     bl_label = "Toolkit Panel"
-#     bl_idname = "KEYOPS_PT_toolkit_panel"
-#     bl_space_type = 'VIEW_3D'
-#     bl_region_type = 'UI'
-#     bl_category = 'Toolkit'
-#     # bl_parent_id = "KEYOPS_PT_toolkit_panel"
-
-#     def draw_header(self, context):
-#         layout = self.layout
-#         row = layout.row(align=True)
-#         # row.label(text="", icon_value=get_icon('mesh_cube'))
-
-#     def draw_header_preset(self, context):
-#         layout = self.layout    
-#         row = layout.row(align=True)
-#         row.label(text="", icon="PREFERENCES")
-
-#     def draw(self, context):
-#         def modifiers():
-#             layout = self.layout
-#             prefs = get_keyops_prefs()
-#             wm = bpy.context.window_manager
-            
-#             box = layout.box()
-#             box.label(text="UV Tools")
-#             col = box.column(align=True)
-#             row = col.row(align=True)
-#             column = row.column(align=True) 
-#             row = column.split(factor=0.57, align=True)
-#             row.scale_y = 1.15
-
-#             if bpy.context.mode == 'EDIT_MESH':
-#                 row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"   
-#                 row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-#             else:   
-#                 row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
-#                 row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-#             row = column.split(factor=0.57, align=True)
-#             row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
-#             row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
-
-#             if prefs.enable_uv_tools:
-#                 row = column.split(align=True)
-#                 row.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
-        
-#             box = layout.box()
-#             row = box.row()
-#             row = row.split(factor=0.45, align=True)
-#             row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
-#             operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 3x")
-#             operation_FFD2X.subdivisions = 3
-#             operation_FFD2X.type = "LATTICE"
-
-#             operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 4x")
-#             operation_FFD2X.subdivisions = 4
-#             operation_FFD2X.type = "LATTICE"
-
-#             if context.mode == 'OBJECT':
-#                 # box.label(text="Booleans")
-#                 row = box.row(align=True)
-#                 row.label(text="Booleans")
-#                 row = box.row(align=True)
-#                 row.scale_y = 1.5
-#                 row.scale_x = 1.5
-#                 row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("diffrance")).type = "DIFFERENCE"
-#                 row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("union")).type = "UNION"
-#                 row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("intersection")).type = "INTERSECT"
-#                 row.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon("slice")).type = "SLICE"
-
-#                 row = box.row()
-#                 row.operator("object.boolean_scroll", text="Boolean Scroll", icon="MOD_BOOLEAN")
-
-#                 row = box.row()
-#                 row.scale_y = 1.05
-#                 row.prop(wm, "live_booleans", text="Realtime Booleans")
-
-#             row = box.row()
-#             row.scale_y = 1.15
-#             row.operator("keyops.toolkit_panel", text="Instant Apply Modifiers", icon="OUTLINER_OB_MESH").type = "Instant_Apply_Modifiers"
-
-#             if context.mode == 'OBJECT':
-#                 header, panel_changde_meshes = box.panel(idname="Set Bevel",  default_closed=True)
-#                 header.label(text="Set Bevel", icon = "MOD_BEVEL")
-#                 if panel_changde_meshes:
-#                     layout = box
-#                     col = layout.column(align=False)
-#                     row = col.row(align=False)
-
-#                     row.prop(context.scene, "bevel_segments_type", text="Set")
-#                     row = col.row(align=False)
-#                     col = layout.column(align=True)
-
-#                     row = col.row(align=True)
-#                     row.operator("keyops.toolkit_panel", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
-#                     row.operator("keyops.toolkit_panel", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
-#                     row = col.row(align=True)
-#                     row.prop(context.scene, "bevel_segment_amount", text="")
-#                     row.prop(context.scene, "bevel_segment_by_percent", text="")
-
-#                     row = layout.row()
-#                     row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-#                     row = layout.row()
-#                     row.prop(context.scene, "compensate_for_scale", text="Scale")
-#                     row.prop(context.scene, "bevel_offset", text="")
-
-#         def object():
-#             layout = self.layout
-#             prefs = get_keyops_prefs()
-#             wm = bpy.context.window_manager
-#             box = layout.box()
-#             box.label(text="Object Operations")
-#             col = box.column(align=False) 
-#             row = col.row(align=False)
-#             row.scale_y = 1.15
-#             row.operator("keyops.toolkit_panel", text="Quick Join Objects", icon = "EVENT_J").type = "Smart_Join_Objects"
-
-#             row = col.row(align=True)
-#             row.scale_y = 1.15
-#             row.operator("keyops.toolkit_panel", text="Duplicate Linked Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
-#             row = col.row(align=True)
-#             row.scale_y = 1.15
-#             row.operator("keyops.toolkit_panel", text="Snap to Grid Floor", icon = "VIEW_PERSPECTIVE").type = "snap_to_floor"
-#             row = col.row(align=True)
-#             row.scale_y = 1.15
-#             row.operator("object.smart_apply_scale", text="Smart Apply Scale", icon = "FREEZE")
-#             row = col.row(align=True)
-#             row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
-
-
-#             box = layout.box()
-#             box.label(text="High/Low Collections")
-#             col = box.column(align=True)
-#             row = col.row(align=True)
-#             row.operator("keyops.toolkit_panel", text="Unique Collection Copy", icon="COLLECTION_COLOR_02").type = "unique_collection_duplicat"
-#             row = col.row(align=True)
-#             row.operator("keyops.toolkit_panel", text="Toggle").type = "toggle_high_low"
-#             row.operator("keyops.toolkit_panel", text="high").type = "high"
-#             row.operator("keyops.toolkit_panel", text="low").type = "low"
-        
-    
-        # modifiers()
-        # object()

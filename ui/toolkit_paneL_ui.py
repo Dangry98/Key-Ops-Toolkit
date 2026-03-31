@@ -8,6 +8,7 @@ from ..operators.cad_decimate import draw_cad_decimate_panel
 from ..operators.toolkit_panel import draw_edit_mode_panel, draw_modifier_panel
 import functools
 from ..utils.pref_utils import get_keyops_prefs
+BLENDER_VERSION = bpy.app.version
 
 show_object_panel = False
 startup = True
@@ -21,6 +22,7 @@ def set_default_panels():
     if prefs.enable_toolkit_panel:
         wm.toolkit_panel_mode |= {'MODIFIERS'}
 
+        
 def get_toolkit_panel_items(scene, context):
     global startup
     prefs = get_keyops_prefs()
@@ -49,7 +51,7 @@ def draw_object_panel(self, context):
     wm = context.window_manager
     
     box = layout.box()
-    box.label(text="Object Operations", icon_value=get_icon("mesh_cube"))
+    box.label(text="Object Toolkit", icon_value=get_icon("mesh_cube"))
     col = box.column(align=False) 
 
     # row = col.row(align=True)
@@ -77,7 +79,7 @@ def draw_object_panel(self, context):
     row = col.row(align=True)
     row.label(text="Duplicate Linked")
     row = col.row(align=True)
-    row.scale_y = 1.4
+    row.scale_y = 1.3
     row.operator("object.duplicate_move_linked", text="Mesh", icon = "LINKED")
     row.operator("keyops.toolkit_panel", text="Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
     
@@ -103,7 +105,11 @@ def draw_object_panel(self, context):
         row.scale_x = 1
         row.alignment = 'LEFT'
         row.prop(wm, "live_booleans", text="Realtime")
-        row.operator("object.boolean_scroll", text="Boolean Scroll", icon="MOUSE_MMB_SCROLL")
+        old_version = BLENDER_VERSION <= (4, 2, 99)
+        if old_version:
+            row.operator("object.boolean_scroll", text="Boolean Scroll", icon="EVENT_CAPSLOCK")
+        else:
+            row.operator("object.boolean_scroll", text="Boolean Scroll", icon="MOUSE_MMB_SCROLL")
 
     # box = layout.box()
     # box.label(text="High/Low Collections")
@@ -193,8 +199,7 @@ class NewToolkitPanel(bpy.types.Panel):
     def draw_header_preset(self, context):
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("preferences.addon_show", text="", icon='PREFERENCES', emboss=True).module = get_addon_name()
-     
+        row.operator("preferences.addon_show", text="Prefs", icon='PREFERENCES', emboss=True).module = get_addon_name()
 
     def draw(self, context):
         global show_object_panel

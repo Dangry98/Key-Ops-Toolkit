@@ -1,7 +1,5 @@
-import argparse
-import shutil
+import shutil, argparse, os
 from pathlib import Path
-
 
 ADDON_DIR_NAME = "Key-Ops-Toolkit"
 ITEMS_TO_INCLUDE = (
@@ -12,6 +10,7 @@ ITEMS_TO_INCLUDE = (
     "blender_manifest.toml",
     "utils",
     "addon_preferences.py",
+    "resources",
     "classes_keymap_items.py",
 )
 
@@ -19,10 +18,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     return parser.parse_args()
 
-
 def get_dir_content_to_ignore(src: str, names: list[str]):
     return [name for name in names if name == "__pycache__"]
-
 
 def main():
     root = Path(__file__).resolve().parents[2]
@@ -35,19 +32,21 @@ def main():
     temp_dir.mkdir()
 
     for item in ITEMS_TO_INCLUDE:
-        source = root / ADDON_DIR_NAME / item
-        dest = temp_dir / item
-        if source.is_dir():
-            shutil.copytree(source, dest, ignore=get_dir_content_to_ignore)
+        if os.path.exists(root / ADDON_DIR_NAME / item):
+            source = root / ADDON_DIR_NAME / item
+            dest = temp_dir / item
+            if source.is_dir():
+                shutil.copytree(source, dest, ignore=get_dir_content_to_ignore)
+            else:
+                shutil.copy(source, dest)
         else:
-            shutil.copy(source, dest)
+            print(f"Warning: {item} does not exist in the addon directory and will be skipped.")
 
     shutil.make_archive(root / zip_name, "zip", temp_dir)
 
     print(f"{zip_name}.zip succesfully created")
 
     shutil.rmtree(temp_dir)
-
 
 if __name__ == "__main__":
     main()

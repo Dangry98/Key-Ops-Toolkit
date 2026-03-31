@@ -2,7 +2,7 @@ import bpy
 from .utils.register_extensions import enable_extension
 from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
 from .utils.pref_utils import get_addon_name, get_is_addon_enabled, draw_keymap
-from .operators.maya_navigation import update_tablet_navigation
+from .operators.maya_navigation import update_tablet_navigation, update_sculpt_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
 
 current_available_tabs = []
@@ -163,6 +163,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 row.label(text="Alt Navigation")
                 row = column.row()
                 row.prop(self, "maya_navigation_tablet_navigation")
+                if bpy.app.version >= (5, 1, 0):
+                    row.prop(self, "maya_navigation_sculpt_navigation")
                 row.prop(prefrences_input, "use_zoom_to_mouse", text="Zoom to Mouse")
                 row = column.row()
                 row.label(text="Drag Threshold")
@@ -533,7 +535,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_viewport_menu: BoolProperty(name="Viewport Menu", default=True, update=enable_deco("viewport_menu")) # type: ignore
 
     #prefs settings variables
-    maya_navigation_tablet_navigation: BoolProperty(name="Tablet Navigation", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=True, update= update_tablet_navigation) # type: ignore 
+    maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=True, update= update_tablet_navigation) # type: ignore 
+    maya_navigation_sculpt_navigation: BoolProperty(name="Sculpt", description="Use both Mask and Alt navigation in Sculpt mode, mask is used if mouse is over model, otherwise alt navigation is used.", default=True, update= update_sculpt_navigation) # type: ignore 
     auto_delete_dissolv_edge: BoolProperty(name="Dissolve Edge", default=False, description="Dissolve Edge in Edge Mode ") # type: ignore
     auto_delete_confirm_object_mode: BoolProperty(name="Confirm on X in Object Mode", description="Confirm Delete in Object Mode on the X key", default=False, update= update_auto_delete_confirm_delete) # type: ignore
     toggle_retopology_tool_type: EnumProperty(
