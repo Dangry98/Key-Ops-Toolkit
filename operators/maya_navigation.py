@@ -1,6 +1,14 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
 
+sculpt_mask = [
+    ('Sculpt', 'sculpt.brush_stroke', 'LEFTMOUSE', 'PRESS', {'alt': True}),
+    ('Sculpt', 'sculpt.brush_stroke', 'LEFTMOUSE', 'PRESS',{'ctrl': True, 'alt': True}),]
+
+sculpt_navigation = [
+    ('Sculpt', 'keyops.maya_navigation', 'LEFTMOUSE', 'CLICK_DRAG', {'alt': True}),
+    ('Sculpt', 'keyops.maya_navigation', 'LEFTMOUSE', 'CLICK_DRAG',{'ctrl': True, 'alt': True}),]
+
 tablet_keymap_config = [
     ('3D View', 'view3d.zoom', 'LEFTMOUSE', 'CLICK_DRAG', {'ctrl': True, 'alt': True}),
     ('3D View', 'view3d.move', 'LEFTMOUSE', 'CLICK_DRAG', {'alt': True, 'shift': True}),
@@ -12,26 +20,29 @@ tablet_keymap_config = [
     ('Image', 'image.view_pan', 'LEFTMOUSE', 'PRESS', {'alt': True, 'shift': True}),
     ('Image', 'image.view_pan', 'LEFTMOUSE', 'PRESS', {'alt': True}),
 ]
-def add_tablet_navigation():
-    prefs = get_keyops_prefs()
 
-    if prefs.maya_navigation_tablet_navigation:
-        wm = bpy.context.window_manager
-        try:
-            for keymap_name, idname, key, value, modifiers in tablet_keymap_config:
-                km = wm.keyconfigs.active.keymaps[keymap_name]
-                kmi = km.keymap_items.new(idname, key, value)
-                for mod, enabled in modifiers.items():
-                    setattr(kmi, mod, enabled)
-        except KeyError as e:
-            print(f"Error adding tablet navigation keymap: {e}")
-            return
+def add_sculpt_shortcuts():
+        add_shortcuts(sculpt_navigation)
+        add_shortcuts(sculpt_navigation)
+        set_shortcuts_active(sculpt_mask, set=False)
 
-def remove_tablet_navigation():
+def add_shortcuts(list):
+    wm = bpy.context.window_manager
+    try:
+        for keymap_name, idname, key, value, modifiers in list:
+            km = wm.keyconfigs.active.keymaps[keymap_name]
+            kmi = km.keymap_items.new(idname, key, value)
+            for mod, enabled in modifiers.items():
+                setattr(kmi, mod, enabled)
+    except KeyError as e:
+        print(f"Error adding tablet navigation keymap: {e}")
+        return
+
+def remove_shortcuts(list):
     wm = bpy.context.window_manager
 
     try:
-        for keymap_name, idname, key, value, modifiers in tablet_keymap_config:
+        for keymap_name, idname, key, value, modifiers in list:
             km = wm.keyconfigs.active.keymaps[keymap_name]
             items_to_remove = [
                 kmi for kmi in km.keymap_items
@@ -44,21 +55,104 @@ def remove_tablet_navigation():
     except KeyError as e:
         print(f"Error removing tablet navigation keymap: {e}")
         return
+    
+def set_shortcuts_active(list, set=False):
+    wm = bpy.context.window_manager
+
+    try:
+        for keymap_name, idname, key, value, modifiers in list:
+            km = wm.keyconfigs.active.keymaps[keymap_name]
+            items_to_remove = [
+                kmi for kmi in km.keymap_items
+                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
+                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
+                )
+            ]
+            for kmi in items_to_remove:
+                kmi.active = set
+    except KeyError as e:
+        print(f"Error disable tablet navigation keymap: {e}")
+        return
 
 def update_tablet_navigation(self, context):
     if self.maya_navigation_tablet_navigation:
-        add_tablet_navigation()
+        add_shortcuts(tablet_keymap_config)
     else:
-        remove_tablet_navigation()
+        remove_shortcuts(tablet_keymap_config)
 
+def update_sculpt_navigation(self, context):
+    if self.maya_navigation_sculpt_navigation:
+        add_sculpt_shortcuts()
+    else:
+        remove_shortcuts(sculpt_navigation)
+        set_shortcuts_active(sculpt_mask, set=True)
+
+mask_keymap = None
 
 class MayaNavigation(bpy.types.Operator):
     bl_idname = "keyops.maya_navigation"
-    bl_label = "KeyOps: Maya Navigation"
+    bl_label = "KeyOps: Maya Navigation Sculpt"
     bl_options = {'INTERNAL'}
 
+    @classmethod
+    def poll(cls, context):
+        prefs = get_keyops_prefs()
+        return bpy.app.version >= (5, 1, 0) and context.mode == "SCULPT" and prefs.maya_navigation_sculpt_navigation
+
+    def invoke(self, context, event):
+        for km in bpy.context.window_manager.keyconfigs.user.keymaps:
+            for kmi in km.keymap_items:
+                if kmi.name == "Sculpt":
+                    if kmi.idname == "sculpt.brush_stroke" and kmi.alt == True and kmi.ctrl == False:
+                        mask_keymap = kmi
+                        break
+
+        if mask_keymap:
+            from bpy_extras import view3d_utils 
+            scene = context.scene
+            region = context.region
+            rv3d = context.region_data
+            coord = event.mouse_region_x, event.mouse_region_y
+            viewlayer = context.view_layer.depsgraph
+            # get the ray from the viewport and mouse
+            view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
+            ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
+
+            hit, location, normal, index, object, matrix = scene.ray_cast(viewlayer, ray_origin, view_vector)
+
+            if hit and object and object == context.object:
+                if not event.ctrl:
+                    result = bpy.ops.sculpt.brush_stroke('INVOKE_DEFAULT', brush_toggle="MASK")
+                else:
+                    result = bpy.ops.sculpt.brush_stroke('INVOKE_DEFAULT', mode="INVERT", brush_toggle="MASK")
+                if result == {'RUNNING_MODAL'}:
+                    return {'RUNNING_MODAL'}
+                return {'FINISHED'}
+            else:
+                if not event.ctrl:
+                    result = bpy.ops.view3d.rotate('INVOKE_DEFAULT')
+                else:
+                    result = bpy.ops.view3d.zoom('INVOKE_DEFAULT')
+                if result == {'RUNNING_MODAL'}:
+                    return {'RUNNING_MODAL'}
+                return {'FINISHED'}
+        return self.execute(context)
+    
+    def execute(self, context):
+        pass
+        return {"PASS_THROUGH"}
+
     def register():
-        add_tablet_navigation()
+        prefs = get_keyops_prefs()
+        if prefs.maya_navigation_tablet_navigation:
+            add_shortcuts(tablet_keymap_config)
+
+        if prefs.maya_navigation_sculpt_navigation:
+            bpy.app.timers.register(add_sculpt_shortcuts, first_interval=0.1)
         
     def unregister():
-        remove_tablet_navigation()
+        remove_shortcuts(tablet_keymap_config)
+        remove_shortcuts(sculpt_navigation)
+        set_shortcuts_active(sculpt_mask, set=True)
+
+        

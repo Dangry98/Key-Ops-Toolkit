@@ -397,9 +397,9 @@ class AssignMaterial(bpy.types.Operator):
             bpy.types.CYCLES_PT_context_material.remove(menu_material)
     
 def menu_material(self, context):
-    layout = self.layout
-    row = layout.row(align=True)
     if bpy.context.mode == 'OBJECT':
+        layout = self.layout
+        row = layout.row(align=True)
         #row.operator("view3d.material_picker", icon = "EYEDROPPER")
         if bpy.context.active_object.data.materials:
             if bpy.context.active_object.active_material:

@@ -267,7 +267,7 @@ def draw_polycount_list_ui(self, context):
     name_offset_row = 0.725
 
     layout = self.layout
-    global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache
+    global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache, polycount
 
     props = context.scene.polycount_props
     filter_list_show = props.filter_list_show
@@ -285,19 +285,25 @@ def draw_polycount_list_ui(self, context):
             get_poly_count(context)
             ui_updates = 0
     
-    if props.show_total_tris:
+    if props.show_total_tris or props.show_draw_time:
         row = layout.row(align=True)
+
+    if props.show_total_tris:
         if props.round_numbers:
-            row.label(text="Total Tris: {}".format(trim_numbers(total_tris)))
+            row.label(text="Triangles: {}".format(trim_numbers(total_tris)))
         else:
-            row.label(text="Total Tris: " + "{:,}".format(total_tris))
+            row.label(text="Triangles: " + "{:,}".format(total_tris))
+        
+        objects = f"Objects {len(context.selected_objects)}/ {len(polycount)}"
+        row.label(text=objects)
+        
+        # sub.enabled = False
+    if props.show_draw_time:  
         sub = row.row(align=True)
         sub.alignment = 'LEFT'
-        # sub.enabled = False
-        if props.show_draw_time:  
-            if last_draw_time * 1000 > 30:
-                sub.alert = True
-            sub.label(text="{:.1f} ms".format(last_draw_time * 1000))
+        if last_draw_time * 1000 > 30:
+            sub.alert = True
+        sub.label(text="{:.1f} ms".format(last_draw_time * 1000))
 
     row = layout.row(align=True)
     if len(polycount) > 2500 and props.auto_update_polycount:
@@ -457,6 +463,11 @@ class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
     bl_region_type = "WINDOW"
     bl_context = "scene"
 
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text="", icon_value=get_icon("polycount"))
+        return 
+
     def draw(self, context):
         draw_polycount_list_ui(self, context)
 class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
@@ -487,7 +498,7 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row.label(text="Show:")
         row = layout.row()
         row.alignment = 'LEFT'
-        row.prop(props, "show_total_tris", text="Total Tris")
+        row.prop(props, "show_total_tris", text="Total")
         row.prop(props, "round_numbers", text="Round Numbers")
         row = layout.row()
         row.alignment = 'LEFT'

@@ -3,6 +3,7 @@
 
 import bpy
 from mathutils import Vector
+BLENDER_VERSION = bpy.app.version
 
 MODS = {
     'ARRAY': 'function',
@@ -247,7 +248,9 @@ class SmartApplyScale(bpy.types.Operator):
         layout.prop(self, "scaleTextures")
         layout.prop(self, "makeClonesReal")
         layout.prop(self, "geomtryNodes")
-        layout.prop(self, "auto_fix_normals")
+
+        if BLENDER_VERSION < (5, 0, 0):
+            layout.prop(self, "auto_fix_normals")
 
     def execute(self, context):
         objects = context.selected_objects
@@ -330,7 +333,8 @@ class SmartApplyScale(bpy.types.Operator):
 
         apply_scale(bpy.context.selected_objects)
 
-        if self.auto_fix_normals:
+        old_version = BLENDER_VERSION < (5, 0, 0)
+        if self.auto_fix_normals and old_version:
             for obj in objs_with_neg_scale:
                 s = obj.scale
                 obj.data.flip_normals()

@@ -11,7 +11,7 @@ website = "https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-868
 
 tags = ["Modeling", "Mesh", "Object", "UV", "3D View"]
 
-blender_version_min = "4.5.0"
+blender_version_min = "4.2.0"
 
 license = [
   "SPDX:GPL-3.0-or-later",
