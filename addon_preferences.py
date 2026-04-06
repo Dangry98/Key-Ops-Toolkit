@@ -179,21 +179,23 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             if self.enable_auto_delete:
                 bb = b.box()
 
-                def check_delete_menu_keymap():
-                    for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-                        if keymap.name == 'Object Mode':
-                            for keymap_item in keymap.keymap_items:
-                                if keymap_item.idname == "object.delete" and keymap_item.type == "X":
-                                    return keymap_item.properties.confirm
-                    return False
-                self.auto_delete_confirm_object_mode = check_delete_menu_keymap()
-
                 column = bb.column()
                 layout = column.split(factor=2.0)  
                 row = layout.row(align=True)
                 row.label(text="Auto Delete")
                 row.prop(self, "auto_delete_dissolv_edge")
-                row.prop(self, "auto_delete_confirm_object_mode", text="Confirm X")
+                # Find the keymap item
+                keymap_item = None
+                for km in bpy.context.window_manager.keyconfigs.user.keymaps:
+                    if km.name == 'Object Mode':
+                        for kmi in km.keymap_items:
+                            if kmi.idname == "object.delete" and kmi.type == "X":
+                                keymap_item = kmi
+                                break
+
+                if keymap_item:
+                    row.prop(keymap_item.properties, "confirm", text="Confirm X")
+           
                 #get the kemap item for the delete key in object mode and show the confirm option
                 # row = layout.row()
                 # row.prop(self, "auto_delete_confirm_edit_mode", text="Confirm X in EditMode")

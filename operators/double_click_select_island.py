@@ -85,8 +85,9 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
             # Capture Blender reports for index tracking
             if BLENDER_VERSION >= (5, 2, 0):
-                r = bpy.context.window_manager.reports[-1]
-                message = r.message
+                if bpy.context.window_manager.reports:
+                    r = bpy.context.window_manager.reports[-1]
+                    message = r.message
             else:
                 def get_latest_reports():
                     original_area = bpy.context.area.type

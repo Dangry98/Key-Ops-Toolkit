@@ -9,6 +9,8 @@ from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProper
 from ..utils.pref_utils import get_keyops_prefs, get_icon
 from bpy.app.handlers import persistent
 
+# Todo: Add icon in panel and add ms and tris count to panel header
+
 polycount = []  
 polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
