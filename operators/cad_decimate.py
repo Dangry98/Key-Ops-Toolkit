@@ -321,8 +321,9 @@ class CADDecimatePanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        if context.mode == "OBJECT":
-            return True
+        return False
+        # if context.mode == "OBJECT":
+        #     return True
 
     def draw(self, context):
         draw_cad_decimate_panel(self, context, draw_header=False)

@@ -101,7 +101,7 @@ def get_description(type: str) -> str:
 class ToolkitPanel(bpy.types.Operator):
     bl_description = "Object Panel Operator"
     bl_idname = "keyops.toolkit_panel"
-    bl_label = ""
+    bl_label = "Object Operator"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -164,7 +164,7 @@ class ToolkitPanel(bpy.types.Operator):
             ev.append("Alt")
 
         if self.type == "operation_missing":
-            return context.window_manager.invoke_props_dialog(self, confirm_text="Install", width=275)
+            return context.window_manager.invoke_props_dialog(self, confirm_text="Install")
         else:
             return self.execute(context)
     
@@ -232,9 +232,7 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "operation_missing":
             layout = self.layout
             row = layout.row()
-            row.label(text=f"{self.addon_id} is missing!", icon="INFO")
-            row = layout.row()
-            row.label(text=f"Please install if you want to use this operation.")
+            row.label(text=f"{self.type} is missing! Please install if you want to use this operation.", icon="INFO")
 
     def execute(self, context):
         prefs = get_keyops_prefs()
@@ -890,7 +888,6 @@ class ToolkitPanel(bpy.types.Operator):
                     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
             else:
-                bpy.ops.keyops.toolkit_panel("INVOKE_DEFAULT", type="operation_missing", addon_id="EdgeFlow")
                 self.report({'WARNING'}, "EdgeFlow addon not installed, please install it to use this operator")
 
         elif self.type == "change_cylinder_segments_modifier":
@@ -1033,9 +1030,9 @@ class ToolkitPanel(bpy.types.Operator):
     
     def register():
         # bpy.utils.register_class(NewToolkitPanel)
-        bpy.utils.register_class(ObjectModePanel)
-        bpy.utils.register_class(ModifierPanel)
-        bpy.utils.register_class(EditModePanel)
+        # bpy.utils.register_class(ObjectModePanel)
+        # bpy.utils.register_class(ModifierPanel)
+        # bpy.utils.register_class(EditModePanel)
         #bpy.utils.register_class(SmartExtrude)
         bpy.utils.register_class(ExtrudeEdgeByNormal)
         bpy.utils.register_class(EDIT_PT_Settings)
@@ -1044,13 +1041,13 @@ class ToolkitPanel(bpy.types.Operator):
         bpy.utils.register_class(AddBooleanModifier)
         bpy.utils.register_class(BooleanScroll)
         bpy.types.Scene.vertex_color = bpy.props.FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))
-        bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
+        # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
         bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, update=toggle_realtime_booleans)
         bpy.context.window_manager.live_booleans = True
     def unregister():
-        bpy.utils.unregister_class(ObjectModePanel)
-        bpy.utils.unregister_class(ModifierPanel)
-        bpy.utils.unregister_class(EditModePanel)
+        # bpy.utils.unregister_class(ObjectModePanel)
+        # bpy.utils.unregister_class(ModifierPanel)
+        # bpy.utils.unregister_class(EditModePanel)
         #bpy.utils.unregister_class(SmartExtrude)
         bpy.utils.unregister_class(ExtrudeEdgeByNormal)
         bpy.utils.unregister_class(EDIT_PT_Settings)
@@ -1060,7 +1057,7 @@ class ToolkitPanel(bpy.types.Operator):
         bpy.utils.unregister_class(BooleanScroll)
         # bpy.utils.unregister_class(NewToolkitPanel)
         del bpy.types.Scene.vertex_color
-        del bpy.types.Scene.RGB_Enum
+        # del bpy.types.Scene.RGB_Enum
         del bpy.types.WindowManager.live_booleans
         try:
             bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
@@ -1271,37 +1268,37 @@ def draw_modifier_panel(self, context, draw_header=False):
         operation_FFD2X.type = "LATTICE"
 
 
-        if context.mode == 'OBJECT':
-            # header, panel_changde_meshes = box.panel(idname="Set Bevel",  default_closed=False)
-            # header.label(text="Set Bevel", icon = "MOD_BEVEL")
-            # if panel_changde_meshes:
-            box = layout.box()
+        # if context.mode == 'OBJECT':
+        #     # header, panel_changde_meshes = box.panel(idname="Set Bevel",  default_closed=False)
+        #     # header.label(text="Set Bevel", icon = "MOD_BEVEL")
+        #     # if panel_changde_meshes:
+        #     box = layout.box()
 
-            layout = box
-            col = layout.column(align=False)
-            row = col.row(align=False)
-            row.label(text="Set Bevel", icon = "MOD_BEVEL")
-            row = col.row(align=True)
+        #     layout = box
+        #     col = layout.column(align=False)
+        #     row = col.row(align=False)
+        #     row.label(text="Set Bevel", icon = "MOD_BEVEL")
+        #     row = col.row(align=True)
 
-            row.prop(context.scene, "bevel_segments_type", text="Set")
-            row = col.row(align=False)
-            col = layout.column(align=True)
+        #     row.prop(context.scene, "bevel_segments_type", text="Set")
+        #     row = col.row(align=False)
+        #     col = layout.column(align=True)
 
-            row = col.row(align=True)
-            row.operator("keyops.toolkit_panel", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
-            row.operator("keyops.toolkit_panel", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
-            row = col.row(align=True)
-            row.prop(context.scene, "bevel_segment_amount", text="")
-            row.prop(context.scene, "bevel_segment_by_percent", text="")
+        #     row = col.row(align=True)
+        #     row.operator("keyops.toolkit_panel", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
+        #     row.operator("keyops.toolkit_panel", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
+        #     row = col.row(align=True)
+        #     row.prop(context.scene, "bevel_segment_amount", text="")
+        #     row.prop(context.scene, "bevel_segment_by_percent", text="")
 
-            row = layout.row()
-            row.scale_x = 0.4
-            row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-            sub = row.row()
-            sub.prop(context.scene, "compensate_for_scale", text="")
-            subrow = sub.row(align=False)
-            subrow.scale_x = 0.4
-            subrow.prop(context.scene, "bevel_offset", text="")
+        #     row = layout.row()
+        #     row.scale_x = 0.4
+        #     row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
+        #     sub = row.row()
+        #     sub.prop(context.scene, "compensate_for_scale", text="")
+        #     subrow = sub.row(align=False)
+        #     subrow.scale_x = 0.4
+        #     subrow.prop(context.scene, "bevel_offset", text="")
 class ModifierPanel(bpy.types.Panel):
     bl_description = "Modifier Operations"
     bl_label = "Modifiers"
@@ -1400,7 +1397,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         # Edit vertices
         row = box.row(align=False)
         row = box.row(align=False)
-        row = box.row(align=False)
 
         if sel_mode[0]:
             row.label(text="Edit Vertices")
@@ -1423,11 +1419,15 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("wm.call_menu", text="Extrude").name = "VIEW3D_MT_edit_mesh_extrude"
         row.operator("mesh.remove_doubles", text="Weld")
         row = box.row(align=False)
-        row.operator("mesh.bevel", text="Chamfer")
-        if not sel_mode[2]:
-            if prefs.enable_fast_merge:
-                row.operator("mesh.connect2", text="Connect")
+        if sel_mode[0]:
+            row.operator("mesh.bevel", text="Chamfer").affect = 'VERTICES'
         else:
+            row.operator("mesh.bevel", text="Bevel").affect = 'EDGES'
+
+        if prefs.enable_fast_merge:
+            row.operator("mesh.connect2", text="Connect")
+       
+        if sel_mode[2]:
             row.operator("mesh.inset", text="Inset")
 
         if sel_mode[0]:
@@ -1442,21 +1442,17 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         # Edit edges
         if sel_mode[1]:
             row = box.row(align=False)
-            row.operator("mesh.bridge_edge_loops", text="Bridge")
             row.operator("mesh.edge_face_add", text="Fill")
+            draw_edge_flow(row)
             row = box.row(align=False)
             row.alignment = 'CENTER'
-            draw_edge_flow(row)
             if sel_mode[0]:
                 row = box.row(align=False)
                 row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
+            row.operator("mesh.bridge_edge_loops", text="Bridge")
         # Edit polygons
         if sel_mode[2]:
-            if prefs.enable_fast_merge:
-                row = box.row(align=False)
-                row.alignment = 'CENTER'
-                row.operator("mesh.connect2", text="Connect")
             row = box.row(align=False)
             row.operator("mesh.bridge_edge_loops", text="Bridge")
             row.operator("mesh.flip_normals", text="Flip")
@@ -1474,18 +1470,18 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row = box.row(align=False)
         row.operator("keyops.toolkit_panel", text="Set Color").type = "set_vertex_color"
         row.prop(context.scene, "vertex_color", text="")
-        row = box.row(align=False)
-        row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
+        # row = box.row(align=False)
+        # row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
 
         # Edit geometry
         row = box.row(align=False)
         row = box.row(align=False)
 
         row.label(text="Edit Geometry")
-        row = box.row(align=False)
-        row.alignment = 'CENTER'
-        # Repeat last operator
-        row.operator("screen.repeat_last", text="Repeat Last")
+        # row = box.row(align=False)
+        # row.alignment = 'CENTER'
+        # # Repeat last operator
+        # row.operator("screen.repeat_last", text="Repeat Last")
         row = box.row(align=False)
         row.alignment = 'RIGHT'
         # Correct face attributes
@@ -1506,24 +1502,13 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.subdivide", text="Subdivide")
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
 
-        row = box.row(align=False)
         if get_is_addon_enabled("looptools"):
+            row = box.row(align=False)
             row.operator("mesh.looptools_flatten", text="Make Planar")
             row.operator("mesh.looptools_circle", text="Circle")
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.looptools_relax", text="Relax")
-        else:
-            def looptools_missing_op(row, text):
-                op = row.operator("keyops.toolkit_panel", text=text)
-                op.type = "operation_missing"
-                op.addon_id = "looptools"
-                
-            looptools_missing_op(row, "Make Planar")
-            looptools_missing_op(row, "Circle")
-            row = box.row(align=False)
-            row.alignment = 'CENTER'
-            looptools_missing_op(row, "Relax")
 
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
@@ -1584,8 +1569,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row = col.row(align=False)
         row.operator("keyops.toolkit_panel", text="Set Color").type = "set_vertex_color"
         row.prop(context.scene, "vertex_color", text="")
-        row = col.row(align=False)
-        row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
+        # row = col.row(align=False)
+        # row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
 
         # Select
         col = box.column(align=True)

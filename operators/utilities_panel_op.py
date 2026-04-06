@@ -4,6 +4,7 @@ import tempfile
 import bmesh
 import math
 from ..resources.geometry_nodes_scripits import triplanar_uv_mapping_node_group
+from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
 
 # fix attribute toggle in edit mode/objet mode
 
@@ -647,23 +648,23 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     bpy.ops.mesh.select_all(action='DESELECT')
                     current_selection[0].select = True
 
-                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                    select_ring()
                     bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=0)
 
                     #compare if current_selection does not match any in the new_selection, if then increase the offset with +1
                     new_selection = [e for e in bm.edges if e.select]
                     if any(e in current_selection for e in new_selection):
-                        bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                        select_ring()
                         bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=1)
 
-                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=False)
+                    select_loop()
 
                     if self.angle_to_skip <= 1.570:
                         bpy.ops.mesh.select_all(action='INVERT')
                         bpy.ops.mesh.edges_select_sharp(sharpness=self.angle_to_skip)
                         bpy.ops.mesh.select_all(action='INVERT')
                         if self.full_edge_loops == True:
-                            bpy.ops.mesh.loop_multi_select(ring=False)
+                            select_loop()
 
                     bpy.ops.mesh.dissolve_mode('EXEC_DEFAULT', True, use_verts=True)
                     bpy.ops.mesh.select_by_attribute()
@@ -678,7 +679,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
                     
         if self.type == "subdivide_cylinder":
-            if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
+            if is_set_edge_flow_installed:
                 mesh_obj = bpy.context.active_object
 
                 bm = bmesh.from_edit_mesh(mesh_obj.data)
@@ -703,8 +704,8 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     edge.select = False
                 next_loop.edge.select = True
 
-                bpy.ops.mesh.loop_multi_select(ring=True)
-                bpy.ops.mesh.loop_multi_select(ring=False)
+                select_ring()
+                select_loop()
 
                 if self.angle_to_add <= 1.570:
                     bm = bmesh.from_edit_mesh(mesh_obj.data)
@@ -730,18 +731,18 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     bmesh.update_edit_mesh(mesh_obj.data)
 
                 if self.use_full_edge_loops == True:
-                    bpy.ops.mesh.loop_multi_select(ring=False)
+                    select_loop()
 
 
                 bpy.ops.mesh.connect2()
-                bpy.ops.mesh.set_edge_flow(tension=180, iterations=3)
+                bpy.ops.mesh.set_edge_flow('INVOKE_DEFAULT',tension=180, iterations=3)
 
                 if self.triangulate_end == True:
                     bm = bmesh.from_edit_mesh(mesh_obj.data)
 
                     new_selected_edges = [e for e in bm.edges if e.select]
                     
-                    bpy.ops.mesh.loop_multi_select(ring=True)
+                    select_ring()
                     bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
                     bpy.ops.mesh.region_to_loop()
                     bpy.ops.mesh.loop_to_region()
@@ -780,15 +781,15 @@ class UtilitiesPanelOP(bpy.types.Operator):
     
     
     def register():
-        bpy.utils.register_class(ObjectModePanel)
-        bpy.utils.register_class(UtilitiesPanel)
-        bpy.utils.register_class(EditModePanel)
+        # bpy.utils.register_class(ObjectModePanel)
+        # bpy.utils.register_class(UtilitiesPanel)
+        # bpy.utils.register_class(EditModePanel)
         bpy.utils.register_class(SmartExtrude)
         bpy.utils.register_class(ExtrudeEdgeByNormal)
     def unregister():
-        bpy.utils.unregister_class(ObjectModePanel)
-        bpy.utils.unregister_class(UtilitiesPanel)
-        bpy.utils.unregister_class(EditModePanel)
+        # bpy.utils.unregister_class(ObjectModePanel)
+        # bpy.utils.unregister_class(UtilitiesPanel)
+        # bpy.utils.unregister_class(EditModePanel)
         bpy.utils.unregister_class(SmartExtrude)
         bpy.utils.unregister_class(ExtrudeEdgeByNormal)
 

@@ -3,8 +3,6 @@
 # I used this addon a lot and really liked it, but I feelt it could be improved in terms of performance, ui and usability when working in big production scenes.
 # Its now about 1000-5000x times faster than the original addon, it has a realtime mode by defualt and more streamlined ui along with some new features.
 
-# TODO: Make faster by having global var listcache isntead of yield in get_poly_count
-
 import bpy, time
 from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
@@ -19,6 +17,9 @@ latest_updateded_objects_in_depsgrapth = []
 list_cache = {}
 obj_lookup_cache = {}
 
+def get_obj_lookup_cache(scene, depsgraph):
+    global obj_lookup_cache
+    obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
 class PolyCountProperties(PropertyGroup):
     polycount_use_selection_only: BoolProperty(  # type: ignore
         name="Use selected only",
@@ -58,7 +59,12 @@ class PolyCountProperties(PropertyGroup):
         default='ALL'
     )
     my_collection: PointerProperty(name="Collection",type=bpy.types.Collection)  # type: ignore
-
+    child_collection: BoolProperty(name="Child", default=False, description="Show all objects in collections that are children of the current selected collection")  # type: ignore
+    show_collection_instances: BoolProperty(  # type: ignore
+        name="Collection Instances",
+        description="Show collection instances",
+        default=False
+    )
     round_numbers: BoolProperty(  # type: ignore
         name="Round Numbers",
         description="Round the numbers, slower, but more readable",
@@ -68,11 +74,6 @@ class PolyCountProperties(PropertyGroup):
         name="Show Only Enabled Collections",
         description="Show only enabled collections",
         default=True
-    )
-    show_collection_instances: BoolProperty(  # type: ignore
-        name="Show Collection Instances",
-        description="Show collection instances",
-        default=False
     )
     show_obj_type: BoolProperty(  # type: ignore
         name="Show Object Type",
@@ -99,8 +100,13 @@ class PolyCountProperties(PropertyGroup):
 
 def deselect_all(context):
     for obj in context.selected_objects:
-            obj.select_set(False)
-        
+        obj.select_set(False)
+
+def get_all_child_collections(coll):
+    yield coll
+    for child in coll.children:
+        yield from get_all_child_collections(child)
+
 def sortList(item):
     if polycount_sorting == 'NAME':
         return item[0].casefold()
@@ -116,9 +122,10 @@ def sortList(item):
         return item[1]
 
 def get_poly_count(context, force_update_all=False):
-    global total_tris, latest_updateded_objects_in_depsgrapth, obj_lookup_cache
-
+    global total_tris, latest_updateded_objects_in_depsgrapth, obj_lookup_cache, list_cache
+    
     obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
+
     selection = None
     c = context
     props = c.scene.polycount_props
@@ -134,38 +141,57 @@ def get_poly_count(context, force_update_all=False):
 
     elif props.filter_by == 'COLLECTION':
         if props.my_collection is None:
+            collection = c.collection
             filter_type = c.collection.objects
         else:
-            filter_type = bpy.data.collections[props.my_collection.name].objects
+            collection = bpy.data.collections[props.my_collection.name]
+
+        if props.child_collection:
+            collections = set()
+            for coll in get_all_child_collections(collection):
+                collections.add(coll)
+                
+            filter_type = set()
+            for col in collections:
+                for obj in col.objects:
+                    filter_type.add(obj)
+        else:
+            filter_type = collection.objects
 
     if props.polycount_use_selection_only:
-        selection = c.selected_objects
-        filter_type = [obj for obj in filter_type if obj in selection]
+        filter_type = c.selected_objects
 
-    selection = [obj for obj in filter_type if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}]
+    # import time
+    # start_time = time.time()
 
     depsgraph = context.evaluated_depsgraph_get()
     show_collection_instances = props.show_collection_instances
     # replace mesh cache with just global polycount cache
-    # import time
-    # start_time = time.time()
-
-    for obj in selection:
+    total_tris = 0
+    
+    for obj in filter_type:
+        tris = 0
+        verts = 0
+        edges = 0
+        faces = 0
+        
         if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
-            eval_obj = obj.evaluated_get(depsgraph)
-            mesh = eval_obj.to_mesh()
-            if mesh is not None:
-                tris = len(mesh.loop_triangles)
-                verts = len(mesh.vertices)
-                edges = len(mesh.edges)
-                faces = len(mesh.polygons)
-                list_cache[obj] = (tris, verts, edges, faces)
-                eval_obj.to_mesh_clear()
+            if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}:
+                eval_obj = obj.evaluated_get(depsgraph)
+                mesh = eval_obj.to_mesh()
+                if mesh is not None:
+                    tris = len(mesh.loop_triangles)
+                    verts = len(mesh.vertices)
+                    edges = len(mesh.edges)
+                    faces = len(mesh.polygons)
+                    list_cache[obj] = (tris, verts, edges, faces)
+                    eval_obj.to_mesh_clear()
         else:
             tris, verts, edges, faces = list_cache[obj]
 
         total_tris += tris
         polycount.append((obj.name, tris, verts, edges, faces))  # Store directly in polycount list, we should not receate it each time, instead the list_cache should be used everwhere!
+    # print("Time taken to get polycount: {:.4f} ms".format((time.time() - start_time) * 1000))
 
     latest_updateded_objects_in_depsgrapth = []
 
@@ -197,12 +223,6 @@ def get_poly_count(context, force_update_all=False):
         polycount.sort(key=sortList, reverse=name_ascending)
     else:
         polycount.sort(key=sortList, reverse=polycount_sorting_ascending)
-
-    total_tris = 0
-    for obj in polycount:
-        total_tris += obj[1]
-    # print("Time taken to get polycount: {:.2f} ms".format((time.time() - start_time) * 1000))
-
 
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
     global latest_updateded_objects_in_depsgrapth, list_cache
@@ -246,6 +266,7 @@ class PolyCountList(bpy.types.Operator):
         # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
         bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
+        # bpy.app.handlers.depsgraph_update_pre.append(get_obj_lookup_cache)
 
     def unregister():
         bpy.utils.unregister_class(PolyCountProperties)
@@ -258,6 +279,9 @@ class PolyCountList(bpy.types.Operator):
 
         if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)
+
+        # if get_obj_lookup_cache in bpy.app.handlers.depsgraph_update_pre:
+        #     bpy.app.handlers.depsgraph_update_pre.remove(get_obj_lookup_cache)
 
 ui_updates = 0
 last_draw_time = 0
@@ -294,8 +318,8 @@ def draw_polycount_list_ui(self, context):
         else:
             row.label(text="Triangles: " + "{:,}".format(total_tris))
         
-        objects = f"Objects {len(context.selected_objects)}/ {len(polycount)}"
-        row.label(text=objects)
+        # objects = f"Objects {len(context.selected_objects)}/ {len(polycount)}"
+        # row.label(text=objects)
         
         # sub.enabled = False
     if props.show_draw_time:  
@@ -397,6 +421,7 @@ def draw_polycount_list_ui(self, context):
             # data
             obj_name = str(obj[0])
             object = obj_lookup_cache.get(obj_name)
+            # if object == None or str(object) == "<bpy_struct, Object invalid>": # object was deleted most likely
             if object == None: # object was deleted most likely
                 continue
 
@@ -521,13 +546,18 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
 
         if props.filter_by == 'VISIBLE':
             row = layout.row()
-            row.label(text="Only Visible Objects are Now Shown")
+            row.label(text="Only Visible Objects are Shown")
+            row = layout.row()
+            row.label(text="N-Panel will show local view visibility")
 
         if props.filter_by == 'COLLECTION':
             row = layout.row()
             row.prop(props, "my_collection", text="Custom")
-            row = layout.row()
-            row.prop(props, "show_collection_instances", text="Include Collection Instances")
+            row = layout.row(align=True)
+            row.alignment = "LEFT"
+            row.label(text="Show:")
+            row.prop(props, "show_collection_instances", text="Instances")
+            row.prop(props, "child_collection", text="Recursively")
 
 class POLYCOUNT_PT_AutoUpdate_Settings(bpy.types.Panel):
     bl_label = "Auto Update Settings"

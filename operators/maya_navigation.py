@@ -1,5 +1,6 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.utilities import add_shortcuts, set_shortcuts_active, remove_shortcuts
 
 sculpt_mask = [
     ('Sculpt', 'sculpt.brush_stroke', 'LEFTMOUSE', 'PRESS', {'alt': True}),
@@ -26,53 +27,6 @@ def add_sculpt_shortcuts():
         add_shortcuts(sculpt_navigation)
         set_shortcuts_active(sculpt_mask, set=False)
 
-def add_shortcuts(list):
-    wm = bpy.context.window_manager
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            kmi = km.keymap_items.new(idname, key, value)
-            for mod, enabled in modifiers.items():
-                setattr(kmi, mod, enabled)
-    except KeyError as e:
-        print(f"Error adding tablet navigation keymap: {e}")
-        return
-
-def remove_shortcuts(list):
-    wm = bpy.context.window_manager
-
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            items_to_remove = [
-                kmi for kmi in km.keymap_items
-                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
-                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
-                )
-            ]
-            for kmi in items_to_remove:
-                km.keymap_items.remove(kmi)
-    except KeyError as e:
-        print(f"Error removing tablet navigation keymap: {e}")
-        return
-    
-def set_shortcuts_active(list, set=False):
-    wm = bpy.context.window_manager
-
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            items_to_remove = [
-                kmi for kmi in km.keymap_items
-                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
-                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
-                )
-            ]
-            for kmi in items_to_remove:
-                kmi.active = set
-    except KeyError as e:
-        print(f"Error disable tablet navigation keymap: {e}")
-        return
 
 def update_tablet_navigation(self, context):
     if self.maya_navigation_tablet_navigation:

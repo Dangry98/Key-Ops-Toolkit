@@ -1,5 +1,6 @@
 import bpy
 from bpy.app.handlers import persistent
+from ..utils.utilities import BLENDER_VERSION
 
 previous_selected_objects = []
 clicked_in_outliner = False
@@ -78,8 +79,9 @@ def selection_option_handler(dummy, depsgraph):
 def draw_options_in_outliner(self, context):
     layout = self.layout
     layout.label(text="Selection")
-    row = layout.row()
-    row.prop(context.scene, 'auto_focus_in_outliner')
+    if BLENDER_VERSION < (5, 2, 0):
+        row = layout.row()
+        row.prop(context.scene, 'auto_focus_in_outliner')
     row = layout.row()
     row.prop(context.scene, 'collapse_unselected_collections')
     row = layout.row()
@@ -122,12 +124,6 @@ class OutlinerOptions(bpy.types.Operator):
 
     def register():
         bpy.utils.register_class(OutlinerClick)
-        bpy.types.Scene.auto_focus_in_outliner = bpy.props.BoolProperty(
-            name="Auto Select in Outliner",
-            description="Automatically focus on the selected objects in the outliner, can be slow with many objects",
-            default=False,
-            update=enabled_selection_options
-        )
         bpy.types.Scene.select_children = bpy.props.BoolProperty(
             name="Select Children",
             description="Automatically select children of selected objects",
@@ -142,19 +138,27 @@ class OutlinerOptions(bpy.types.Operator):
         )
         bpy.types.OUTLINER_PT_filter.prepend(draw_options_in_outliner)
         
-        bpy.app.timers.register(register_handler)
-        bpy.app.handlers.load_post.append(register_handler)
+        if BLENDER_VERSION < (5, 2, 0):
+            bpy.types.Scene.auto_focus_in_outliner = bpy.props.BoolProperty(
+                name="Auto Select in Outliner",
+                description="Automatically focus on the selected objects in the outliner, can be slow with many objects",
+                default=False,
+                update=enabled_selection_options
+            )
+            bpy.app.timers.register(register_handler)
+            bpy.app.handlers.load_post.append(register_handler)
 
     def unregister():
         bpy.utils.unregister_class(OutlinerClick)
         if selection_option_handler in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.remove(selection_option_handler)
+
+        if BLENDER_VERSION < (5, 2, 0):
+            handlers = [h.__name__ for h in bpy.app.handlers.load_post]
+            if 'register_handler' in handlers:
+                bpy.app.handlers.load_post.remove(register_handler)
+            del bpy.types.Scene.auto_focus_in_outliner
         
-        handlers = [h.__name__ for h in bpy.app.handlers.load_post]
-        if 'register_handler' in handlers:
-            bpy.app.handlers.load_post.remove(register_handler)
-        
-        del bpy.types.Scene.auto_focus_in_outliner
         del bpy.types.Scene.select_children
         del bpy.types.Scene.collapse_unselected_collections
 

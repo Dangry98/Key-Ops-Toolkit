@@ -2,8 +2,8 @@ import bpy.types
 import bmesh
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
-from ..utils.pref_utils import get_keyops_prefs
-from ..utils.pref_utils import get_is_addon_enabled
+from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
 
 has_clicked_once = None
 half_knife = None
@@ -239,7 +239,17 @@ class FastConnect(bpy.types.Operator):
     bl_idname = 'mesh.fast_connect'
     bl_label = 'FastConnect'
     bl_options = {'REGISTER', 'UNDO'}
-    
+
+    # edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
+    # set_flow: bpy.props.BoolProperty(name="Set Flow", default=False) # type: ignore
+
+    # def draw(self, context):
+    #     layout = self.layout 
+    #     layout.use_property_split = True
+        
+    #     layout.prop(self, "edge_count")
+    #     layout.prop(self, "set_flow")
+
     @classmethod
     def poll(cls, context):
         return context.mode == 'EDIT_MESH'
@@ -281,6 +291,7 @@ class FastConnect(bpy.types.Operator):
                 return {'FINISHED'}
             else:
                 bpy.ops.mesh.connect2('INVOKE_DEFAULT')
+                # bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
 
             
         elif sel_mode[2]:
@@ -292,6 +303,8 @@ class FastConnect(bpy.types.Operator):
 
             elif len(face_sel) > 1:
                 bpy.ops.mesh.connect2('INVOKE_DEFAULT')
+                # bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
+
 
         return {'FINISHED'}
     
@@ -304,8 +317,11 @@ class Connect(bpy.types.Operator):
     set_flow: bpy.props.BoolProperty(name="Set Flow", default=False) # type: ignore
 
     def draw(self, context):
-        self.layout.prop(self, "edge_count")
-        self.layout.prop(self, "set_flow")
+        layout = self.layout 
+        layout.use_property_split = True
+        
+        layout.prop(self, "edge_count")
+        layout.prop(self, "set_flow")
 
     def execute(self, context):
         sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
@@ -333,7 +349,7 @@ class Connect(bpy.types.Operator):
                 for e in contained_edges:
                     e.select = True
 
-                bpy.ops.mesh.loop_multi_select(ring=True)
+                select_ring()
                 ring_edges = set(e for e in bm.edges if e.select)
 
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
@@ -375,9 +391,8 @@ class Connect(bpy.types.Operator):
                     bm.free()
 
         if self.set_flow:
-            if get_is_addon_enabled('EdgeFlow-blender_28') or get_is_addon_enabled('EdgeFlow'):
-                bpy.ops.mesh.set_edge_flow(tension=180, iterations=3)
-            else:
-                self.report({'WARNING'}, "EdgeFlow Add-on not Installed, search for it in Get Extensions")
+            
+            if is_set_edge_flow_installed():
+                bpy.ops.mesh.set_edge_flow('INVOKE_DEFAULT', tension=180, iterations=3)
 
         return {'FINISHED'}

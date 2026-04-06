@@ -1,6 +1,9 @@
 import bpy, bmesh
 import numpy as np # type: ignore
 from mathutils import Matrix, Vector
+from .pref_utils import get_is_addon_enabled
+
+BLENDER_VERSION = bpy.app.version
 
 def get_obj_evaluated_data(obj, depsgraph=None): 
     if not depsgraph:
@@ -95,3 +98,73 @@ MESH_OBJECT_TYPES = ["MESH", "CURVE", "FONT"]
 
 def is_object_mesh(obj):
     return obj.type in MESH_OBJECT_TYPES
+
+
+def select_loop():
+    if BLENDER_VERSION >= (5, 1, 0):
+        bpy.ops.mesh.select_edge_loop_multi()
+    else:
+        bpy.ops.mesh.loop_multi_select(ring=False)
+
+def select_ring():
+    if BLENDER_VERSION >= (5, 1, 0):
+        bpy.ops.mesh.select_edge_ring_multi()
+    else:
+        bpy.ops.mesh.loop_multi_select(ring=True)
+
+def is_set_edge_flow_installed():
+    if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
+        return True
+    else:
+        bpy.ops.keyops.toolkit_panel("INVOKE_DEFAULT", type="operation_missing", addon_id="EdgeFlow")
+        return False
+
+def add_shortcuts(list):
+    wm = bpy.context.window_manager
+    try:
+        for keymap_name, idname, key, value, modifiers in list:
+            km = wm.keyconfigs.active.keymaps[keymap_name]
+            kmi = km.keymap_items.new(idname, key, value)
+            
+            if modifiers:
+                for mod, enabled in modifiers.items():
+                    setattr(kmi, mod, enabled)
+    except KeyError as e:
+        print(f"Error adding tablet navigation keymap: {e}")
+        return
+
+def remove_shortcuts(list):
+    wm = bpy.context.window_manager
+
+    try:
+        for keymap_name, idname, key, value, modifiers in list:
+            km = wm.keyconfigs.active.keymaps[keymap_name]
+            items_to_remove = [
+                kmi for kmi in km.keymap_items
+                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
+                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
+                )
+            ]
+            for kmi in items_to_remove:
+                km.keymap_items.remove(kmi)
+    except KeyError as e:
+        print(f"Error removing tablet navigation keymap: {e}")
+        return
+    
+def set_shortcuts_active(list, set=False):
+    wm = bpy.context.window_manager
+
+    try:
+        for keymap_name, idname, key, value, modifiers in list:
+            km = wm.keyconfigs.active.keymaps[keymap_name]
+            items_to_remove = [
+                kmi for kmi in km.keymap_items
+                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
+                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
+                )
+            ]
+            for kmi in items_to_remove:
+                kmi.active = set
+    except KeyError as e:
+        print(f"Error disable tablet navigation keymap: {e}")
+        return
