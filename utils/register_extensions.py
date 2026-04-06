@@ -144,7 +144,8 @@ def enable_extension(self, register, extension):
 def operator(operator_name):
     def decorator(func):
         def wrapper(classlists=[], keylists=[]):
-            if getattr(get_keyops_prefs(), f"enable_{operator_name.lower().replace(' ', '_')}"):
+            prefs = get_keyops_prefs()
+            if prefs and getattr(prefs, f"enable_{operator_name.lower().replace(' ', '_')}", False):
                 operator_class = classesdict[operator_name.upper().replace(' ', '_')]
                 operator_key = keysdict.get(operator_name.upper().replace(' ', '_'), None)
                 classlists.append(operator_class)

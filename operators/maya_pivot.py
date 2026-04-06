@@ -60,6 +60,8 @@ def toggle_deafult_gizmos(context, hide=False):
 
 def should_show_pivot_gizmo(context):
     prefs = get_keyops_prefs()
+    if not prefs:
+        return False
     show_gizmo = prefs.maya_pivot_show_gizmo
     wm = context.window_manager
     if prefs.maya_pivot_experimental:
@@ -127,11 +129,15 @@ class PivotPress(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         prefs = get_keyops_prefs()
+        if not prefs:
+            return False
         return context.active_object is not None and context.object in context.selected_objects and context.active_object.mode == 'OBJECT' or context.mode == 'EDIT_MESH' and prefs.maya_pivot_experimental
     
     def invoke(self, context, event):
         # if context.mode == 'EDIT_MESH':
         prefs = get_keyops_prefs()
+        if not prefs:
+            return {'FINISHED'}
         pivot_behavior = prefs.maya_pivot_behavior
         if pivot_behavior != 'TOGGLE':          
             wm = context.window_manager
@@ -144,6 +150,8 @@ class PivotPress(bpy.types.Operator):
              
     def execute(self, context):
         prefs =  get_keyops_prefs()
+        if not prefs:
+            return {'FINISHED'}
         pivot_behavior = prefs.maya_pivot_behavior
         show_gizmo = prefs.maya_pivot_show_gizmo
 
@@ -228,7 +236,7 @@ class PivotPress(bpy.types.Operator):
                     toggle_deafult_gizmos(context, hide=False)
 
             elif context.mode == 'EDIT_MESH':
-                if prefs.maya_pivot_in_edit_mode:
+                if prefs and prefs.maya_pivot_in_edit_mode:
                     global current_active_tool
 
                     if self.type == 'PivotPress':
