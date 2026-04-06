@@ -236,7 +236,7 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "operation_missing":
             layout = self.layout
             row = layout.row()
-            row.label(text=f"{self.type} is missing! Please install if you want to use this operation.", icon="INFO")
+            row.label(text=f"{self.addon_id} is missing! Please install to use!", icon="INFO")
 
     def execute(self, context):
         prefs = get_keyops_prefs()
