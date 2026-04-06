@@ -54,8 +54,12 @@ def register_keymaps(keylists):
     return keymaps
 
 def unregister_keymaps(keymaps):
+    global unregister_idnames
     for km, kmi in keymaps:
-        km.keymap_items.remove(kmi)
+        try:
+            km.keymap_items.remove(kmi)
+        except:
+            pass
 
 def get_keymaps(keylist):
     wm = bpy.context.window_manager

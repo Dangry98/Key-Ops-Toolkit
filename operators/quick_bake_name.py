@@ -28,7 +28,7 @@ class QuickBakeName(bpy.types.Operator):
     bl_label = "Quick Bake Name"
     bl_options = {'REGISTER', 'UNDO'}
 
-    random_name : bpy.props.BoolProperty(name="Random Name", description="Random Name", default=True) # type: ignore
+    random_name : bpy.props.BoolProperty(name="Random Name", description="Random Name", default=False) # type: ignore
     rename_datablock : bpy.props.BoolProperty(name="Rename Datablock", description="Rename Datablock, slower but decreases risk of errors when baking", default=True) # type: ignore
     hide : bpy.props.BoolProperty(name="Hide Objects", description="Hide", default=False) # type: ignore
     type : bpy.props.StringProperty(name="Type", description="Type", default="", options={'SKIP_SAVE'}) # type: ignore
@@ -198,10 +198,10 @@ class QuickBakeName(bpy.types.Operator):
         return {'FINISHED'}
     
     def register():
-        bpy.utils.register_class(QuickBakeNamePanel)
+        # bpy.utils.register_class(QuickBakeNamePanel)
         bpy.utils.register_class(HideShowLowHigh)
     def unregister():
-        bpy.utils.unregister_class(QuickBakeNamePanel)
+        # bpy.utils.unregister_class(QuickBakeNamePanel)
         bpy.utils.unregister_class(HideShowLowHigh)
         
 class HideShowLowHigh(bpy.types.Operator):

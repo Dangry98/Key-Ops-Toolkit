@@ -178,7 +178,7 @@ class NewToolkitPanel(bpy.types.Panel):
     bl_idname = "KEYOPS_PT_new_toolkit_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'New Toolkit'
+    bl_category = 'Toolkit'
 
     @classmethod
     def poll(cls, context):

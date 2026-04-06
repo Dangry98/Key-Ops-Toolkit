@@ -95,7 +95,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             for label, property_name, toggle, link, experimental in data:
                 if experimental == 1 and not self.experimental:
                     continue
-                row = column.split(factor=0.3, align=False)
+                row = column.split(factor=0.33, align=False)
 
                 if toggle:
                     row.prop(self, property_name, toggle=True)
@@ -105,7 +105,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                     row.operator("wm.url_open", text=label, emboss=False).url = link    
                 else:
                     row.label(text=label)
-            if section_label != "Game Art Toolkit":
+            if section_label != "Toolkit":
                 column.separator(type='LINE')
         
         if get_window_with() > 705:
@@ -116,11 +116,21 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
         if not self.tabs == "SETTINGS":
             maya_data = [("", "enable_maya_navigation", False, False, 0),
-                        ("Selects Mesh Island in Vert/Face Mode - Left Dbl Click", "enable_double_click_select_island", False, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3", 0),
-                        ("Instantly Delete Verts, Edges, Faces with Delete", "enable_auto_delete", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#1d850b06529c4ed2acdcb5d6f9aa1adc", 0),
-                        ("Toggle Retopo Overlay, Tools and Settings - in Toolkit Panel", "enable_toggle_retopology", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#d6f58b151f544bcfb4635bd34a822495", 0),
-                        ("Pivot in Object Mode that works similar to D in Maya", "enable_maya_pivot", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#861885b3779c41cea910606072362507", 0),]
+                        ("Left Dbl Click - Selects Mesh Island ", "enable_double_click_select_island", False, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3", 0),
+                        ("⌦ - Edit Mode Instant Delete", "enable_auto_delete", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#1d850b06529c4ed2acdcb5d6f9aa1adc", 0),
+                        ("D - Pivot in Object Mode", "enable_maya_pivot", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#861885b3779c41cea910606072362507", 0),]
             draw_section(b, "Industry Standard", maya_data)
+
+            Game_Art_Toolkit = [
+                                ("Decimate millions of tris", "enable_cad_decimate", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#108ee1e458744896aeec69d85a74e437", 0),
+                                ("Tool to create LODs for meshes", "enable_auto_lod", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#f512e65060d14450a310e4e4d8ed8aea", 0),
+                                ("Add bake names for low & highpoly", "enable_quick_bake_name", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e5af43e833e14c3f8ba48d422a09f2dd", 0),
+                                ("List of objects and there poly count", "enable_polycount_list", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#9663042f6cfe448e88195ccc29aef9ef", 0),
+                                ("New Object & Edit Mode operations", "enable_toolkit_panel", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#c333e08fe40348f29129f05ea749b07d", 0),
+                                ("Toggle Overlay, Tools and Settings", "enable_toggle_retopology", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#d6f58b151f544bcfb4635bd34a822495", 0),
+
+                             ]
+            draw_section(b, "Toolkit", Game_Art_Toolkit)
 
             pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#778f4f17fb27436fa8eb83e89f19d2ae", 0),
                         ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#84cef3262de2491c8e7fa7644c472f27", 1),
@@ -130,23 +140,18 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                         ("WIP. UV Pies", "enable_uv_pies", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#37ab2bddffe242e58cde51b2c7896e1b", 1),]
             draw_section(b, "Pie Menu", pie_data)
 
-            Extra_data = [("Useful shortcuts from 2.79x, click to learn more", "enable_legacy_shortcuts", False, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#00fbdb6e03e247ef87c75f51e295e616", 0),
-                        ("1 Key in vert mode to Merge to nearest, Shift 1 Connect", "enable_fast_merge", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#de4f361b488740f8b06e76d7f16532ab", 0),
-                        ("Adds more shortcuts to the modifier panel", "enable_modi_key", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#9549bb450f0942e9a0287c05fc4a4164", 0),
-                        ("Adds Attributes Operations like select and assign", "enable_atri_op", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
+            Extra_data = [("From 2.79x, click to learn more", "enable_legacy_shortcuts", False, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#00fbdb6e03e247ef87c75f51e295e616", 0),
+                        ("1 & Shift 1 - Quick Merge/Connect ", "enable_fast_merge", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#de4f361b488740f8b06e76d7f16532ab", 0),
+                        ("Add shortcuts to the modifier panel", "enable_modi_key", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#9549bb450f0942e9a0287c05fc4a4164", 0),
+                        ("Attribute Operations: select/assign", "enable_atri_op", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
                         ("Quick access to Viewport Overlays", "enable_viewport_menu", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
-                        ("Adds extra options in the outliner", "enable_outliner_options", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0)]
+                        ("Adds extra options in the outliner", "enable_outliner_options", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
+                        ("CTRL E to export out meshes", "enable_quick_export", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e45daeb724a648c09af8e0d719e6fbbc", 0),
+                        ("Extra UV Tools", "enable_uv_tools", True, "https://www.notion.so/key-ops-toolkit/UV-faa2eddaa1cd440088a31f25aa23a2d8?pvs=4#53765f9f6be84ee1b0c1be85acf898b7", 0),
+                        ("Extra Matieral Utils and UI", "enable_material_index", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#d0ae8f40d3784ae0b63be11184911700", 0),
+                        ]
             draw_section (b, "Extra", Extra_data)   
 
-            Game_Art_Toolkit = [("Toolkit of UV tools in the N Panel", "enable_uv_tools", True, "https://www.notion.so/key-ops-toolkit/UV-faa2eddaa1cd440088a31f25aa23a2d8?pvs=4#53765f9f6be84ee1b0c1be85acf898b7", 0),
-                                ("Decimate meshes that are in the 100 of millions of tris", "enable_cad_decimate", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#108ee1e458744896aeec69d85a74e437", 0),
-                                ("Tool to create LODs for meshes", "enable_auto_lod", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#f512e65060d14450a310e4e4d8ed8aea", 0),
-                                ("Operations for adding bake names for low and highpoly", "enable_quick_bake_name", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e5af43e833e14c3f8ba48d422a09f2dd", 0),
-                                ("List of all the objects and there poly count", "enable_polycount_list", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#9663042f6cfe448e88195ccc29aef9ef", 0),
-                                ("New Object & Edit Mode operations in N Panel", "enable_toolkit_panel", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#c333e08fe40348f29129f05ea749b07d", 0),
-                                ("CTRL E to export out meshes", "enable_quick_export", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e45daeb724a648c09af8e0d719e6fbbc", 0),
-                                ("Useful Matieral Utils and UI", "enable_material_index", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#d0ae8f40d3784ae0b63be11184911700", 0)]
-            draw_section(b, "Game Art Toolkit", Game_Art_Toolkit)
 
         #draw settings, should only draw in extensions tab if over 705, otherwise it should draw in settings tab
         if self.tabs == "SETTINGS" or get_window_with() > 705:
@@ -185,10 +190,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
                 column = bb.column()
                 layout = column.split(factor=2.0)  
-                row = layout.row()
+                row = layout.row(align=True)
                 row.label(text="Auto Delete")
                 row.prop(self, "auto_delete_dissolv_edge")
-                row.prop(self, "auto_delete_confirm_object_mode", text="Confirm X in ObjectMode")
+                row.prop(self, "auto_delete_confirm_object_mode", text="Confirm X")
                 #get the kemap item for the delete key in object mode and show the confirm option
                 # row = layout.row()
                 # row.prop(self, "auto_delete_confirm_edit_mode", text="Confirm X in EditMode")
@@ -222,6 +227,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 column.prop(self, "toggle_retopology_color_enum")
                 layout = column.split(factor=5.0)
                 row = layout.row(align = True)
+                row.scale_x=2
                 if self.toggle_retopology_color_enum == "custom_color":
                     row.prop(self, "toggle_retopology_custom_color")
                     row.prop(self, "toggle_retopology_face_alpha")
@@ -229,11 +235,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 else:
                     row.label(text="Edge Width:")
                     row.prop(self, "toggle_retopology_edge_width")
+                    row.label(text="Snapping:")
 
-                row.prop(self, "toggle_retopology_snapping_settings_vert", icon="SNAP_VERTEX")
-                row.prop(self, "toggle_retopology_snapping_settings_face", icon="SNAP_FACE")
-                row.prop(self, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE")
-                row.prop(self, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP")
+                row.prop(self, "toggle_retopology_snapping_settings_vert", icon="SNAP_VERTEX", text="")
+                row.prop(self, "toggle_retopology_snapping_settings_face", icon="SNAP_FACE", text="")
+                row.prop(self, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE", text="")
+                row.prop(self, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP", text="")
 
             if self.enable_maya_pivot:
                 bb = b.box()
@@ -241,12 +248,19 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
                 layout = column.split(factor=2.0)  
                 row = layout.row()
+                row.alignment="LEFT"
+                row.scale_x=1.5
                 row.label(text="Maya Pivot")
-                row.prop(self, "maya_pivot_behavior")
+                row.label(text="Behavior")
+                row.prop(self, "maya_pivot_behavior", text="")
                 row.prop(self, "maya_pivot_show_gizmo")
-                if self.maya_pivot_experimental:
-                    row.prop(self, "maya_pivot_in_edit_mode")
-                row.prop(self, "maya_pivot_experimental")
+
+                if self.experimental:
+                    if self.maya_pivot_experimental:
+                        layout = column.split(factor=2.0)  
+                        row = layout.row()
+                        row.prop(self, "maya_pivot_in_edit_mode")
+                    row.prop(self, "maya_pivot_experimental")
 
             if self.enable_fast_merge: 
                 bb = b.box()
@@ -271,24 +285,17 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                     return is_add_mesh_pie_alt
                 is_add_mesh_pie_alt = check_add_mesh_pie_keymap()
 
+                bb = b.box()
+
+                column = bb.column()
+                row = column.row()
+                row.alignment = 'LEFT'
+                row.label(text="Add Objects Pie")
                 if is_add_mesh_pie_alt:
-                    bb = b.box()
-                    bb.label(text="Add Objects Pie Menu is Currently (Shift Alt A)", icon='QUESTION')
 
-                    column = bb.column()
-                    row = column.row()
-                    row.alignment = 'LEFT'
-
-                    row.operator("keyops.add_object_pie_rebind", text="Rebind to (Shift A)?"). type = "Add Object Pie Rebind Shift A"
+                    row.operator("keyops.add_object_pie_rebind", text="Currently Shift Alt A - Set to Shift A?", icon='QUESTION'). type = "Add Object Pie Rebind Shift A"
                 else:
-                    bb = b.box()
-                    bb.label(text="Add Objects Pie")
-
-                    column = bb.column()
-                    row = column.row()
-
-                    row.label(text="Currently (Shift A)")
-                    row.operator("keyops.add_object_pie_rebind", text="Reset to Default", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A" 
+                    row.operator("keyops.add_object_pie_rebind", text="Currently Shift A - Reset to Default?", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A" 
                 
                 layout = column.split(factor=5.0)  
                 row = layout.row()
@@ -319,17 +326,23 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 bb = b.box()
                 bb
                 column = bb.column()
-                row = column.row()
-                row.label(text="Material Utilities")
-                row = column.row()
-                row.prop(self, "material_list_type")
+                row = column.row(align=True)
+                row.alignment="LEFT"
+                row.label(text="Material Utils")
+                # sub = row.row()
+                # sub.active = False
+                # sub.label(text="Shortcut: Alt + M")
+                # row = column.row()
+                row.prop(self, "material_list_type", text="")
                 if self.material_list_show_icons and self.material_list_type == "PREVIEW_ICONS":
-                    row.prop(self, "material_list_icon_scale")
+                    sub = row.row()
+                    sub.scale_x=0.685
+                    sub.prop(self, "material_list_icon_scale", text="Scale")
                 else:
                     row.prop(self, "material_list_show_icons")
                 row = column.row()
-                row.prop(self, "material_utilities_panel")
-                row.label(text="Material List Menu: Alt + M")
+                row.active = False
+                # row.prop(self, "material_utilities_panel")
             
             bb = b.box()
             bb
@@ -509,28 +522,29 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         toggle_retopology_default = True
 
     enable_auto_delete: BoolProperty(name="Auto Delete", default=True, update=enable_deco("auto_delete")) # type: ignore
-    enable_toggle_retopology: BoolProperty(name="Toggle Retopology", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
+    enable_toggle_retopology: BoolProperty(name="Retopology", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
     enable_maya_pivot: BoolProperty(name="Maya Pivot", default=True, update=enable_deco("maya_pivot")) # type: ignore
     enable_maya_navigation: BoolProperty(name="Alt Navigation", description="Adds Navigation that works like in Maya", default=True, update=enable_deco("maya_navigation")) # type: ignore
-    enable_double_click_select_island: BoolProperty(name="Dbl-Click Select Mesh", description="Double Click to Select Mesh Island/Element", default=True, update=enable_deco("double_click_select_island")) # type: ignore
+    enable_double_click_select_island: BoolProperty(name="Select Island", description="Double Click to Select Mesh Island/Element", default=True, update=enable_deco("double_click_select_island")) # type: ignore
     enable_uv_tools: BoolProperty(name="UV Tools", default=True, update=enable_deco("uv_tools")) # type: ignore
     enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", default=False, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=not get_is_addon_enabled ("Non_Destructive_Primitives"), update=enable_deco("add_objects_pie")) # type: ignore
     enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
-    enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
+    enable_legacy_shortcuts: BoolProperty(name="Shortcuts", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", default=False, update=enable_deco("workspace_pie")) # type: ignore
     enable_cursor_pie: BoolProperty(name="Cursor Pie", default=True, update=enable_deco("cursor_pie")) # type: ignore
-    enable_fast_merge: BoolProperty(name="Fast Merge & Connect", default=True, update=enable_deco("fast_merge")) # type: ignore
+    enable_fast_merge: BoolProperty(name="Merge/Connect", default=True, update=enable_deco("fast_merge")) # type: ignore
     enable_modi_key: BoolProperty(name="Modifier Key", default=True, update=enable_deco("modi_key")) # type: ignore
     enable_cad_decimate: BoolProperty(name="CAD Decimate", default=True, update=enable_deco("cad_decimate"))     # type: ignore
     enable_auto_lod: BoolProperty(name="Auto LOD", default=True, update=enable_deco("auto_lod")) # type: ignore
     enable_quick_bake_name: BoolProperty(name="Quick Bake Name", default=True, update=enable_deco("quick_bake_name")) # type: ignore
     enable_polycount_list: BoolProperty(name="Polycount List", default=True, update=enable_deco("polycount_list")) # type: ignore
-    enable_toolkit_panel: BoolProperty(name="Toolkit Panel", default=True, update=enable_deco("toolkit_panel")) # type: ignore
+    enable_toolkit_panel: BoolProperty(name="Object Toolkit", default=True, update=enable_deco("toolkit_panel")) # type: ignore
+    # enable_editmode_toolkit_panel: BoolProperty(name="EditMode Toolkit", default=True, update=enable_deco("editmode_toolkit_panel")) # type: ignore
     enable_quick_export: BoolProperty(name="Quick Export", default=True, update=enable_deco("quick_export")) # type: ignore
     enable_atri_op: BoolProperty(name="Atributes Operations", default=True, update=enable_deco("atri_op")) # type: ignore
-    enable_material_index: BoolProperty(name="Material Utilities", default=True, update=enable_deco("material_index")) # type: ignore
+    enable_material_index: BoolProperty(name="Material Utils", default=True, update=enable_deco("material_index")) # type: ignore
     enable_outliner_options: BoolProperty(name="Outliner Options", default=True, update=enable_deco("outliner_options")) # type: ignore
     enable_viewport_menu: BoolProperty(name="Viewport Menu", default=True, update=enable_deco("viewport_menu")) # type: ignore
 
@@ -557,7 +571,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         default="maya") # type: ignore
     toggle_retopology_custom_color: FloatVectorProperty(name="", subtype='COLOR', size=4, default=(0.313726, 0.784314, 1.0, 0.058824), min=0.0, max=1.0) # type: ignore
     toggle_retopology_face_alpha: FloatProperty(name="Face Alpha", default=0.301961, min=0.0, max=1.0) # type: ignore
-    toggle_retopology_edge_width: IntProperty(name="", default=2, min=1, max=5) # type: ignore
+    toggle_retopology_edge_width: IntProperty(name="", default=2, min=1, max=5, description="Edge Width") # type: ignore
     toggle_retopology_snapping_settings_save_string: StringProperty(name="Snap Settings", default="") # type: ignore
     toggle_retopology_snapping_settings_vert: BoolProperty(name="Vert", default=False) # type: ignore
     toggle_retopology_snapping_settings_face: BoolProperty(name="Face", default=True) # type: ignore
@@ -610,13 +624,13 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     add_object_pie_bpy_ops: StringProperty(name="Operation") #type: ignore
     uv_tools_panel_name: StringProperty(name="", default="Toolkit") # type: ignore
     max_layout: BoolProperty(name="Max Layout", default=False, description="Edit mode - Toolkit Panel") # type: ignore
-    material_utilities_panel: BoolProperty(name="Material Index Panel", default=True) # type: ignore
+    # material_utilities_panel: BoolProperty(name="Material Index Panel", default=True) # type: ignore
     material_list_icon_scale: FloatProperty(name="Icon Scale", default=2.0, min=0.1, max=10.0) # type: ignore
     material_list_type: EnumProperty(
         name="Type",
         items=[
             ("PREVIEW_ICONS", "Big Preview Icons", "Preview Icons", "IMAGE_DATA", 0),
-            ("COMPACT_LIST", "Compact List", "Compact List", "PRESET", 1)],
+            ("COMPACT_LIST", "Compact List", "Compact List", "ALIGN_LEFT", 1)],
         default="COMPACT_LIST") # type: ignore  
     material_list_show_icons: BoolProperty(name="Show Icons", default=True) # type: ignore
     experimental: BoolProperty(name="Experimental", default=False, description="Enable Experimental Features") # type: ignore

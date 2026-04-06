@@ -275,7 +275,7 @@ class AddBooleanModifier(bpy.types.Operator):
             self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, falling back to Fast solver")
             solver = 'FAST'
         # if 5.0 and up
-        if not old_version and self.solver == 'FAST':
+        if BLENDER_VERSION >= (5, 0, 0) and self.solver == 'FAST':
             solver = "FLOAT"
                     
         for obj in cutters:
@@ -470,7 +470,8 @@ class AddModifier(bpy.types.Operator):
                         mod.use_pin_to_last = True
                         active_index = obj.modifiers.find(mod.name)
                         obj.modifiers.move(active_index, len(obj.modifiers) - 1)
-
+                mod.show_in_editmode = True
+                
         if self.type == 'WEIGHTED_NORMAL':
             for obj in [o for o in context.selected_objects if o.type == 'MESH']:
                 mod = obj.modifiers.new(type='WEIGHTED_NORMAL', name='Weighted Normal')

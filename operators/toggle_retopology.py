@@ -296,10 +296,10 @@ class ToggleRetopology(bpy.types.Operator):
         
         return {'FINISHED'}
     def register():
-        bpy.utils.register_class(Retopolgy_Panel)
+        # bpy.utils.register_class(Retopolgy_Panel)
         bpy.utils.register_class(RETOPOLOGY_PT_Settings)
     def unregister():
-        bpy.utils.unregister_class(Retopolgy_Panel)
+        # bpy.utils.unregister_class(Retopolgy_Panel)
         bpy.utils.unregister_class(RETOPOLOGY_PT_Settings)
         # load_theme_colors_from_prefs(use_cache=False)
     
