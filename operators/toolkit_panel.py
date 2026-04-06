@@ -235,6 +235,12 @@ class ToolkitPanel(bpy.types.Operator):
 
         elif self.type == "operation_missing":
             layout = self.layout
+            if not bpy.context.preferences.system.use_online_access:
+                row = layout.row()
+                row = row.row(align=True)
+                row.label(text="Online Access is required")
+                row = row.row(align=True)
+                row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
             row = layout.row()
             row.label(text=f"{self.addon_id} is missing! Please install to use!", icon="INFO")
 
@@ -480,6 +486,7 @@ class ToolkitPanel(bpy.types.Operator):
                                     modifier.segments = bpy.context.scene.bevel_segment_amount
 
         elif self.type == "operation_missing":
+            bpy.context.preferences.system.use_online_access = True
             bpy.ops.extensions.package_install(repo_index=0, pkg_id=self.addon_id)
 
         elif self.type == "bevel_segment_amount_by_%":
