@@ -7,6 +7,7 @@ import bpy, time
 from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
 from ..utils.pref_utils import get_keyops_prefs, get_icon
+from bpy.app.handlers import persistent
 
 polycount = []  
 polycount_sorting_ascending = True
@@ -126,7 +127,6 @@ def get_poly_count(context, force_update_all=False):
     
     obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
 
-    selection = None
     c = context
     props = c.scene.polycount_props
 
@@ -168,13 +168,15 @@ def get_poly_count(context, force_update_all=False):
     show_collection_instances = props.show_collection_instances
     # replace mesh cache with just global polycount cache
     total_tris = 0
+
+    filter_type = [obj for obj in filter_type if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}]
     
+    print(latest_updateded_objects_in_depsgrapth)
     for obj in filter_type:
         tris = 0
         verts = 0
         edges = 0
         faces = 0
-        
         if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
             if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}:
                 eval_obj = obj.evaluated_get(depsgraph)
@@ -224,6 +226,7 @@ def get_poly_count(context, force_update_all=False):
     else:
         polycount.sort(key=sortList, reverse=polycount_sorting_ascending)
 
+@persistent
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
     global latest_updateded_objects_in_depsgrapth, list_cache
     scene_tab_is_open = False

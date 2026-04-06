@@ -11,6 +11,7 @@ ITEMS_TO_INCLUDE = (
     "utils",
     "addon_preferences.py",
     "resources",
+    "ui",
     "classes_keymap_items.py",
 )
 
