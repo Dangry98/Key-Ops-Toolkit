@@ -55,8 +55,12 @@ def make_duplicate_linked(self, context):
                 mod.show_in_editmode = False    
 
         #add option to only duplate the shoruce object so the modifers is not wrong! Go after socket name? Works, but not when adding a modifier :(
-        obj.modifiers["Duplicate Linked Modifiers"]["Socket_2"] = bpy.data.objects[names[iteration]]
-        obj.modifiers["Duplicate Linked Modifiers"]["Socket_3"] = self.instance
+        if BLENDER_VERSION >= (5,2,0):
+            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_2.value = bpy.data.objects[names[iteration]]
+            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_3.value = self.instance
+        else:
+            obj.modifiers["Duplicate Linked Modifiers"]["Socket_2"] = bpy.data.objects[names[iteration]]
+            obj.modifiers["Duplicate Linked Modifiers"]["Socket_3"] = self.instance
         name = obj.name.split("_Link_Mod")[0]
         obj.name = names[iteration] + "_Link_Mod"
         #obj.modifiers["Duplicate Linked Modifiers"].show_in_editmode = False
