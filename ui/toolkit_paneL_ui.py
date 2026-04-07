@@ -88,7 +88,7 @@ def draw_object_panel(self, context):
         # box.label(text="Booleans")
         row = box.row(align=True)
         row = box.row(align=True)
-        row.label(text="Booleans")
+        row.label(text="Boolean")
         # row = box.row(align=True)
         row.scale_y = 1.5
         row.scale_x = 4

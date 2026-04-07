@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "Key_Ops_Toolkit"
-version = "0.2.51"
+version = "0.2.515"
 name = "Key Ops: Toolkit"
 tagline = "Industri Standard Tools & Shortcuts to Speed Up Blender Workflow"
 maintainer = "MACHIN3, Dan-Gry"

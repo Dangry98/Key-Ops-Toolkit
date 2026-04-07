@@ -1146,7 +1146,6 @@ class ExtrudeEdgeByNormal(bpy.types.Operator):
             extrude_edge_by_normal.is_mode_sculpt = False
             extrude_edge_by_normal.is_type_curve = False
             extrude_edge_by_normal.is_type_mesh = True
-            extrude_edge_by_normal.is_type_point_cloud = False
             
             #initialize extrude_edge_by_normal nodes
             #extrude_edge_by_normal interface
@@ -1361,7 +1360,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
     if draw_header:
         box.label(text="Edit Toolkit", icon_value=get_icon("editmode"))
 
-    if not prefs.max_layout:
+    new_layoute = True
+    if new_layoute:
         row = box.row(align=True)
         row.scale_x = 2.15
         row.scale_y = 1.5
@@ -1423,6 +1423,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         if sel_mode[1]:
             row.operator("mesh.dissolve_mode", text="Remove")
             row.operator("mesh.rip", text="Split")
+            # row.operator("mesh.mark_seam", text="Mark", icon="EDGE_SEAM") # should be a smart seam toggle!
         if sel_mode[2]:
             row.operator("mesh.delete", text="Remove").type = 'FACE'
 
@@ -1462,6 +1463,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
                 row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
             row.operator("mesh.bridge_edge_loops", text="Bridge")
+            # row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
         # Edit polygons
         if sel_mode[2]:
             row = box.row(align=False)
@@ -1591,8 +1593,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.select_more", text="More", icon="ADD")
         row.operator("mesh.select_less", text="Less", icon="REMOVE")
         row = col.row(align=True)
-        row.operator("mesh.loop_multi_select", text="Loop").ring=False
-        row.operator("mesh.loop_multi_select", text="Ring").ring=True
         row = col.row(align=True)
         row.operator("mesh.region_to_loop", text="Boundary")
         row.operator("mesh.loop_to_region", text="Inner Region")

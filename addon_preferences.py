@@ -625,7 +625,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     add_object_pie_blend_object_name: StringProperty(name="Object Name: add a , to add many objects; cube,cylinder,sphere etc") #type: ignore
     add_object_pie_bpy_ops: StringProperty(name="Operation") #type: ignore
     uv_tools_panel_name: StringProperty(name="", default="Toolkit") # type: ignore
-    max_layout: BoolProperty(name="Max Layout", default=False, description="Edit mode - Toolkit Panel") # type: ignore
+    # max_layout: BoolProperty(name="Max Layout", default=False, description="Edit mode - Toolkit Panel") # type: ignore
     # material_utilities_panel: BoolProperty(name="Material Index Panel", default=True) # type: ignore
     material_list_icon_scale: FloatProperty(name="Icon Scale", default=2.0, min=0.1, max=10.0) # type: ignore
     material_list_type: EnumProperty(

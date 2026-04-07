@@ -53,7 +53,7 @@ keymap_items = {
                                        {'label': 'Extended Select UV islands ', 'keymap': 'UV Editor', 'idname': 'keyops.double_click_select_island', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'shift': True, 'properties': [('extend', True)]},
                                        {'label': 'Extended deselect UV islands', 'keymap': 'UV Editor', 'idname': 'keyops.double_click_select_island', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'ctrl': True, 'properties': [('deselect', True)]},
                                        {'label': 'Select Edge Loop', 'keymap': 'Mesh', 'idname': 'keyops.select_edge_loop', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK'},
-                                       {'label': 'Shift Select Edge Loop', 'keymap': 'Mesh', 'idname': 'keyops.select_edge_loop_shift', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'shift': True},
+                                       {'label': 'Shift Select Edge Loop', 'keymap': 'Mesh', 'idname': 'keyops.select_edge_loop', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'shift': True},
                                        {'label': 'Select Curve island', 'keymap': 'Curve', 'idname': 'keyops.double_click_select_island', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK'},
                                        {'label': 'Extended Select Curve island', 'keymap': 'Curve', 'idname': 'curve.select_linked', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'shift': True},
                                        {'label': 'Extended Deselect Curve island', 'keymap': 'Curve', 'idname': 'curve.select_linked_pick', 'type': 'LEFTMOUSE', 'value': 'DOUBLE_CLICK', 'ctrl': True, 'properties': [('deselect', True)]},

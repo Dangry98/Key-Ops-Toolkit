@@ -173,7 +173,6 @@ def get_poly_count(context, force_update_all=False):
 
     filter_type = [obj for obj in filter_type if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}]
     
-    print(latest_updateded_objects_in_depsgrapth)
     for obj in filter_type:
         tris = 0
         verts = 0
@@ -290,13 +289,14 @@ class PolyCountList(bpy.types.Operator):
 
 ui_updates = 0
 last_draw_time = 0
+ms = ""
 
-def draw_polycount_list_ui(self, context):
+def draw_polycount_list_ui(self, context, properteries_panel=False):
     draw_time = time.time()
     name_offset_row = 0.725
 
     layout = self.layout
-    global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache, polycount
+    global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache, polycount, ms
 
     props = context.scene.polycount_props
     filter_list_show = props.filter_list_show
@@ -313,29 +313,35 @@ def draw_polycount_list_ui(self, context):
             polycount.clear()
             get_poly_count(context)
             ui_updates = 0
-    
-    if props.show_total_tris or props.show_draw_time:
+
+    if not properteries_panel:
         row = layout.row(align=True)
-
-    if props.show_total_tris:
-        if props.round_numbers:
-            row.label(text="Triangles: {}".format(trim_numbers(total_tris)))
-        else:
-            row.label(text="Triangles: " + "{:,}".format(total_tris))
+        text = ""
+        if not props.show_total_tris:
+            text = "Polycount List"
+        row.label(text=text, icon_value=get_icon("polycount"))
+        if props.show_total_tris:
+            if props.round_numbers:
+                row.label(text="Triangles: {}".format(trim_numbers(total_tris)))
+            else:
+                row.label(text="Triangles: " + "{:,}".format(total_tris))
+            
+            # objects = f"Objects {len(context.selected_objects)}/ {len(polycount)}"
+            # row.label(text=objects)
+            
+            # sub.enabled = False
+        if props.show_draw_time:  
+            sub = row.row(align=True)
+            sub.alignment = 'LEFT'
+            if last_draw_time * 1000 > 30:
+                sub.alert = True
+            ms = "{:.1f} ms".format(last_draw_time * 1000)
+            if not properteries_panel:
+                sub.label(text=ms)
         
-        # objects = f"Objects {len(context.selected_objects)}/ {len(polycount)}"
-        # row.label(text=objects)
-        
-        # sub.enabled = False
-    if props.show_draw_time:  
-        sub = row.row(align=True)
-        sub.alignment = 'LEFT'
-        if last_draw_time * 1000 > 30:
-            sub.alert = True
-        sub.label(text="{:.1f} ms".format(last_draw_time * 1000))
 
-    row = layout.row(align=True)
     if len(polycount) > 2500 and props.auto_update_polycount:
+        row = layout.row(align=True)
     #     row.label(text="Warning: > 500 objects, auto update might be slow", icon="ERROR")
     #     # update_rate = props.update_rate
     #     row.scale_x = 0.4
@@ -497,9 +503,25 @@ class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
         layout = self.layout
         layout.label(text="", icon_value=get_icon("polycount"))
         return 
+    
+    def draw_header_preset(self, context):
+        global ms 
+        layout = self.layout
+        row = layout.row()
+        props = context.scene.polycount_props
+
+        if props.show_total_tris:
+            if props.round_numbers:
+                row.label(text="Triangles: {}".format(trim_numbers(total_tris)))
+            else:
+                row.label(text="Triangles: " + "{:,}".format(total_tris))
+        if props.show_draw_time:  
+            row.label(text=ms)
+
+        return 
 
     def draw(self, context):
-        draw_polycount_list_ui(self, context)
+        draw_polycount_list_ui(self, context, properteries_panel=True)
 class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
     bl_label = "Polycount Settings"
     bl_idname = "POLYCOUNTILST_PT_Settings"

@@ -28,7 +28,7 @@ class FastMerge(bpy.types.Operator):
     bl_description = "Fast Merge"
     bl_options = {'REGISTER', 'UNDO'}
     
-    preserve_uvs: bpy.props.BoolProperty(name="Preserve UVs", description="Try Preserve UVs (Slower and does not always work)", default=False) # type: ignore
+    preserve_uvs: bpy.props.BoolProperty(name="Preserve UVs", description="Try Preserve UVs (Slower and does not always work)", default=True) # type: ignore
     prefs = get_keyops_prefs()
     mouse_position = Vector((0, 0))
     draw_preserve_uvs = False
