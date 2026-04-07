@@ -82,10 +82,10 @@ def draw_options_in_outliner(self, context):
     if BLENDER_VERSION < (5, 2, 0):
         row = layout.row()
         row.prop(context.scene, 'auto_focus_in_outliner')
-    row = layout.row()
-    row.prop(context.scene, 'collapse_unselected_collections')
-    row = layout.row()
-    row.prop(context.scene, 'select_children')
+        row = layout.row()
+        row.prop(context.scene, 'collapse_unselected_collections')
+        row = layout.row()
+        row.prop(context.scene, 'select_children')
 
 def enabled_selection_options(self, context):
     if self.auto_focus_in_outliner or self.select_children or self.collapse_unselected_collections:
@@ -123,22 +123,22 @@ class OutlinerOptions(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def register():
-        bpy.utils.register_class(OutlinerClick)
-        bpy.types.Scene.select_children = bpy.props.BoolProperty(
-            name="Select Children",
-            description="Automatically select children of selected objects",
-            default=False,
-            update=enabled_selection_options
-        )
-        bpy.types.Scene.collapse_unselected_collections = bpy.props.BoolProperty(
-            name="Collapse Unselected Collections",
-            description="Automatically collapse collections that are not related to the selected objects",
-            default=False,
-            update=enabled_selection_options
-        )
-        bpy.types.OUTLINER_PT_filter.prepend(draw_options_in_outliner)
-        
         if BLENDER_VERSION < (5, 2, 0):
+            bpy.utils.register_class(OutlinerClick)
+            bpy.types.Scene.select_children = bpy.props.BoolProperty(
+                name="Select Children",
+                description="Automatically select children of selected objects",
+                default=False,
+                update=enabled_selection_options
+            )
+            bpy.types.Scene.collapse_unselected_collections = bpy.props.BoolProperty(
+                name="Collapse Unselected Collections",
+                description="Automatically collapse collections that are not related to the selected objects",
+                default=False,
+                update=enabled_selection_options
+            )
+            bpy.types.OUTLINER_PT_filter.prepend(draw_options_in_outliner)
+        
             bpy.types.Scene.auto_focus_in_outliner = bpy.props.BoolProperty(
                 name="Auto Select in Outliner",
                 description="Automatically focus on the selected objects in the outliner, can be slow with many objects",
@@ -149,20 +149,19 @@ class OutlinerOptions(bpy.types.Operator):
             bpy.app.handlers.load_post.append(register_handler)
 
     def unregister():
-        bpy.utils.unregister_class(OutlinerClick)
-        if selection_option_handler in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.remove(selection_option_handler)
-
         if BLENDER_VERSION < (5, 2, 0):
+            bpy.utils.unregister_class(OutlinerClick)
+            if selection_option_handler in bpy.app.handlers.depsgraph_update_post:
+                bpy.app.handlers.depsgraph_update_post.remove(selection_option_handler)
             handlers = [h.__name__ for h in bpy.app.handlers.load_post]
             if 'register_handler' in handlers:
                 bpy.app.handlers.load_post.remove(register_handler)
             del bpy.types.Scene.auto_focus_in_outliner
         
-        del bpy.types.Scene.select_children
-        del bpy.types.Scene.collapse_unselected_collections
+            del bpy.types.Scene.select_children
+            del bpy.types.Scene.collapse_unselected_collections
 
-        if bpy.types.OUTLINER_PT_filter:
-            bpy.types.OUTLINER_PT_filter.remove(draw_options_in_outliner)
-        
-        unregister_outliner_click_keymap()
+            if bpy.types.OUTLINER_PT_filter:
+                bpy.types.OUTLINER_PT_filter.remove(draw_options_in_outliner)
+            
+            unregister_outliner_click_keymap()

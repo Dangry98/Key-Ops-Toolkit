@@ -42,8 +42,8 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object is not None
-
+        return context.object 
+  
     def invoke(self, context, event):
         global first_invoked
 
@@ -193,27 +193,14 @@ class DoubleClickSelectIsland(bpy.types.Operator):
             bpy.ops.curves.select_linked_pick('INVOKE_DEFAULT')
 
         return {'FINISHED'}
+    
+    def register():
+        bpy.utils.register_class(SelectEdgeLoop)
+    def unregister():
+        bpy.utils.unregister_class(SelectEdgeLoop)
 class SelectEdgeLoop(bpy.types.Operator):
     bl_idname = "keyops.select_edge_loop"
     bl_label = "KeyOps: Select Edge Loop"
-    bl_options = {'INTERNAL', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.active_object and
-            context.active_object.type == 'MESH' and
-            context.scene.tool_settings.mesh_select_mode[1]
-        )
-
-    def execute(self, context):
-        bpy.ops.mesh.loop_select("INVOKE_DEFAULT", extend=True)
-        return {'FINISHED'}
-
-
-class SelectEdgeLoopShift(bpy.types.Operator):
-    bl_idname = "keyops.select_edge_loop_shift"
-    bl_label = "KeyOps: Select Edge Loop Shift"
     bl_options = {'INTERNAL', 'UNDO'}
 
     @classmethod
