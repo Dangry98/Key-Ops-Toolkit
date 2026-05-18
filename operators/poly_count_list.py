@@ -9,24 +9,16 @@ from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProper
 from ..utils.pref_utils import get_keyops_prefs, get_icon
 from bpy.app.handlers import persistent
 
-# ----- Global variables -----
+# Todo: Add icon in panel and add ms and tris count to panel header
+
 polycount = []  
 polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
 ev = []
 total_tris = 0
-latest_updateded_objects_in_depsgrapth = {}
+latest_updateded_objects_in_depsgrapth = []
 list_cache = {}
 obj_lookup_cache = {}
-
-# ----- Utility functions ------
-def trim_numbers(number):
-    if number < 1000:
-        return str(number)
-    elif number < 1000000:
-        return "{:.1f}k".format(number / 1000)
-    else:
-        return "{:.1f}m".format(number / 1000000)
 
 def _get_modifier_times(ob_eval, mod): # we should not call it per modifier, but only once per object
     ms_times = ob_eval.modifiers[mod.name].execution_time
@@ -70,6 +62,85 @@ def time_to_string(t, compact):
 def get_obj_lookup_cache(scene, depsgraph):
     global obj_lookup_cache
     obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
+
+class PolyCountProperties(PropertyGroup):
+    polycount_use_selection_only: BoolProperty(  # type: ignore
+        name="Use selected only",
+        description="Compute stats only for selected objects",
+        default=False
+    )
+    auto_update_polycount: BoolProperty(  # type: ignore
+        name="Auto Update",
+        description="Auto update the list, might be slow in big scenes",
+        default=True
+    )
+    filter_list_show: EnumProperty(  # type: ignore
+        name="List Show",
+        description="Show",
+        items=[
+            ('TRIS', "", "Tris", 'MESH_DATA', 1),
+            ('VERT', "", "Vert", 'VERTEXSEL', 2),
+            ('EDGE', "", "Edge", 'EDGESEL', 4),
+            ('FACE', "", "Face", 'FACESEL', 8),
+            ('MS', "", "Show Object Modifier Execution Time", 'MODIFIER', 16)
+        ],
+        options={'ENUM_FLAG'},
+        default={'TRIS', 'VERT', 'MS'}
+    )
+    show_total_tris: BoolProperty(  # type: ignore
+        name="Show Total Tris",
+        description="Show Total Tris in the list",
+        default=True
+    )
+    filter_by: EnumProperty(  # type: ignore
+        name="Filter",
+        description="Filter",
+        items=[
+            ('ALL', "All", "", 'NONE', 0),
+            ('VISIBLE', "Visible", "", 'HIDE_OFF', 1),
+            ('COLLECTION', "Collection", "", '', 2)
+        ],
+        default='ALL'
+    )
+    my_collection: PointerProperty(name="Collection",type=bpy.types.Collection)  # type: ignore
+    child_collection: BoolProperty(name="Child", default=False, description="Show all objects in collections that are children of the current selected collection")  # type: ignore
+    show_collection_instances: BoolProperty(  # type: ignore
+        name="Collection Instances",
+        description="Show collection instances",
+        default=False
+    )
+    round_numbers: BoolProperty(  # type: ignore
+        name="Round Numbers",
+        description="Round the numbers, slower, but more readable",
+        default=True
+    )
+    show_only_enabled_collections: BoolProperty(  # type: ignore
+        name="Show Only Enabled Collections",
+        description="Show only enabled collections",
+        default=True
+    )
+    show_obj_type: BoolProperty(  # type: ignore
+        name="Show Object Type",
+        description="Warning: Slow in big scenes, shows the icon of the object type",
+        default=True
+    )
+    max_list_length: IntProperty(  # type: ignore
+        name="Max List Length",
+        description="Maximum number of objects to show in the list",
+        default=150,
+        min=1
+    )
+    update_rate: IntProperty(  # type: ignore
+        name="Update Rate",
+        description="Update rate",
+        default=1,
+        min=1
+    )
+    show_draw_time: BoolProperty(  # type: ignore
+        name="Show Draw Time",
+        description="Show the time it took to draw the list",
+        default=True
+    )
 
 def deselect_all(context):
     for obj in context.selected_objects:
@@ -137,20 +208,24 @@ def get_poly_count(context, force_update_all=False):
     if props.polycount_use_selection_only:
         filter_type = c.selected_objects
 
-    import time
-    start_time = time.time()
+    # import time
+    # start_time = time.time()
 
     depsgraph = context.evaluated_depsgraph_get()
     show_collection_instances = props.show_collection_instances
+    # replace mesh cache with just global polycount cache
     total_tris = 0
 
     filter_type = [obj for obj in filter_type if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}]
     
     for obj in filter_type:
-        if latest_updateded_objects_in_depsgrapth.get(obj.name) or obj not in list_cache:
-            tris = verts = edges = faces = ms = 0
-            
-            if obj.modifiers:
+        tris = 0
+        verts = 0
+        edges = 0
+        faces = 0
+        if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
+            ms = 0
+            if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}:
                 eval_obj = obj.evaluated_get(depsgraph)
                 mesh = eval_obj.to_mesh()
                 if mesh is not None:
@@ -164,23 +239,18 @@ def get_poly_count(context, force_update_all=False):
                             ms += _get_modifier_times(eval_obj, mod)
                         if not ms >= 1e-4:
                             if obj in list_cache:
-                                ms = list_cache[obj][4]
-                # eval_obj.to_mesh_clear()
-            else:
-                tris = len(obj.data.loop_triangles)
-                verts = len(obj.data.vertices)
-                edges = len(obj.data.edges)
-                faces = len(obj.data.polygons)
+                                tris2, verts2, edges2, faces2, ms = list_cache[obj]
                                 
-            list_cache[obj] = (tris, verts, edges, faces, ms)
+                        list_cache[obj] = (tris, verts, edges, faces, ms)
+                        eval_obj.to_mesh_clear()
         else:
             tris, verts, edges, faces, ms = list_cache[obj]
 
         total_tris += tris
         polycount.append((obj.name, tris, verts, edges, faces, ms))  # Store directly in polycount list, we should not receate it each time, instead the list_cache should be used everwhere!
-    print("Time taken to get polycount: {:.4f} ms".format((time.time() - start_time) * 1000))
+    # print("Time taken to get polycount: {:.4f} ms".format((time.time() - start_time) * 1000))
 
-    latest_updateded_objects_in_depsgrapth = {}
+    latest_updateded_objects_in_depsgrapth = []
 
     if show_collection_instances:
         for obj in c.scene.objects:
@@ -219,18 +289,58 @@ def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
-                latest_updateded_objects_in_depsgrapth = {update.id.name: update.id for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)}
+                latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
                 scene_tab_is_open = True
                 break
             
     if 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode:
-        latest_updateded_objects_in_depsgrapth = {update.id.name: update.id for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)}
+        latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
         scene_tab_is_open = True
 
     if not scene_tab_is_open:
         # reset list_cache, since it will need to be recomputed once the scene tab is opened again
         if list_cache:
             list_cache.clear()
+
+class PolyCountList(bpy.types.Operator):
+    bl_idname = "keyops.poly_count_list"
+    bl_label = "Poly Count List"
+    bl_description = "Refresh the polycount list, only needed if auto update is off"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        global polycount, list_cache
+        list_cache.clear()
+        polycount.clear()
+        get_poly_count(context)
+        return {'FINISHED'}
+    
+    def register():
+        bpy.utils.register_class(PolyCountProperties)
+        bpy.types.Scene.polycount_props = PointerProperty(type=PolyCountProperties)
+
+        bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
+        bpy.utils.register_class(POLYCOUNT_OT_refresh)
+        bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
+        # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
+
+        bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
+        # bpy.app.handlers.depsgraph_update_pre.append(get_obj_lookup_cache)
+
+    def unregister():
+        bpy.utils.unregister_class(PolyCountProperties)
+        del bpy.types.Scene.polycount_props
+
+        bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
+        bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
+        bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
+        # bpy.utils.unregister_class(POLYCOUNT_PT_AutoUpdate_Settings)
+
+        if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
+            bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)
+
+        # if get_obj_lookup_cache in bpy.app.handlers.depsgraph_update_pre:
+        #     bpy.app.handlers.depsgraph_update_pre.remove(get_obj_lookup_cache)
 
 ui_updates = 0
 last_draw_time = 0
@@ -438,10 +548,7 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
                 text = trim_numbers(obj[4]) if round_numbers else "{:,.0f}".format(obj[4])
                 row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
             if show_ms:
-                modifier_times = obj[5]
-                # if modifier_times >= 0.5:
-                #     row.alert = True
-                text = time_to_string(modifier_times, compact=properteries_panel)
+                text = time_to_string(obj[5], compact=properteries_panel)
                 row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
             
             #add reached max list length warning
@@ -454,7 +561,6 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
         # print(time.time() - start)
 
     last_draw_time = time.time() - draw_time
-    
 class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
     bl_label = "Polycount List"
     bl_idname = "KEYOPS_PT_poly_count_list_panel"
@@ -573,7 +679,7 @@ class POLYCOUNT_PT_AutoUpdate_Settings(bpy.types.Panel):
 class POLYCOUNT_OT_refresh(bpy.types.Operator):
     bl_idname = "keyops.polycount_user_interaction"
     bl_label = "Show polycount in Scene properties panel"
-    bl_description = "Object Name"
+    bl_description = "Sort"
     make_active: StringProperty(default="") # type: ignore
     poly_sort: EnumProperty(
         items=[
@@ -644,115 +750,11 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class PolyCountProperties(PropertyGroup):
-    polycount_use_selection_only: BoolProperty(  # type: ignore
-        name="Use selected only",
-        description="Compute stats only for selected objects",
-        default=False
-    )
-    auto_update_polycount: BoolProperty(  # type: ignore
-        name="Auto Update",
-        description="Auto update the list, might be slow in big scenes",
-        default=True
-    )
-    filter_list_show: EnumProperty(  # type: ignore
-        name="List Show",
-        description="Show",
-        items=[
-            ('TRIS', "", "Tris", 'MESH_DATA', 1),
-            ('VERT', "", "Vert", 'VERTEXSEL', 2),
-            ('EDGE', "", "Edge", 'EDGESEL', 4),
-            ('FACE', "", "Face", 'FACESEL', 8),
-            ('MS', "", "Show Object Modifier Execution Time", 'MODIFIER', 16)
-        ],
-        options={'ENUM_FLAG'},
-        default={'TRIS', 'VERT', 'MS'}
-    )
-    show_total_tris: BoolProperty(  # type: ignore
-        name="Show Total Tris",
-        description="Show Total Tris in the list",
-        default=True
-    )
-    filter_by: EnumProperty(  # type: ignore
-        name="Filter",
-        description="Filter",
-        items=[
-            ('ALL', "All", "", 'NONE', 0),
-            ('VISIBLE', "Visible", "", 'HIDE_OFF', 1),
-            ('COLLECTION', "Collection", "", '', 2)
-        ],
-        default='ALL'
-    )
-    my_collection: PointerProperty(name="Collection",type=bpy.types.Collection)  # type: ignore
-    child_collection: BoolProperty(name="Child", default=False, description="Show all objects in collections that are children of the current selected collection")  # type: ignore
-    show_collection_instances: BoolProperty(  # type: ignore
-        name="Collection Instances",
-        description="Show collection instances",
-        default=False
-    )
-    round_numbers: BoolProperty(  # type: ignore
-        name="Round Numbers",
-        description="Round the numbers, slower, but more readable",
-        default=True
-    )
-    show_only_enabled_collections: BoolProperty(  # type: ignore
-        name="Show Only Enabled Collections",
-        description="Show only enabled collections",
-        default=True
-    )
-    show_obj_type: BoolProperty(  # type: ignore
-        name="Show Object Type",
-        description="Warning: Slow in big scenes, shows the icon of the object type",
-        default=True
-    )
-    max_list_length: IntProperty(  # type: ignore
-        name="Max List Length",
-        description="Maximum number of objects to show in the list",
-        default=150,
-        min=1
-    )
-    update_rate: IntProperty(  # type: ignore
-        name="Update Rate",
-        description="Update rate",
-        default=1,
-        min=1
-    )
-    show_draw_time: BoolProperty(  # type: ignore
-        name="Show Draw Time",
-        description="Show the time it took to draw the list",
-        default=True
-    )
+def trim_numbers(number):
+    if number < 1000:
+        return str(number)
+    elif number < 1000000:
+        return "{:.1f}k".format(number / 1000)
+    else:
+        return "{:.1f}m".format(number / 1000000)
 
-classes = [PolyCountProperties, 
-           KEYOPS_PT_poly_count_list_scene_panel, 
-           POLYCOUNT_OT_refresh, 
-           POLYCOUNTILST_PT_Settings]
-
-class PolyCountList(bpy.types.Operator):
-    bl_idname = "keyops.poly_count_list"
-    bl_label = "Poly Count List"
-    bl_description = "Refresh the polycount list, only needed if auto update is off"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        global polycount, list_cache
-        list_cache.clear()
-        polycount.clear()
-        get_poly_count(context)
-        return {'FINISHED'}
-    
-    def register():
-        for cls in classes:
-            bpy.utils.register_class(cls)
-        
-        bpy.types.Scene.polycount_props = PointerProperty(type=PolyCountProperties)
-        bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
-
-    def unregister():
-        for cls in classes:
-            bpy.utils.unregister_class(cls)
-        
-        del bpy.types.Scene.polycount_props
-        
-        if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)

@@ -179,6 +179,8 @@ class NewToolkitPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Toolkit'
+    if BLENDER_VERSION >= (5,2,0):
+        bl_icon_value = get_icon("K")
 
     @classmethod
     def poll(cls, context):

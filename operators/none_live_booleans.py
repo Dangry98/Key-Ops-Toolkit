@@ -178,7 +178,7 @@ class ENTERING_TRANSFORM_OT_None_Live_Booleans(bpy.types.Operator):
             booleon_cutter_info_dict = find_boolean_relationships()
             
             for cutting_object, links in booleon_cutter_info_dict.items():
-                for link in links:
+                # for link in links:
                     # hide the cutter object
                     cutting_object.hide_set(True)
                     cutting_object.select_set(False)

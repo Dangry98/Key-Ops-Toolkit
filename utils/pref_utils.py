@@ -98,7 +98,9 @@ def register_icons():
         if i.endswith(".png"):
             iconname = i[:-4]
             filepath = os.path.join(path, i)
-            icons.load(iconname, filepath, 'IMAGE')
+            icon_test = icons.load(iconname, filepath, 'IMAGE')
+            if iconname == "K":
+                hacky_icon_fix = str(icon_test.icon_pixels) # reliable hack to fix diseparing icons bug, weird this works?
     return icons
 
 def unregister_icons(icons):
@@ -110,6 +112,6 @@ def get_icon(name):
     global icons
 
     if not icons:
-        from .. import icons
+        icons = register_icons()
     
     return icons[name].icon_id
