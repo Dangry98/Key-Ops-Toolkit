@@ -32,6 +32,7 @@ def toggle_visibility(context, new_index, start=False, dont_hide_last=False):
     global boolean_objects, boolean_index, start_active_obj_booleon_scroll
     
     boolean_index = new_index
+    force_show_objs = []
     for i, obj in enumerate(boolean_objects):
         if obj:
             if (i != new_index):
@@ -40,7 +41,10 @@ def toggle_visibility(context, new_index, start=False, dont_hide_last=False):
                 if obj.select_get():
                     obj.select_set(False)
             else:
-                force_show_obj(context, obj, select=True)
+                force_show_objs.append(obj)
+
+    if force_show_objs:
+        force_show_obj(force_show_objs, select=True)
 
     # set active modifier to the new index
     if start_active_obj_booleon_scroll:
@@ -133,9 +137,7 @@ class BooleanScroll(bpy.types.Operator):
             return {'CANCELLED'}
         
         elif event.type == 'H' and event.value == 'PRESS' and event.alt:
-            for obj in boolean_objects:
-                if obj:
-                    force_show_obj(context, obj, select=True)
+            force_show_obj(boolean_objects, select=True)
             boolean_scroll_done(context)
             return {'FINISHED'}
         
@@ -771,7 +773,6 @@ class AddModifierModal(bpy.types.Operator):
     def modal(self, context, event):
         amount_x = -0.005
         if event.shift:
-            print("Shift")
             amount_x = -0.001
             
         if event.type == 'MOUSEMOVE':

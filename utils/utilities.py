@@ -13,23 +13,57 @@ def get_obj_evaluated_data(obj, depsgraph=None):
     m = eval_obj.to_mesh()
     return m
 
-def force_show_obj(context, obj, select=True):
-    obj_collection = obj.users_collection[0]
 
-    if obj_collection.hide_viewport == True or context.view_layer.layer_collection.children[obj_collection.name].hide_viewport == True:
-        obj_collection.hide_viewport = False
-        context.view_layer.layer_collection.children[obj_collection.name].hide_viewport = False
-        for obj in obj_collection.objects:
-            if not obj.hide_get():
-                obj.hide_set(True)
+def get_layer_collection_by_name(name, _layer_collection=None): # function from https://b3d.interplanety.org/en/enabling-and-disabling-collections-by-object/
+    if _layer_collection is None:
+        _layer_collection = bpy.context.view_layer.layer_collection
+    if _layer_collection.name == name:
+        return _layer_collection
+    else:
+        for l_col in _layer_collection.children:
+            if rez := get_layer_collection_by_name(name=name, _layer_collection=l_col):
+                return rez
+
+def get_is_in_local_view(): 
+    local_view = False   
+    active_view_3d = None
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            active_view_3d = area.spaces.active
+            if active_view_3d.local_view:
+                local_view = True
+                break
+    return local_view, active_view_3d
+
+def force_show_obj(objs, select=True):
+    for obj in objs:
+        for col in obj.users_collection:
+            l_col = get_layer_collection_by_name(col.name)
+            if l_col.exclude == True or l_col.hide_viewport == True:
+                l_col.exclude = False
+                l_col.hide_viewport = False
+                for obj in col.objects:
+                    if obj.hide_get:
+                        obj.hide_set(True)
+                        
+    is_isolate_mode, active_view_3d = get_is_in_local_view()
     
-    if obj.hide_set:
-        obj.hide_set(False)
-    if obj.hide_viewport:
-        obj.hide_viewport = False
-    if select:
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
+    selected_objs = []
+    for obj in objs:
+        if obj.hide_set:
+            obj.hide_set(False)
+        if obj.hide_viewport:
+            obj.hide_viewport = False
+
+        if select:
+            obj.select_set(select)
+            selected_objs.append(obj)
+
+        if is_isolate_mode:
+            if not obj.local_view_get(active_view_3d):
+                (obj.local_view_set(active_view_3d, True))
+
+    return selected_objs
 
 def get_obj_coords(obj, depsgraph=None, worldspace=True):
     if obj.mode == "EDIT":

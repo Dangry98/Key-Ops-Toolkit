@@ -1053,7 +1053,7 @@ class ToolkitPanel(bpy.types.Operator):
         bpy.utils.register_class(BooleanScroll)
         bpy.types.Scene.vertex_color = bpy.props.FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))
         # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
-        bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, update=toggle_realtime_booleans)
+        bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
         bpy.context.window_manager.live_booleans = True
     def unregister():
         # bpy.utils.unregister_class(ObjectModePanel)
