@@ -551,7 +551,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_viewport_menu: BoolProperty(name="Viewport Menu", default=True, update=enable_deco("viewport_menu")) # type: ignore
 
     #prefs settings variables
-    maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=True, update= update_tablet_navigation) # type: ignore 
+    maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update= update_tablet_navigation) # type: ignore 
     maya_navigation_sculpt_navigation: BoolProperty(name="Sculpt", description="Use both Mask and Alt navigation in Sculpt mode, mask is used if mouse is over model, otherwise alt navigation is used.", default=True, update= update_sculpt_navigation) # type: ignore 
     auto_delete_dissolv_edge: BoolProperty(name="Dissolve Edge", default=False, description="Dissolve Edge in Edge Mode ") # type: ignore
     auto_delete_confirm_object_mode: BoolProperty(name="Confirm on X in Object Mode", description="Confirm Delete in Object Mode on the X key", default=False, update= update_auto_delete_confirm_delete) # type: ignore
