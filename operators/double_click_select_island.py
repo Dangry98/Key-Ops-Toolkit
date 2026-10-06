@@ -1,9 +1,52 @@
 import bpy
 import bpy.types
 import bmesh
+from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import BLENDER_VERSION
 
 first_invoked = True
+registered_double_click_select_island_keymaps = []
+
+def register_double_click_select_island_keymaps():
+    global registered_double_click_select_island_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK')
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK', shift=True)
+    kmi.properties.deselect = False
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK', ctrl=True)
+    kmi.properties.deselect = True
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.select_edge_loop', 'LEFTMOUSE', 'DOUBLE_CLICK')
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.select_edge_loop', 'LEFTMOUSE', 'DOUBLE_CLICK', shift=True)
+    registered_double_click_select_island_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='UV Editor', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK')
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK', shift=True)
+    kmi.properties.extend = True
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK', ctrl=True)
+    kmi.properties.deselect = True
+    registered_double_click_select_island_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Curve', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.double_click_select_island', 'LEFTMOUSE', 'DOUBLE_CLICK')
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('curve.select_linked', 'LEFTMOUSE', 'DOUBLE_CLICK', shift=True)
+    registered_double_click_select_island_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('curve.select_linked_pick', 'LEFTMOUSE', 'DOUBLE_CLICK', ctrl=True)
+    kmi.properties.deselect = True
+    registered_double_click_select_island_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Curves', space_type='EMPTY')
+    kmi = km.keymap_items.new('curves.select_linked', 'LEFTMOUSE', 'DOUBLE_CLICK')
+    registered_double_click_select_island_keymaps.append((km, kmi))
 
 class DoubleClickSelectIsland(bpy.types.Operator):
     bl_idname = "keyops.double_click_select_island"
@@ -194,10 +237,14 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
         return {'FINISHED'}
     
-    def register():
-        bpy.utils.register_class(SelectEdgeLoop)
-    def unregister():
-        bpy.utils.unregister_class(SelectEdgeLoop)
+def register_double_click_select_island():
+    bpy.utils.register_class(DoubleClickSelectIsland)
+    bpy.utils.register_class(SelectEdgeLoop)
+    register_double_click_select_island_keymaps()
+def unregister_double_click_select_island():
+    clear_registered_keymaps(registered_double_click_select_island_keymaps)
+    bpy.utils.unregister_class(DoubleClickSelectIsland)
+    bpy.utils.unregister_class(SelectEdgeLoop)
 class SelectEdgeLoop(bpy.types.Operator):
     bl_idname = "keyops.select_edge_loop"
     bl_label = "KeyOps: Select Edge Loop"

@@ -1,6 +1,22 @@
 import bpy
+from ..utils.pref_utils import clear_registered_keymaps
 
 previes_shading_types_settings = []
+registered_viewport_menu_keymaps = []
+
+def register_viewport_menu_keymaps():
+    global registered_viewport_menu_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('wm.call_menu', 'V', 'PRESS', alt=True)
+    kmi.properties.name = 'VIEW3D_MT_viewport_menu'
+    registered_viewport_menu_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu', 'V', 'PRESS', alt=True)
+    kmi.properties.name = 'VIEW3D_MT_viewport_menu'
+    registered_viewport_menu_keymaps.append((km, kmi))
 
 class ViewportMenu(bpy.types.Operator):
     bl_idname = "keyops.viewport_menu"
@@ -72,10 +88,14 @@ class ViewportMenu(bpy.types.Operator):
                 previes_shading_types_settings = []
         return {'FINISHED'}
         
-    def register():
-        bpy.utils.register_class(VIEW3D_MT_viewport_menu)
-    def unregister():
-        bpy.utils.unregister_class(VIEW3D_MT_viewport_menu)
+def register_viewport_menu():
+    bpy.utils.register_class(ViewportMenu)
+    bpy.utils.register_class(VIEW3D_MT_viewport_menu)
+    register_viewport_menu_keymaps()
+def unregister_viewport_menu():
+    clear_registered_keymaps(registered_viewport_menu_keymaps)
+    bpy.utils.unregister_class(ViewportMenu)
+    bpy.utils.unregister_class(VIEW3D_MT_viewport_menu)
 
 class VIEW3D_MT_viewport_menu(bpy.types.Menu):
     bl_label = "Viewport Overlays"

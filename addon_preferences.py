@@ -1,5 +1,4 @@
 import bpy
-from .utils.register_extensions import enable_extension
 from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
 from .utils.pref_utils import get_addon_name, get_is_addon_enabled, draw_keymap
 from .operators.maya_navigation import update_tablet_navigation, update_sculpt_navigation
@@ -102,7 +101,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 elif property_name:
                     row.prop(self, property_name)
                 if link:
-                    row.operator("wm.url_open", text=label, emboss=False).url = link    
+                    if bpy.app.version >= (5, 2, 0):
+                        row.link(url=link, text=label)
+                    else:
+                        row.operator("wm.url_open", text=label, emboss=False).url = link    
                 else:
                     row.label(text=label)
             if section_label != "Toolkit":
@@ -131,6 +133,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
                              ]
             draw_section(b, "Toolkit", Game_Art_Toolkit)
+            
+            Tools = [("Maya like Target Weld Tool", "enable_merge_tool", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#de4f361b488740f8b06e76d7f16532ab", 0),]
+            draw_section(b, "Tools", Tools)
 
             pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#778f4f17fb27436fa8eb83e89f19d2ae", 0),
                         ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#84cef3262de2491c8e7fa7644c472f27", 1),
@@ -364,7 +369,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         #     row.prop(self, "uv_tools_panel_name")
 
     def draw_keymaps(self, box):
-        from .classes_keymap_items import keymap_items
+        from .keymaps import keymap_items
         wm = bpy.context.window_manager
         kc = wm.keyconfigs.user
 
@@ -486,7 +491,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                         "VIEW_CAMERA_PIE",
                         "UV_U_PIE",
                         "UV_SPACE_PIE",
-                        "LEGACY_SHORTCUTS",
                         "UTILITY_PIE",
                         "UV_PIES"]
 
@@ -509,12 +513,13 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                     drawn = True
         return drawn
 
-
     def enable_deco(extension):
         def update_enable(self, context):
-            enable_extension(self, register=getattr(self, f"enable_{extension}"), extension=extension)
+            from . import extension_register_unregister
+            is_set_to_enalbe = getattr(self, f"enable_{extension}")
+            extension_register_unregister(extension, is_set_to_enalbe)
         return update_enable
-    
+
     if get_is_addon_enabled ("PolyQuilt_Fork"):
         default_retology_tool = "mesh_tool.poly_quilt"
         toggle_retopology_default = True
@@ -523,32 +528,33 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         #default_retology_tool = "builtin.select_box"
         toggle_retopology_default = True
 
-    enable_auto_delete: BoolProperty(name="Auto Delete", default=True, update=enable_deco("auto_delete")) # type: ignore
-    enable_toggle_retopology: BoolProperty(name="Retopology", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
-    enable_maya_pivot: BoolProperty(name="Maya Pivot", default=True, update=enable_deco("maya_pivot")) # type: ignore
-    enable_maya_navigation: BoolProperty(name="Alt Navigation", description="Adds Navigation that works like in Maya", default=True, update=enable_deco("maya_navigation")) # type: ignore
-    enable_double_click_select_island: BoolProperty(name="Select Island", description="Double Click to Select Mesh Island/Element", default=True, update=enable_deco("double_click_select_island")) # type: ignore
-    enable_uv_tools: BoolProperty(name="UV Tools", default=True, update=enable_deco("uv_tools")) # type: ignore
-    enable_uv_pies: BoolProperty(name="UV Pies", default=False, update=enable_deco("uv_pies")) # type: ignore
-    enable_utility_pie: BoolProperty(name="Utility Pie", default=False, update=enable_deco("utility_pie")) # type: ignore
-    enable_add_objects_pie: BoolProperty(name="Add Objects Pie", default=not get_is_addon_enabled ("Non_Destructive_Primitives"), update=enable_deco("add_objects_pie")) # type: ignore
-    enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
-    enable_legacy_shortcuts: BoolProperty(name="Shortcuts", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
-    enable_workspace_pie: BoolProperty(name="Workspace Pie", default=False, update=enable_deco("workspace_pie")) # type: ignore
-    enable_cursor_pie: BoolProperty(name="Cursor Pie", default=True, update=enable_deco("cursor_pie")) # type: ignore
-    enable_fast_merge: BoolProperty(name="Merge/Connect", default=True, update=enable_deco("fast_merge")) # type: ignore
-    enable_modi_key: BoolProperty(name="Modifier Key", default=True, update=enable_deco("modi_key")) # type: ignore
-    enable_cad_decimate: BoolProperty(name="CAD Decimate", default=True, update=enable_deco("cad_decimate"))     # type: ignore
-    enable_auto_lod: BoolProperty(name="Auto LOD", default=True, update=enable_deco("auto_lod")) # type: ignore
-    enable_quick_bake_name: BoolProperty(name="Quick Bake Name", default=True, update=enable_deco("quick_bake_name")) # type: ignore
-    enable_polycount_list: BoolProperty(name="Polycount List", default=True, update=enable_deco("polycount_list")) # type: ignore
-    enable_toolkit_panel: BoolProperty(name="Object Toolkit", default=True, update=enable_deco("toolkit_panel")) # type: ignore
+    enable_auto_delete: BoolProperty(name="Auto Delete", description="Instant context-aware edit mode delete, no more menus.", default=True, update=enable_deco("auto_delete")) # type: ignore
+    enable_toggle_retopology: BoolProperty(name="Retopology", description="Toggle a retopology preset with overlay, snapping, tool, and theme settings along with tool.", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
+    enable_maya_pivot: BoolProperty(name="Maya Pivot", description="Maya-style pivot editing on D in Object Mode, including hold or toggle behavior.", default=True, update=enable_deco("maya_pivot")) # type: ignore
+    enable_maya_navigation: BoolProperty(name="Alt Navigation", description="Maya-style Alt navigation in 3D view and editors.", default=True, update=enable_deco("maya_navigation")) # type: ignore
+    enable_double_click_select_island: BoolProperty(name="Select Island", description="Double-click to selected linked island in mesh, UV, and curve objects.", default=True, update=enable_deco("double_click_select_island")) # type: ignore
+    enable_uv_tools: BoolProperty(name="UV Tools", description="Add UV workflow operators and shortcuts like Smart UV Sync, UV Cut, unwrap, and packing helpers.", default=True, update=enable_deco("uv_tools")) # type: ignore
+    enable_uv_pies: BoolProperty(name="UV Pies", description="UV pie menus on Q and Space in the UV editor for fast unwrap and island actions.", default=False, update=enable_deco("uv_pies")) # type: ignore
+    enable_utility_pie: BoolProperty(name="Utility Pie", description="Utility pie menu on U in object and edit mode for common mesh and UV actions.", default=False, update=enable_deco("utility_pie")) # type: ignore
+    enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=not get_is_addon_enabled ("Non_Destructive_Primitives"), update=enable_deco("add_objects_pie")) # type: ignore
+    enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
+    enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", description="Restore useful legacy-inspired modeling and UV shortcuts from older Blender versions.", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
+    enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore
+    enable_cursor_pie: BoolProperty(name="Cursor Pie", description="A better cursor and origin snapping pie menu on Shift+S.", default=True, update=enable_deco("cursor_pie")) # type: ignore
+    enable_fast_merge: BoolProperty(name="Merge/Connect", description="Fast merge and connect shortcuts in edit mode with smart nearest or active vertex behavior. Use with 1 and Shift 1.", default=True, update=enable_deco("fast_merge")) # type: ignore
+    enable_merge_tool: BoolProperty(name="Merge Tool", description="Maya like target weld merge tool for vertices and edges.", default=True, update=enable_deco("merge_tool")) # type: ignore
+    enable_modi_key: BoolProperty(name="Modifier Key", description="New Keyboard shortcuts in the modifiers tab for reordering, toggling, applying, modifier status, and deleting modifiers etc.", default=True, update=enable_deco("modi_key")) # type: ignore
+    enable_cad_decimate: BoolProperty(name="CAD Decimate", description="CAD decimation operators and UI for export, decimate, and import workflows on heavy meshes.", default=True, update=enable_deco("cad_decimate"))     # type: ignore
+    enable_auto_lod: BoolProperty(name="Auto LOD", description="Automatic LOD generation tools that create decimated LOD chains from selected meshes.", default=True, update=enable_deco("auto_lod")) # type: ignore
+    enable_quick_bake_name: BoolProperty(name="Quick Bake Name", description="Quick high and low bake naming tools.", default=True, update=enable_deco("quick_bake_name")) # type: ignore
+    enable_polycount_list: BoolProperty(name="Polycount List", description="A list with all objects and their poly count along with how long it takes to calculate each object's modifiers", default=True, update=enable_deco("polycount_list")) # type: ignore
+    enable_toolkit_panel: BoolProperty(name="Object Toolkit", description="Object toolkit Panel.", default=True, update=enable_deco("toolkit_panel")) # type: ignore
     # enable_editmode_toolkit_panel: BoolProperty(name="EditMode Toolkit", default=True, update=enable_deco("editmode_toolkit_panel")) # type: ignore
-    enable_quick_export: BoolProperty(name="Quick Export", default=True, update=enable_deco("quick_export")) # type: ignore
-    enable_atri_op: BoolProperty(name="Atributes Operations", default=True, update=enable_deco("atri_op")) # type: ignore
-    enable_material_index: BoolProperty(name="Material Utils", default=True, update=enable_deco("material_index")) # type: ignore
-    enable_outliner_options: BoolProperty(name="Outliner Options", default=True, update=enable_deco("outliner_options")) # type: ignore
-    enable_viewport_menu: BoolProperty(name="Viewport Menu", default=True, update=enable_deco("viewport_menu")) # type: ignore
+    enable_quick_export: BoolProperty(name="Quick Export", description="Ctrl+E quick export selected objects. If collections are named low... or high... it will export to a bake folder.", default=True, update=enable_deco("quick_export")) # type: ignore
+    enable_atri_op: BoolProperty(name="Atributes Operations", description="Face, edge and vert group operations for managing attributes in edit mode.", default=True, update=enable_deco("atri_op")) # type: ignore
+    enable_material_index: BoolProperty(name="Material Utils", description="Material utils operations.", default=True, update=enable_deco("material_index")) # type: ignore
+    enable_outliner_options: BoolProperty(name="Outliner Options", description="Extra outliner options like auto focus.", default=True, update=enable_deco("outliner_options")) # type: ignore
+    enable_viewport_menu: BoolProperty(name="Viewport Menu", description="Alt+V viewport overlay menu with quick toggles and silhouette mode.", default=True, update=enable_deco("viewport_menu")) # type: ignore
 
     #prefs settings variables
     maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update= update_tablet_navigation) # type: ignore 

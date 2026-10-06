@@ -1,6 +1,7 @@
 import bpy.types, math, ctypes, mathutils, os
 from mathutils import Matrix
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
 from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 from bpy.types import (GizmoGroup)
 from bpy_extras.view3d_utils import location_3d_to_region_2d
@@ -11,6 +12,29 @@ previuse_gizmo_visibility_states = None
 previuse_ortiation_and_pivot_point = None
 previuse_gizmo_translate_state = None
 OS = os.name
+registered_maya_pivot_keymaps = []
+
+def register_maya_pivot_keymaps():
+    global registered_maya_pivot_keymaps
+    wm = bpy.context.window_manager
+
+    km_obj = wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY')
+    kmi = km_obj.keymap_items.new('keyops.pivot_press', 'D', 'PRESS')
+    kmi.properties.type = 'PivotPress'
+    registered_maya_pivot_keymaps.append((km_obj, kmi))
+
+    kmi = km_obj.keymap_items.new('keyops.pivot_press', 'D', 'RELEASE')
+    kmi.properties.type = 'PivotRelease'
+    registered_maya_pivot_keymaps.append((km_obj, kmi))
+
+    km_mesh = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km_mesh.keymap_items.new('keyops.pivot_press', 'D', 'PRESS')
+    kmi.properties.type = 'PivotPress'
+    registered_maya_pivot_keymaps.append((km_mesh, kmi))
+
+    kmi = km_mesh.keymap_items.new('keyops.pivot_press', 'D', 'RELEASE')
+    kmi.properties.type = 'PivotRelease'
+    registered_maya_pivot_keymaps.append((km_mesh, kmi))
         
 def toggle_oriantation_and_pivot_point(context, set=False):
     global previuse_ortiation_and_pivot_point
@@ -272,20 +296,24 @@ class PivotPress(bpy.types.Operator):
                     return {'PASS_THROUGH'}
         return {'FINISHED'}
 
-    def register():
-        bpy.utils.register_class(MayaPivotGizmoGroup)
-        bpy.utils.register_class(ResetButton)
-        bpy.utils.register_class(GizmoMayaPivotTransform)
-        bpy.types.WindowManager.show_3d_gizmo = bpy.props.BoolProperty(
-            name="Pivot Gizmo",
-            description="Show 3D Cursor Gizmo",
-            default=False)
+def register_maya_pivot():
+    bpy.utils.register_class(PivotPress)
+    bpy.utils.register_class(MayaPivotGizmoGroup)
+    bpy.utils.register_class(ResetButton)
+    bpy.utils.register_class(GizmoMayaPivotTransform)
+    register_maya_pivot_keymaps()
+    bpy.types.WindowManager.show_3d_gizmo = bpy.props.BoolProperty(
+        name="Pivot Gizmo",
+        description="Show 3D Cursor Gizmo",
+        default=False)
 
-    def unregister():
-        bpy.utils.unregister_class(MayaPivotGizmoGroup)
-        bpy.utils.unregister_class(ResetButton)
-        bpy.utils.unregister_class(GizmoMayaPivotTransform)
-        del bpy.types.WindowManager.show_3d_gizmo
+def unregister_maya_pivot():
+    clear_registered_keymaps(registered_maya_pivot_keymaps)
+    bpy.utils.unregister_class(PivotPress)
+    bpy.utils.unregister_class(MayaPivotGizmoGroup)
+    bpy.utils.unregister_class(ResetButton)
+    bpy.utils.unregister_class(GizmoMayaPivotTransform)
+    del bpy.types.WindowManager.show_3d_gizmo
 
 class GizmoMayaPivotTransform(bpy.types.Operator):
     bl_description = "Rotate Pivot"

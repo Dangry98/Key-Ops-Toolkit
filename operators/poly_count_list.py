@@ -315,32 +315,34 @@ class PolyCountList(bpy.types.Operator):
         get_poly_count(context)
         return {'FINISHED'}
     
-    def register():
-        bpy.utils.register_class(PolyCountProperties)
-        bpy.types.Scene.polycount_props = PointerProperty(type=PolyCountProperties)
+def register_polycount_list():
+    bpy.utils.register_class(PolyCountList)
+    bpy.utils.register_class(PolyCountProperties)
+    bpy.types.Scene.polycount_props = PointerProperty(type=PolyCountProperties)
 
-        bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
-        bpy.utils.register_class(POLYCOUNT_OT_refresh)
-        bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
-        # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
+    bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
+    bpy.utils.register_class(POLYCOUNT_OT_refresh)
+    bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
+    # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
-        bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
-        # bpy.app.handlers.depsgraph_update_pre.append(get_obj_lookup_cache)
+    bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
+    # bpy.app.handlers.depsgraph_update_pre.append(get_obj_lookup_cache)
 
-    def unregister():
-        bpy.utils.unregister_class(PolyCountProperties)
-        del bpy.types.Scene.polycount_props
+def unregister_polycount_list():
+    bpy.utils.unregister_class(PolyCountList)
+    bpy.utils.unregister_class(PolyCountProperties)
+    del bpy.types.Scene.polycount_props
 
-        bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
-        bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
-        bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
-        # bpy.utils.unregister_class(POLYCOUNT_PT_AutoUpdate_Settings)
+    bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
+    bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
+    bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
+    # bpy.utils.unregister_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
-        if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)
+    if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)
 
-        # if get_obj_lookup_cache in bpy.app.handlers.depsgraph_update_pre:
-        #     bpy.app.handlers.depsgraph_update_pre.remove(get_obj_lookup_cache)
+    # if get_obj_lookup_cache in bpy.app.handlers.depsgraph_update_pre:
+    #     bpy.app.handlers.depsgraph_update_pre.remove(get_obj_lookup_cache)
 
 ui_updates = 0
 last_draw_time = 0

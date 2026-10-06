@@ -1,5 +1,5 @@
 import bpy
-
+from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR
 class AutoSmooth(bpy.types.Operator):
     """Set auto smooth on selected objects"""
     bl_idname = "keyops.auto_smooth"
@@ -79,8 +79,13 @@ class AutoSmooth(bpy.types.Operator):
                     if self.move_to_bottom:
                         if obj.modifiers[-1].name != "!!Auto Smooth":
                             obj.modifiers.move(obj.modifiers.find("!!Auto Smooth"), len(obj.modifiers)-1)
-                    context.object.modifiers["!!Auto Smooth"]["Socket_2"] = self.angle
-                    context.object.modifiers["!!Auto Smooth"]["Socket_3"] = self.ignore_sharp
+
+                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        context.object.modifiers["!!Auto Smooth"].properties.inputs.Socket_2.value = self.angle
+                        context.object.modifiers["!!Auto Smooth"].properties.inputs.Socket_3.value = self.ignore_sharp
+                    else:
+                        context.object.modifiers["!!Auto Smooth"]["Socket_2"] = self.angle
+                        context.object.modifiers["!!Auto Smooth"]["Socket_3"] = self.ignore_sharp
 
                     if "Smooth by Angle" in [m.name for m in obj.modifiers]:
                         obj.modifiers.remove(obj.modifiers.get("Smooth by Angle"))

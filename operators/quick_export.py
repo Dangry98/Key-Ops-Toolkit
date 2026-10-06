@@ -1,12 +1,22 @@
 import bpy
 import os
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
 
 """""
 TODO:
 add more filetypes, settings and rules what should be exported
 skip objects that has wire shading mode, to not export out booleons
 """
+
+registered_quick_export_keymaps = []
+
+def register_quick_export_keymaps():
+    global registered_quick_export_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('keyops.quick_export', 'E', 'PRESS', ctrl=True)
+    registered_quick_export_keymaps.append((km, kmi))
 
 class QuickExport(bpy.types.Operator):
     bl_idname = "keyops.quick_export"
@@ -82,7 +92,12 @@ class QuickExport(bpy.types.Operator):
             bpy.ops.wm.alembic_export(filepath=export_path, selected=self.selected, global_scale=self.scale)
         return {'FINISHED'}
 
-    
+def register_quick_export():
+    bpy.utils.register_class(QuickExport)
+    register_quick_export_keymaps()
+def unregister_quick_export():
+    clear_registered_keymaps(registered_quick_export_keymaps)
+    bpy.utils.unregister_class(QuickExport)
 #     def register():
 #         bpy.utils.register_class(QuickExportPanel)
 #     def unregister():

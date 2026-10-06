@@ -1,11 +1,22 @@
 import bpy.types, bmesh
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
 from bpy.types import Menu
 
 """
 TODO:
 Add Support for Custom Meshes from .blend, fbx and bpy.ops
 """
+
+registered_add_objects_pie_keymaps = []
+
+def register_add_objects_pie_keymaps():
+    global registered_add_objects_pie_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'A', 'PRESS', shift=True, alt=True)
+    kmi.properties.name = 'KEYOPS_MT_add_objects_pie_menu'
+    registered_add_objects_pie_keymaps.append((km, kmi))
 
 def calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0):
     prefs = get_keyops_prefs()
@@ -88,6 +99,15 @@ def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_rel
 
 
 def AddQuadSphere(context, scale, use_relative_scale, scale_relative_float, scale_property, sub_amount, use_modifiers):
+    if bpy.app.version >= (5, 3, 0):
+        if bpy.context.mode == 'EDIT_MESH':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        bpy.ops.object.select_all(action='DESELECT')
+        scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0) *0.5
+        bpy.ops.mesh.primitive_quad_sphere_add(radius=scale, align='WORLD', location=context.scene.cursor.location, segments=sub_amount)
+        return
+
     if bpy.context.mode == 'EDIT_MESH':
         bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -172,15 +192,6 @@ def Add_Blend(context, scale, use_relative_scale, scale_relative_float, scale_pr
         bpy.context.scene.collection.objects.link(obj)
         obj.select_set(True)
         context.view_layer.objects.active = obj
-    
-def Add_Custom(context, scale, use_relative_scale, scale_relative_float, scale_property):
-    scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0)
-    prefs = get_keyops_prefs()
-    
-    op = prefs.add_object_pie_bpy_ops
-
-    exec(op)
-    #obj.scale = (scale,scale,scale)
 
 class AddMesh(bpy.types.Operator):
     bl_description = "Add a mesh"
@@ -207,7 +218,10 @@ class AddMesh(bpy.types.Operator):
     use_relative_scale: bpy.props.BoolProperty(name="Relative Scale", default=prefs.add_object_pie_use_relative) #type:ignore
     scale_relative_float: bpy.props.FloatProperty(name="Scale", default=prefs.add_object_pie_relative_scale, min=1.0, max=25.0, description="Relative scale of the mesh") #type:ignore
     segment_amount: bpy.props.IntProperty(name="Segments", default=32, min=3, max=256, description="Amount of segments the cylinder has") #type:ignore
-    sub_amount: bpy.props.IntProperty(name="Subdive Amount", default=4, min=1, max=6) #type:ignore
+    if bpy.app.version >= (5, 3, 0):
+        sub_amount: bpy.props.IntProperty(name="Subdive Amount", default=4, min=2, max=200) #type:ignore
+    else:
+        sub_amount: bpy.props.IntProperty(name="Subdive Amount", default=4, min=1, max=6) #type:ignore
     use_modifiers: bpy.props.BoolProperty(name="Use Modifiers", default=True) #type:ignore
     Vertices: bpy.props.IntProperty(name="Vertices",default=32,min=3,max=256, description="Amount of vertices the circle has") #type:ignore
     rings_count: bpy.props.IntProperty(name="Rings", default=16, min=3, max=256, description="Amount of rings the sphere has")  #type:ignore
@@ -218,9 +232,11 @@ class AddMesh(bpy.types.Operator):
             layout.label(text="Modifier Cylinder", icon="MOD_SCREW")
             layout.prop(self, "segment_amount")
         elif self.mesh_type == "QUADSPHERE":
-            layout.label(text="Quad Sphere", icon="MESH_UVSPHERE")
+            quad_icon = "MESH_QUADSPHERE" if bpy.app.version >= (5, 3, 0) else "MESH_UVSPHERE"
+            layout.label(text="Quad Sphere", icon=quad_icon)
+            if bpy.app.version < (5, 3, 0):
+                layout.prop(self, "use_modifiers")
             layout.prop(self, "sub_amount")
-            layout.prop(self, "use_modifiers")
         elif self.mesh_type == "CUBE":
             layout.label(text="Cube", icon="MESH_CUBE")
         elif self.mesh_type == "PLANE":
@@ -270,10 +286,16 @@ class AddMesh(bpy.types.Operator):
         elif self.mesh_type == "BLEND":
             Add_Blend(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         return {'FINISHED'}
-    def register():
-        bpy.utils.register_class(AddObjectsPie)
-    def unregister():
-        bpy.utils.unregister_class(AddObjectsPie)
+    
+def register_add_objects_pie():
+    bpy.utils.register_class(AddMesh)
+    bpy.utils.register_class(AddObjectsPie)
+    register_add_objects_pie_keymaps()
+
+def unregister_add_objects_pie():
+    clear_registered_keymaps(registered_add_objects_pie_keymaps)
+    bpy.utils.unregister_class(AddMesh)
+    bpy.utils.unregister_class(AddObjectsPie)
 
 class AddObjectsPie(Menu):
     bl_idname = "KEYOPS_MT_add_objects_pie_menu"
@@ -307,8 +329,10 @@ class AddObjectsPie(Menu):
             pie.operator("keyops.add_mesh", text=".blend", icon="BLENDER").mesh_type = "BLEND"  # RIGHT TOP
         if prefs.add_object_pie_Enum == "CUSTOM":
             pie.operator("keyops.add_mesh", text="Custom", icon="FILE_SCRIPT").mesh_type = "CUSTOM"  # RIGHT TOP
-             
-        pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_UVSPHERE").mesh_type = "QUADSPHERE"  # LEFT BOTTOM
-
+        
+        if bpy.app.version >= (5, 3, 0):
+            pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_QUADSPHERE").mesh_type = "QUADSPHERE"  # LEFT BOTTOM
+        else:
+            pie.operator("keyops.add_mesh", text="Quad Sphere", icon="MESH_UVSPHERE").mesh_type = "QUADSPHERE"  # LEFT BOTTOM
         pie.operator("keyops.add_mesh", text="Circle", icon="MESH_CIRCLE").mesh_type = "CIRCLE"  # RIGHT BOTTOM  
     

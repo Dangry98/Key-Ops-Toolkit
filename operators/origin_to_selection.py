@@ -1,5 +1,15 @@
 import bpy.types
 from bpy.types import Menu
+from ..utils.pref_utils import clear_registered_keymaps
+registered_cursor_pie_keymaps = []
+
+def register_cursor_pie_keymaps():
+    global registered_cursor_pie_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'S', 'PRESS', shift=True)
+    kmi.properties.name = 'KEYOPS_MT_cursor_pie'
+    registered_cursor_pie_keymaps.append((km, kmi))
 
 class OriginToSelection(bpy.types.Operator):
     bl_description = "Set the origin of the selected object to the center of its geometry or selection"
@@ -38,10 +48,14 @@ class OriginToSelection(bpy.types.Operator):
                 bpy.ops.ed.undo_push() # makes it so you return to edit mode after the operation on undo
             
         return {'FINISHED'}
-    def register():
-        bpy.utils.register_class(CursorPie)
-    def unregister():
-        bpy.utils.unregister_class(CursorPie)
+def register_cursor_pie():
+    bpy.utils.register_class(OriginToSelection)
+    bpy.utils.register_class(CursorPie)
+    register_cursor_pie_keymaps()
+def unregister_cursor_pie():
+    clear_registered_keymaps(registered_cursor_pie_keymaps)
+    bpy.utils.unregister_class(OriginToSelection)
+    bpy.utils.unregister_class(CursorPie)
 
 class CursorPie(Menu):
     bl_idname = "KEYOPS_MT_cursor_pie"

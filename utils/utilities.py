@@ -4,6 +4,7 @@ from mathutils import Matrix, Vector
 from .pref_utils import get_is_addon_enabled
 
 BLENDER_VERSION = bpy.app.version
+BLENDER_VERSION_MAJOR_POINT_MINOR = float(bpy.app.version_string[0:4].strip("."))
 
 def get_obj_evaluated_data(obj, depsgraph=None): 
     if not depsgraph:

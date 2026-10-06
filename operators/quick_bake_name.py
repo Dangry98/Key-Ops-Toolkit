@@ -197,12 +197,14 @@ class QuickBakeName(bpy.types.Operator):
                     obj.hide_set(True)
         return {'FINISHED'}
     
-    def register():
-        # bpy.utils.register_class(QuickBakeNamePanel)
-        bpy.utils.register_class(HideShowLowHigh)
-    def unregister():
-        # bpy.utils.unregister_class(QuickBakeNamePanel)
-        bpy.utils.unregister_class(HideShowLowHigh)
+def register_quick_bake_name():
+    bpy.utils.register_class(QuickBakeName)
+    # bpy.utils.register_class(QuickBakeNamePanel)
+    bpy.utils.register_class(HideShowLowHigh)
+def unregister_quick_bake_name():
+    bpy.utils.unregister_class(QuickBakeName)
+    # bpy.utils.unregister_class(QuickBakeNamePanel)
+    bpy.utils.unregister_class(HideShowLowHigh)
         
 class HideShowLowHigh(bpy.types.Operator):
     bl_idname = "keyops.hide_show_low_high"

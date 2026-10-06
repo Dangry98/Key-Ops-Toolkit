@@ -4,7 +4,9 @@ import tempfile
 import bmesh
 import math
 from ..resources.geometry_nodes_scripits import triplanar_uv_mapping_node_group
-from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
+from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed, BLENDER_VERSION_MAJOR_POINT_MINOR
+from .extrude_edge_along_normals import register_extrude_edge_along_normals, unregister_extrude_edge_along_normals
+from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
 
 # fix attribute toggle in edit mode/objet mode
 
@@ -173,57 +175,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
     def execute(self, context):
         if bpy.app.version >= (4, 1, 0): 
             prefs = get_keyops_prefs()
-            if self.type == "Triplanar_UV_Mapping":
-                active_object = bpy.context.active_object
-                if bpy.data.node_groups.get("Triplanar UV Mapping") is None:
-                    triplanar_uv_mapping_node_group()
-                for obj in bpy.context.selected_objects:
-                    if obj.type == 'MESH':         
-                        bpy.context.view_layer.objects.active = obj
-
-                        if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
-                            bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
-                            bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
-                    
-                        if obj.data.uv_layers.active is not None:
-                            active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
-
-                        if context.mode == 'EDIT_MESH':
-                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
-                            named_attributes = bpy.context.object.data.attributes
-                            attribute_name = "Triplanar_UV_Mapping"
-                            set_act = named_attributes.get(attribute_name)
-                            if set_act is not None:
-                                select_atribute(attribute_name)
-                            else:
-                                mesh = bpy.context.object.data
-                                mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
-                                select_atribute(attribute_name)
-                        else:
-                            context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
-
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_3"] = active_uv_layer_name
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_4"] = self.axis_x
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_5"] = self.axis_y
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_6"] = self.scale_triplanar
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_7"] = self.rotation_triplanar
-                        bpy.context.object.data.update()
-                    
-                        bpy.context.object.modifiers["Triplanar UV Mapping"].show_group_selector = False
-
-                        if context.mode == 'EDIT_MESH':
-                            bpy.ops.mesh.attribute_set(value_bool=True)
-
-                if self.appy_triplanar == True:
-                    for obj in bpy.context.selected_objects:
-                        bpy.context.view_layer.objects.active = obj
-                        bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
-
-                bpy.context.view_layer.objects.active = active_object
-        else:
-            self.report({'ERROR'}, "This operator only works on Blender 4.1 and above, due to a bug in geometry nodes")
-
+            
         if self.type == "Remove_Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
 
@@ -241,11 +193,18 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 bpy.context.object.modifiers.new('Offset UV', 'NODES')
                 bpy.context.object.modifiers['Offset UV'].node_group = bpy.data.node_groups['Offset UV']
                 if bpy.context.mode == 'OBJECT':
-                    bpy.context.object.modifiers["Offset UV"]["Socket_2"] = True
+                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        bpy.context.object.modifiers["Offset UV"].properties.inputs.Socket_2.value = True
+                    else:
+                        bpy.context.object.modifiers["Offset UV"]["Socket_2"] = True
 
                 if bpy.context.mode == 'EDIT_MESH': 
                     bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Offset UV")
-                    bpy.context.object.modifiers["Offset UV"]["Socket_2_attribute_name"] = "Offset_UV"
+                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        bpy.context.object.modifiers["Offset UV"].properties.inputs.Socket_2.attribute_name = "Offset_UV"
+                        bpy.context.object.modifiers["Offset UV"].properties.inputs.Socket_2.type = "ATTRIBUTE"
+                    else:
+                        bpy.context.object.modifiers["Offset UV"]["Socket_2_attribute_name"] = "Offset_UV"
 
         if self.type == "offset_uv":
             if bpy.app.version >= (4, 1, 0): 
@@ -785,13 +744,15 @@ class UtilitiesPanelOP(bpy.types.Operator):
         # bpy.utils.register_class(UtilitiesPanel)
         # bpy.utils.register_class(EditModePanel)
         bpy.utils.register_class(SmartExtrude)
-        bpy.utils.register_class(ExtrudeEdgeByNormal)
+        register_extrude_edge_along_normals()
+        register_offset_extrude_edge()
     def unregister():
         # bpy.utils.unregister_class(ObjectModePanel)
         # bpy.utils.unregister_class(UtilitiesPanel)
         # bpy.utils.unregister_class(EditModePanel)
         bpy.utils.unregister_class(SmartExtrude)
-        bpy.utils.unregister_class(ExtrudeEdgeByNormal)
+        unregister_extrude_edge_along_normals()
+        unregister_offset_extrude_edge()
 
 
 class SmartExtrude(bpy.types.Operator):
@@ -1061,7 +1022,7 @@ class EditModePanel(bpy.types.Panel):
         #edit mesh
         row.label(text="Edit Mesh")
         row = col.row(align=True)
-        row.operator("mesh.extrude_edge_by_normal", text="Extrude Edge by Normal")
+        row.operator("mesh.extrude_edge_along_normals", text="Extrude Edge Along Normals")
         row = col.row(align=True)
         row.operator("mesh.flip_normals", text="Flip")
         row.operator("mesh.normals_make_consistent", text="Recalculate")

@@ -107,13 +107,15 @@ class AtriOP(bpy.types.Operator):
 
         return {'FINISHED'}
 
-    def register():
-        bpy.types.DATA_PT_mesh_attributes.append(draw_custom_button)
-        bpy.types.WindowManager.float_value = bpy.props.FloatProperty(name="Float Value", default=1.0, update=update_float_value)
-        bpy.types.WindowManager.float_color_value = bpy.props.FloatVectorProperty(size=4, subtype="COLOR", name="Float Color Value", default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, update=update_float_color_value)
-        bpy.types.WindowManager.integer_value = bpy.props.IntProperty(name="Integer Value", default=0, update=update_integer_value)
-    def unregister():
-        bpy.types.DATA_PT_mesh_attributes.remove(draw_custom_button)
-        del bpy.types.WindowManager.float_value
-        del bpy.types.WindowManager.float_color_value
-        del bpy.types.WindowManager.integer_value
+def register_atri_op():
+    bpy.utils.register_class(AtriOP)
+    bpy.types.DATA_PT_mesh_attributes.append(draw_custom_button)
+    bpy.types.WindowManager.float_value = bpy.props.FloatProperty(name="Float Value", default=1.0, update=update_float_value)
+    bpy.types.WindowManager.float_color_value = bpy.props.FloatVectorProperty(size=4, subtype="COLOR", name="Float Color Value", default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, update=update_float_color_value)
+    bpy.types.WindowManager.integer_value = bpy.props.IntProperty(name="Integer Value", default=0, update=update_integer_value)
+def unregister_atri_op():
+    bpy.utils.unregister_class(AtriOP)
+    bpy.types.DATA_PT_mesh_attributes.remove(draw_custom_button)
+    del bpy.types.WindowManager.float_value
+    del bpy.types.WindowManager.float_color_value
+    del bpy.types.WindowManager.integer_value

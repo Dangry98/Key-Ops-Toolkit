@@ -43,6 +43,20 @@ def get_addon_preferences(addon_name):
         return KeyOpsPrefsMock()
     return bpy.context.preferences.addons.get(str(name), KeyOpsPrefsMock())
 
+
+def unregister_keymaps(keymaps):
+    for km, kmi in keymaps:
+        try:
+            km.keymap_items.remove(kmi)
+        except Exception:
+            pass
+
+
+def clear_registered_keymaps(registered_keymaps):
+    unregister_keymaps(registered_keymaps)
+    registered_keymaps.clear()
+
+
 #The following code is based on the MACHIN3 addon: MACHIN3tools
 #Check out there awesome addons here: https://machin3.io/
 def draw_keymap(key_config, name, key_list, layout):
@@ -91,27 +105,50 @@ def draw_keymap(key_config, name, key_list, layout):
         drawn.append(is_drawn)
     return drawn
 
+icons_collection = None
+icons_directory = os.path.join(os.path.dirname(__file__), "..", "icons")
+
+
 def register_icons():
-    path = os.path.join(os.path.dirname(__file__), "..", "icons")
-    icons = previews.new()
-    for i in sorted(os.listdir(path)):
-        if i.endswith(".png"):
-            iconname = i[:-4]
-            filepath = os.path.join(path, i)
-            icon_test = icons.load(iconname, filepath, 'IMAGE')
-            if iconname == "K":
-                hacky_icon_fix = str(icon_test.icon_pixels) # reliable hack to fix diseparing icons bug, weird this works?
-    return icons
+    global icons_collection
+    if icons_collection is None:
+        icons_collection = bpy.utils.previews.new()  # hack needed for Blender 5.2 + for some reason we can not do it in register() anymore, gives errors
+    return icons_collection
 
-def unregister_icons(icons):
-    previews.remove(icons)
 
-icons = None
+def unregister_icons(collection=None):
+    global icons_collection
+    if collection is None:
+        collection = icons_collection
+
+    if collection is None:
+        return
+
+    try:
+        bpy.utils.previews.remove(collection)
+    except KeyError:
+        pass
+    finally:
+        if icons_collection is collection:
+            icons_collection = None
+
 
 def get_icon(name):
-    global icons
+    return get_icon_data(name).icon_id
 
-    if not icons:
-        icons = register_icons()
-    
-    return icons[name].icon_id
+
+def get_icon_data(name):
+    global icons_collection
+    if icons_collection is None:
+        register_icons()
+
+    if name in icons_collection:
+        return icons_collection[name]
+
+    icon = icons_collection.load(name, os.path.join(icons_directory, name + ".png"), "IMAGE")
+
+    if name == "K":
+        hacky_icon_fix = str(icon.icon_pixels) # reliable hack to fix diseparing icons bug, weird this works?? Must be reloading them in some way? Please do not change!
+
+    return icon
+

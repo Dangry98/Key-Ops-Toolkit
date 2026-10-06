@@ -1,12 +1,35 @@
 import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
-from ..utils.utilities import BLENDER_VERSION
+from ..utils.pref_utils import clear_registered_keymaps
+from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
 #Only an very old version is still available, but I doubt it still works in new version of Blender  https://alexbel.gumroad.com/l/NbMya
 #The Toggle UV sync was an serverly underrated operation that basically fixes the uv editor in Blender, and I wanted to highlight its importance and keep it alive since its no longer officaly available anywhere. 
 #Its the only way to get the UV editor in Blender to not be a horrible slow mess to work in and its a must have for anyone who works with UVs.
+
+registered_uv_tools_keymaps = []
+
+def register_uv_tools_keymaps():
+    global registered_uv_tools_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='UV Editor', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.smart_uv_sync', 'RIGHTMOUSE', 'PRESS')
+    registered_uv_tools_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('uv.keyops_uv_cut', 'X', 'PRESS', shift=True)
+    kmi.properties.quick = False
+    registered_uv_tools_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('uv.keyops_uv_cut', 'X', 'PRESS')
+    kmi.properties.quick = True
+    registered_uv_tools_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.remove_seam', 'TWO', 'PRESS', alt=True)
+    registered_uv_tools_keymaps.append((km, kmi))
 
 class SmartUVSync(bpy.types.Operator):
     bl_idname = "keyops.smart_uv_sync"
@@ -135,37 +158,41 @@ class SmartUVSync(bpy.types.Operator):
 
         return {'FINISHED'}
 
-    def register():
-        # bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Enable", default=True, description="Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes")
-        bpy.utils.register_class(UVCut)
-        bpy.utils.register_class(SharpFromUVIslands)
-        bpy.utils.register_class(UnwrapInPlace)
-        bpy.utils.register_class(AutoSeam)
-        bpy.utils.register_class(ToggleSmoothSharp)
-        bpy.utils.register_class(OrientIslandToEdge)
-        bpy.utils.register_class(UnwrapSelected)
-        bpy.utils.register_class(QuickPack)
-        bpy.utils.register_class(IsolateUVIsland)
-        bpy.utils.register_class(RemoveSeam)
-        # bpy.utils.register_class(SelectSimilarUVIsland)
-        bpy.utils.register_class(RemoveAllPins)
+def register_uv_tools():
+    bpy.utils.register_class(SmartUVSync)
+    # bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
+    bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Enable", default=True, description="Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes")
+    bpy.utils.register_class(UVCut)
+    bpy.utils.register_class(SharpFromUVIslands)
+    bpy.utils.register_class(UnwrapInPlace)
+    bpy.utils.register_class(AutoSeam)
+    bpy.utils.register_class(ToggleSmoothSharp)
+    bpy.utils.register_class(OrientIslandToEdge)
+    bpy.utils.register_class(UnwrapSelected)
+    bpy.utils.register_class(QuickPack)
+    bpy.utils.register_class(IsolateUVIsland)
+    bpy.utils.register_class(RemoveSeam)
+    # bpy.utils.register_class(SelectSimilarUVIsland)
+    bpy.utils.register_class(RemoveAllPins)
+    register_uv_tools_keymaps()
 
-    def unregister():
-        # bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        del bpy.types.Scene.smart_uv_sync_enable
-        bpy.utils.unregister_class(UVCut)
-        bpy.utils.unregister_class(SharpFromUVIslands)
-        bpy.utils.unregister_class(UnwrapInPlace)
-        bpy.utils.unregister_class(AutoSeam)
-        bpy.utils.unregister_class(ToggleSmoothSharp)
-        bpy.utils.unregister_class(OrientIslandToEdge)
-        bpy.utils.unregister_class(UnwrapSelected)
-        bpy.utils.unregister_class(QuickPack)
-        bpy.utils.unregister_class(IsolateUVIsland)
-        bpy.utils.unregister_class(RemoveSeam)
-        # bpy.utils.unregister_class(SelectSimilarUVIsland)
-        bpy.utils.unregister_class(RemoveAllPins)
+def unregister_uv_tools():
+    clear_registered_keymaps(registered_uv_tools_keymaps)
+    bpy.utils.unregister_class(SmartUVSync)
+    # bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
+    del bpy.types.Scene.smart_uv_sync_enable
+    bpy.utils.unregister_class(UVCut)
+    bpy.utils.unregister_class(SharpFromUVIslands)
+    bpy.utils.unregister_class(UnwrapInPlace)
+    bpy.utils.unregister_class(AutoSeam)
+    bpy.utils.unregister_class(ToggleSmoothSharp)
+    bpy.utils.unregister_class(OrientIslandToEdge)
+    bpy.utils.unregister_class(UnwrapSelected)
+    bpy.utils.unregister_class(QuickPack)
+    bpy.utils.unregister_class(IsolateUVIsland)
+    bpy.utils.unregister_class(RemoveSeam)
+    # bpy.utils.unregister_class(SelectSimilarUVIsland)
+    bpy.utils.unregister_class(RemoveAllPins)
 
 
 class UVCut(bpy.types.Operator):
@@ -238,8 +265,12 @@ class SharpFromUVIslands(bpy.types.Operator):
                     get_active_uv_layer = obj.data.uv_layers.active
 
                     if get_active_uv_layer:
-                        context.object.modifiers["SharpFromUVIslands"]["Socket_1_attribute_name"] = get_active_uv_layer.name
-                        context.object.modifiers["SharpFromUVIslands"]["Socket_2"] = self.only_uv_island_borders
+                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                            context.object.modifiers["SharpFromUVIslands"].properties.inputs.Socket_1.attribute_name = get_active_uv_layer.name
+                            context.object.modifiers["SharpFromUVIslands"].properties.inputs.Socket_2.value = self.only_uv_island_borders
+                        else:
+                            context.object.modifiers["SharpFromUVIslands"]["Socket_1_attribute_name"] = get_active_uv_layer.name
+                            context.object.modifiers["SharpFromUVIslands"]["Socket_2"] = self.only_uv_island_borders
 
                         if self.apply_modifier:
                             instances = [o for o in bpy.data.objects if o.data == obj.data]
