@@ -2,6 +2,7 @@ import bpy.types, bmesh
 from bpy.props import StringProperty, PointerProperty, CollectionProperty
 from bpy_extras import view3d_utils
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
 
 def clear_unused_materials(obj):
     material_indices = set()
@@ -26,6 +27,21 @@ material_list_index = 0
 material_list_item_name = []
 active_index = 0
 assign_index = 0
+registered_material_index_keymaps = []
+
+def register_material_index_keymaps():
+    global registered_material_index_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('wm.call_menu', 'M', 'PRESS', alt=True)
+    kmi.properties.name = 'MATERIAL_MT_material_list'
+    registered_material_index_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu', 'M', 'PRESS', alt=True)
+    kmi.properties.name = 'MATERIAL_MT_material_list'
+    registered_material_index_keymaps.append((km, kmi))
 
 class MaterialIndex(bpy.types.Operator):
     bl_idname = "keyops.material_index"
@@ -187,28 +203,32 @@ class MaterialIndex(bpy.types.Operator):
                         self.report({'INFO'}, "Assigned Material")           
 
         return {'FINISHED'}
-    
-    def register():
-        # bpy.utils.register_class(MaterialIndexPanel)
-        bpy.utils.register_class(MATERIALINDEX_OT_refresh)
-        bpy.utils.register_class(MaterialItem)
-        bpy.utils.register_class(MaterialListProperty)
-        bpy.utils.register_class(MaterialListMenu)
-        bpy.utils.register_class(MaterialSelectByActive)
-        bpy.utils.register_class(AssignMaterial)
-        #bpy.utils.register_class(MaterialPicker)
-        bpy.types.Scene.material_list_property = PointerProperty(type=MaterialListProperty)
 
-    def unregister():
-        # bpy.utils.unregister_class(MaterialIndexPanel)
-        bpy.utils.unregister_class(MATERIALINDEX_OT_refresh)
-        bpy.utils.unregister_class(MaterialItem)
-        bpy.utils.unregister_class(MaterialListProperty)
-        bpy.utils.unregister_class(MaterialListMenu)
-        bpy.utils.unregister_class(MaterialSelectByActive)
-        bpy.utils.unregister_class(AssignMaterial)
-        #bpy.utils.unregister_class(MaterialPicker)
-        del bpy.types.Scene.material_list_property
+def register_material_index():
+    bpy.utils.register_class(MaterialIndex)
+    # bpy.utils.register_class(MaterialIndexPanel)
+    bpy.utils.register_class(MATERIALINDEX_OT_refresh)
+    bpy.utils.register_class(MaterialItem)
+    bpy.utils.register_class(MaterialListProperty)
+    bpy.utils.register_class(MaterialListMenu)
+    bpy.utils.register_class(MaterialSelectByActive)
+    bpy.utils.register_class(AssignMaterial)
+    #bpy.utils.register_class(MaterialPicker)
+    bpy.types.Scene.material_list_property = PointerProperty(type=MaterialListProperty)
+    register_material_index_keymaps()
+
+def unregister_material_index():
+    clear_registered_keymaps(registered_material_index_keymaps)
+    bpy.utils.unregister_class(MaterialIndex)
+    # bpy.utils.unregister_class(MaterialIndexPanel)
+    bpy.utils.unregister_class(MATERIALINDEX_OT_refresh)
+    bpy.utils.unregister_class(MaterialItem)
+    bpy.utils.unregister_class(MaterialListProperty)
+    bpy.utils.unregister_class(MaterialListMenu)
+    bpy.utils.unregister_class(MaterialSelectByActive)
+    bpy.utils.unregister_class(AssignMaterial)
+    #bpy.utils.unregister_class(MaterialPicker)
+    del bpy.types.Scene.material_list_property
 
     
 class MaterialIndexPanel(bpy.types.Panel):

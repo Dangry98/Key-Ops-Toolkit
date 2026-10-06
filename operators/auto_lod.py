@@ -252,15 +252,17 @@ class AutoLOD(bpy.types.Operator):
         wm.progress_end()
 
         return {'FINISHED'}
-    def register():
-        bpy.utils.register_class(AutoLODProperties)
-        # bpy.utils.register_class(GenerateLODPanel)
-        bpy.types.Scene.auto_lod_props = bpy.props.PointerProperty(type=AutoLODProperties)
+def register_auto_lod():
+    bpy.utils.register_class(AutoLOD)
+    bpy.utils.register_class(AutoLODProperties)
+    # bpy.utils.register_class(GenerateLODPanel)
+    bpy.types.Scene.auto_lod_props = bpy.props.PointerProperty(type=AutoLODProperties)
 
-    def unregister():
-        bpy.utils.unregister_class(AutoLODProperties)
-        # bpy.utils.unregister_class(GenerateLODPanel)
-        del bpy.types.Scene.auto_lod_props
+def unregister_auto_lod():
+    bpy.utils.unregister_class(AutoLOD)
+    bpy.utils.unregister_class(AutoLODProperties)
+    # bpy.utils.unregister_class(GenerateLODPanel)
+    del bpy.types.Scene.auto_lod_props
 
 def draw_lod_panel(self, context, draw_header=False):
     layout = self.layout    

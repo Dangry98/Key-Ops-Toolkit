@@ -1,5 +1,6 @@
 import bpy.types
 from bpy.types import Menu
+from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.pref_utils import get_is_addon_enabled
 from ..utils.pref_utils import get_keyops_prefs
 
@@ -9,6 +10,42 @@ uvpackmaster = None
 uvtoolkit = None
 zenuv = None
 polyquilt = None
+registered_workspace_pie_keymaps = []
+registered_uv_pies_keymaps = []
+registered_utility_pie_keymaps = []
+
+def register_workspace_pie_keymaps():
+    global registered_workspace_pie_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Window', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'BACK_SLASH', 'PRESS', shift=True)
+    kmi.properties.name = 'KEYOPS_MT_workspace_pie'
+    registered_workspace_pie_keymaps.append((km, kmi))
+
+def register_uv_pies_keymaps():
+    global registered_uv_pies_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='UV Editor', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'SPACE', 'PRESS')
+    kmi.properties.name = 'KEYOPS_MT_uv_space_pie'
+    registered_uv_pies_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'Q', 'PRESS')
+    kmi.properties.name = 'KEYOPS_MT_uv_q_pie'
+    registered_uv_pies_keymaps.append((km, kmi))
+
+def register_utility_pie_keymaps():
+    global registered_utility_pie_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'U', 'PRESS')
+    kmi.properties.name = 'KEYOPS_MT_utility_pie'
+    registered_utility_pie_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'U', 'PRESS')
+    kmi.properties.name = 'KEYOPS_MT_utility_pie'
+    registered_utility_pie_keymaps.append((km, kmi))
 
 class SwitchWorkspace(bpy.types.Operator):
     bl_idname = "keyops.switch_workspace"
@@ -49,13 +86,15 @@ class WorkspacePie(Menu):
 
         pie.operator("keyops.switch_workspace", text="Sculpting", icon="SCULPTMODE_HLT").workspace_name = "Sculpting" #RIGHT BOTTOM
 
-    def register():
-        bpy.utils.register_class(SwitchWorkspace)
+def register_workspace_pie():
+    bpy.utils.register_class(WorkspacePie)
+    bpy.utils.register_class(SwitchWorkspace)
+    register_workspace_pie_keymaps()
 
-    def unregister():
-        bpy.utils.unregister_class(SwitchWorkspace)
-
-
+def unregister_workspace_pie():
+    clear_registered_keymaps(registered_workspace_pie_keymaps)
+    bpy.utils.unregister_class(WorkspacePie)
+    bpy.utils.unregister_class(SwitchWorkspace)
 class UVSpacePie(Menu):
     bl_idname = "KEYOPS_MT_uv_space_pie"
     bl_label = "UV Space Pie"
@@ -106,15 +145,19 @@ class UVSpacePie(Menu):
 
         pie.operator("image.view_selected", text="View Selected", icon="ZOOM_SELECTED") #RIGHT BOTTOM
 
-    def register():
-        bpy.utils.register_class(StreightenSelection)
-        bpy.utils.register_class(StreightenAfterEdge)
-        bpy.utils.register_class(UVQPie)
+def register_uv_pies():
+    bpy.utils.register_class(UVSpacePie)
+    bpy.utils.register_class(StreightenSelection)
+    bpy.utils.register_class(StreightenAfterEdge)
+    bpy.utils.register_class(UVQPie)
+    register_uv_pies_keymaps()
 
-    def unregister():
-        bpy.utils.unregister_class(StreightenSelection)
-        bpy.utils.unregister_class(StreightenAfterEdge)
-        bpy.utils.unregister_class(UVQPie)
+def unregister_uv_pies():
+    clear_registered_keymaps(registered_uv_pies_keymaps)
+    bpy.utils.unregister_class(UVSpacePie)
+    bpy.utils.unregister_class(StreightenSelection)
+    bpy.utils.unregister_class(StreightenAfterEdge)
+    bpy.utils.unregister_class(UVQPie)
 
 class UtilityPie(Menu):
     bl_idname = "KEYOPS_MT_utility_pie"
@@ -159,15 +202,18 @@ class UtilityPie(Menu):
         pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
       
         
-    def register():
-
-        bpy.utils.register_class(MakeSingleUser)
-        #bpy.utils.register_class(UVMappingMenu)
-        bpy.utils.register_class(UnwrapingOp)
-    def unregister():
-        bpy.utils.unregister_class(MakeSingleUser)
-        #bpy.utils.unregister_class(UVMappingMenu)
-        bpy.utils.unregister_class(UnwrapingOp)
+def register_utility_pie():
+    bpy.utils.register_class(UtilityPie)
+    bpy.utils.register_class(MakeSingleUser)
+    #bpy.utils.register_class(UVMappingMenu)
+    bpy.utils.register_class(UnwrapingOp)
+    register_utility_pie_keymaps()
+def unregister_utility_pie():
+    clear_registered_keymaps(registered_utility_pie_keymaps)
+    bpy.utils.unregister_class(UtilityPie)
+    bpy.utils.unregister_class(MakeSingleUser)
+    #bpy.utils.unregister_class(UVMappingMenu)
+    bpy.utils.unregister_class(UnwrapingOp)
 
 class UVQPie(Menu):
     bl_description = "UV Q Pie"

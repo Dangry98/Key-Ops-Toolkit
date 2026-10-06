@@ -1,16 +1,59 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import clear_registered_keymaps
 import bmesh
 import math
+from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR
 from mathutils import Vector
 from ..utils.pref_utils import get_icon
 from .add_modifier import AddModifier
 from .smart_apply_scale import SmartApplyScale
 from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
+from .extrude_edge_along_normals import register_extrude_edge_along_normals, unregister_extrude_edge_along_normals
+from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
 from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group, get_all_bouding_box_node_group
 
 BLENDER_VERSION = bpy.app.version
+registered_toolkit_panel_keymaps = []
+
+def register_toolkit_panel_keymaps():
+    global registered_toolkit_panel_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY')
+
+    kmi = km.keymap_items.new('keyops.toolkit_panel', 'C', 'PRESS', alt=True)
+    kmi.properties.type = 'Instant_Apply_Modifiers'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.toolkit_panel', 'THREE', 'PRESS', alt=True)
+    kmi.properties.type = 'snap_to_floor'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.toolkit_panel', 'D', 'PRESS', alt=True, shift=True)
+    kmi.properties.type = 'duplicate_linked_modifiers_and_move'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_MINUS', 'PRESS', ctrl=True)
+    kmi.properties.type = 'DIFFERENCE'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_PLUS', 'PRESS', ctrl=True)
+    kmi.properties.type = 'UNION'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_ASTERIX', 'PRESS', ctrl=True)
+    kmi.properties.type = 'INTERSECT'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_SLASH', 'PRESS', ctrl=True)
+    kmi.properties.type = 'SLICE'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu', 'M', 'PRESS', alt=True)
+    kmi.properties.name = 'MATERIAL_MT_material_list'
+    registered_toolkit_panel_keymaps.append((km, kmi))
 
 # fix attribute toggle in edit mode/objet mode
 
@@ -252,12 +295,19 @@ class ToolkitPanel(bpy.types.Operator):
                 obj.modifiers.new('Offset UV', 'NODES')
                 obj.modifiers['Offset UV'].node_group = bpy.data.node_groups['Offset UV']
                 if bpy.context.mode == 'OBJECT':
-                    obj.modifiers["Offset UV"]["Socket_2"] = True
+                    if  BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        obj.modifiers["Offset UV"].properties.inputs.Socket_2.value = True
+                    else:
+                        obj.modifiers["Offset UV"]["Socket_2"] = True
 
                 if bpy.context.mode == 'EDIT_MESH': 
                     mod = obj.modifiers["Offset UV"]
-                    mod["Socket_2_use_attribute"] = True
-                    mod["Socket_2_attribute_name"] = "Offset_UV"
+                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        mod.properties.inputs.Socket_2.attribute_name = "Offset_UV"
+                        mod.properties.inputs.Socket_2.type = "ATTRIBUTE"
+                    else:
+                        mod["Socket_2_use_attribute"] = True
+                        mod["Socket_2_attribute_name"] = "Offset_UV"
 
         def set_offset_uv_true_false(obj, true_false=True):
             if obj.data.total_vert_sel > 0:
@@ -305,18 +355,31 @@ class ToolkitPanel(bpy.types.Operator):
                             mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
                             select_atribute(attribute_name)
                     else:
-                        context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
+                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                            context.object.modifiers["Triplanar UV Mapping"].properties.inputs.Socket_2.value = True
+                        else:
+                            context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
+                    mod = context.object.modifiers["Triplanar UV Mapping"]
 
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_3"] = active_uv_layer_name
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_5"] = self.world_offset
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_6"] = self.axis_x
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_7"] = self.axis_y
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_9"] = self.world_scale
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_10"] = self.scale_triplanar
-                    context.object.modifiers["Triplanar UV Mapping"]["Socket_13"] = self.rotation_triplanar
+                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                        mod.properties.inputs.Socket_3.value = active_uv_layer_name
+                        mod.properties.inputs.Socket_5.value = self.world_offset
+                        mod.properties.inputs.Socket_6.value = self.axis_x
+                        mod.properties.inputs.Socket_7.value = self.axis_y
+                        mod.properties.inputs.Socket_9.value = self.world_scale
+                        mod.properties.inputs.Socket_10.value = self.scale_triplanar
+                        mod.properties.inputs.Socket_13.value = self.rotation_triplanar
+                    else:
+                        mod["Socket_3"] = active_uv_layer_name
+                        mod["Socket_5"] = self.world_offset
+                        mod["Socket_6"] = self.axis_x
+                        mod["Socket_7"] = self.axis_y
+                        mod["Socket_9"] = self.world_scale
+                        mod["Socket_10"] = self.scale_triplanar
+                        mod["Socket_13"] = self.rotation_triplanar
                     bpy.context.object.data.update()
                 
-                    bpy.context.object.modifiers["Triplanar UV Mapping"].show_group_selector = False
+                    mod.show_group_selector = False
 
                     if context.mode == 'EDIT_MESH':
                         bpy.ops.mesh.attribute_set(value_bool=True)
@@ -1012,8 +1075,8 @@ class ToolkitPanel(bpy.types.Operator):
                 def move_individual_to_floor(selection):
                     for obj in selection:
                         if obj.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE', 'FONT', 'META']:
-                            eval = obj.evaluated_get(depsgraph)
-                            me = eval.to_mesh()
+                            m = obj.evaluated_get(depsgraph)
+                            me = m.to_mesh()
                             
                             if me.vertices:
                                 # Calculate the minimum Z value in world coordinates directly
@@ -1024,7 +1087,7 @@ class ToolkitPanel(bpy.types.Operator):
                                         minz = z
                                 
                                 obj.matrix_world.translation.z -= minz
-                            eval.to_mesh_clear()
+                            m.to_mesh_clear()
                         
                         elif obj.type == 'EMPTY':
                             obj.matrix_world.translation.z -= obj.location.z
@@ -1038,42 +1101,49 @@ class ToolkitPanel(bpy.types.Operator):
                     move_individual_to_floor(selection)
             # print(f"Total Time: {time.time() - exec_time:.4f} seconds")
         return {'FINISHED'}
-    
-    def register():
-        # bpy.utils.register_class(NewToolkitPanel)
-        # bpy.utils.register_class(ObjectModePanel)
-        # bpy.utils.register_class(ModifierPanel)
-        # bpy.utils.register_class(EditModePanel)
-        #bpy.utils.register_class(SmartExtrude)
-        bpy.utils.register_class(ExtrudeEdgeByNormal)
-        bpy.utils.register_class(EDIT_PT_Settings)
-        bpy.utils.register_class(AddModifier)
-        bpy.utils.register_class(SmartApplyScale)
-        bpy.utils.register_class(AddBooleanModifier)
-        bpy.utils.register_class(BooleanScroll)
-        bpy.types.Scene.vertex_color = bpy.props.FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))
-        # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
-        bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
-        bpy.context.window_manager.live_booleans = True
-    def unregister():
-        # bpy.utils.unregister_class(ObjectModePanel)
-        # bpy.utils.unregister_class(ModifierPanel)
-        # bpy.utils.unregister_class(EditModePanel)
-        #bpy.utils.unregister_class(SmartExtrude)
-        bpy.utils.unregister_class(ExtrudeEdgeByNormal)
-        bpy.utils.unregister_class(EDIT_PT_Settings)
-        bpy.utils.unregister_class(AddModifier)
-        bpy.utils.unregister_class(SmartApplyScale)
-        bpy.utils.unregister_class(AddBooleanModifier)
-        bpy.utils.unregister_class(BooleanScroll)
-        # bpy.utils.unregister_class(NewToolkitPanel)
-        del bpy.types.Scene.vertex_color
-        # del bpy.types.Scene.RGB_Enum
-        del bpy.types.WindowManager.live_booleans
-        try:
-            bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-        except:
-            pass
+
+def register_toolkit_panel():
+    bpy.utils.register_class(ToolkitPanel)
+    # bpy.utils.register_class(NewToolkitPanel)
+    # bpy.utils.register_class(ObjectModePanel)
+    # bpy.utils.register_class(ModifierPanel)
+    # bpy.utils.register_class(EditModePanel)
+    #bpy.utils.register_class(SmartExtrude)
+    register_extrude_edge_along_normals()
+    register_offset_extrude_edge()
+    bpy.utils.register_class(EDIT_PT_Settings)
+    bpy.utils.register_class(AddModifier)
+    bpy.utils.register_class(SmartApplyScale)
+    bpy.utils.register_class(AddBooleanModifier)
+    bpy.utils.register_class(BooleanScroll)
+    register_toolkit_panel_keymaps()
+    bpy.types.Scene.vertex_color = bpy.props.FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))
+    # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
+    bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
+    bpy.context.window_manager.live_booleans = True
+
+def unregister_toolkit_panel():
+    clear_registered_keymaps(registered_toolkit_panel_keymaps)
+    bpy.utils.unregister_class(ToolkitPanel)
+    # bpy.utils.unregister_class(ObjectModePanel)
+    # bpy.utils.unregister_class(ModifierPanel)
+    # bpy.utils.unregister_class(EditModePanel)
+    #bpy.utils.unregister_class(SmartExtrude)
+    unregister_extrude_edge_along_normals()
+    unregister_offset_extrude_edge()
+    bpy.utils.unregister_class(EDIT_PT_Settings)
+    bpy.utils.unregister_class(AddModifier)
+    bpy.utils.unregister_class(SmartApplyScale)
+    bpy.utils.unregister_class(AddBooleanModifier)
+    bpy.utils.unregister_class(BooleanScroll)
+    # bpy.utils.unregister_class(NewToolkitPanel)
+    del bpy.types.Scene.vertex_color
+    # del bpy.types.Scene.RGB_Enum
+    del bpy.types.WindowManager.live_booleans
+    try:
+        bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
+    except:
+        pass
 
 def toggle_realtime_booleans(self, context):
     if not bpy.context.window_manager.live_booleans:
@@ -1548,7 +1618,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
 
         # Edit mesh
         row = col.row(align=True)
-        row.operator("mesh.extrude_edge_by_normal", text="Extrude Edge by Normal")
+        row.operator("mesh.extrude_edge_along_normals", text="Extrude Edge Along Normals")
         row = col.row(align=True)
         row.operator("mesh.flip_normals", text="Flip")
         row.operator("mesh.normals_make_consistent", text="Recalculate")

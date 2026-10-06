@@ -1,6 +1,32 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import add_shortcuts, set_shortcuts_active, remove_shortcuts
+registered_maya_navigation_keymaps = []
+
+def register_maya_navigation_keymaps():
+    global registered_maya_navigation_keymaps
+    wm = bpy.context.window_manager
+
+    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
+    kmi = km.keymap_items.new('view3d.rotate', 'LEFTMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('view3d.move', 'MIDDLEMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('view3d.zoom', 'RIGHTMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='Image', space_type='IMAGE_EDITOR')
+    kmi = km.keymap_items.new('image.view_pan', 'MIDDLEMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('image.view_zoom', 'RIGHTMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='View2D', space_type='EMPTY')
+    kmi = km.keymap_items.new('view2d.pan', 'MIDDLEMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new('view2d.zoom', 'RIGHTMOUSE', 'CLICK_DRAG', alt=True)
+    registered_maya_navigation_keymaps.append((km, kmi))
 
 sculpt_mask = [
     ('Sculpt', 'sculpt.brush_stroke', 'LEFTMOUSE', 'PRESS', {'alt': True}),
@@ -96,17 +122,21 @@ class MayaNavigation(bpy.types.Operator):
         pass
         return {"PASS_THROUGH"}
 
-    def register():
-        prefs = get_keyops_prefs()
-        if prefs.maya_navigation_tablet_navigation:
-            add_shortcuts(tablet_keymap_config)
+def register_maya_navigation():
+    bpy.utils.register_class(MayaNavigation)
+    register_maya_navigation_keymaps()
+    prefs = get_keyops_prefs()
+    if prefs.maya_navigation_tablet_navigation:
+        add_shortcuts(tablet_keymap_config)
 
-        if prefs.maya_navigation_sculpt_navigation:
-            bpy.app.timers.register(add_sculpt_shortcuts, first_interval=0.1)
-        
-    def unregister():
-        remove_shortcuts(tablet_keymap_config)
-        remove_shortcuts(sculpt_navigation)
-        set_shortcuts_active(sculpt_mask, set=True)
+    if prefs.maya_navigation_sculpt_navigation:
+        bpy.app.timers.register(add_sculpt_shortcuts, first_interval=0.1)
+    
+def unregister_maya_navigation():
+    clear_registered_keymaps(registered_maya_navigation_keymaps)
+    bpy.utils.unregister_class(MayaNavigation)  
+    remove_shortcuts(tablet_keymap_config)
+    remove_shortcuts(sculpt_navigation)
+    set_shortcuts_active(sculpt_mask, set=True)
 
         

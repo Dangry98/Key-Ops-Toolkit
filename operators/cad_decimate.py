@@ -40,16 +40,18 @@ class CADDecimate(bpy.types.Operator):
         
         return {'FINISHED'}
         
-    def register():
-        bpy.utils.register_class(ExportCADDecimate)
-        bpy.utils.register_class(ImportCADDecimate)
-        bpy.utils.register_class(ImportAllCADDecimate)
-        bpy.utils.register_class(CADDecimatePanel)
-    def unregister():
-        bpy.utils.unregister_class(ExportCADDecimate)
-        bpy.utils.unregister_class(ImportCADDecimate)
-        bpy.utils.unregister_class(ImportAllCADDecimate)
-        bpy.utils.unregister_class(CADDecimatePanel)
+def register_cad_decimate():
+    bpy.utils.register_class(CADDecimate)
+    bpy.utils.register_class(ExportCADDecimate)
+    bpy.utils.register_class(ImportCADDecimate)
+    bpy.utils.register_class(ImportAllCADDecimate)
+    bpy.utils.register_class(CADDecimatePanel)
+def unregister_cad_decimate():
+    bpy.utils.unregister_class(CADDecimate)
+    bpy.utils.unregister_class(ExportCADDecimate)
+    bpy.utils.unregister_class(ImportCADDecimate)
+    bpy.utils.unregister_class(ImportAllCADDecimate)
+    bpy.utils.unregister_class(CADDecimatePanel)
 
 class ExportCADDecimate(bpy.types.Operator):
     bl_idname = "keyops.export_cad_decimate"

@@ -1,5 +1,14 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import clear_registered_keymaps
+registered_auto_delete_keymaps = []
+
+def register_auto_delete_keymaps():
+    global registered_auto_delete_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.auto_delete', 'DEL', 'PRESS')
+    registered_auto_delete_keymaps.append((km, kmi))
 
 def remove_confirm_delete():
     prefs = get_keyops_prefs()
@@ -91,8 +100,13 @@ class AutoDelete(bpy.types.Operator):
 
         return {'FINISHED'}
     
-    def register():
-        remove_confirm_delete()
+def register_auto_delete():
+    bpy.utils.register_class(AutoDelete)
+    register_auto_delete_keymaps()
+    remove_confirm_delete()
+
+def unregister_auto_delete():
+    clear_registered_keymaps(registered_auto_delete_keymaps)
+    bpy.utils.unregister_class(AutoDelete)
+    default_confirm_delete()
     
-    def unregister():
-        default_confirm_delete()

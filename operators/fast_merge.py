@@ -3,10 +3,27 @@ import bmesh
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
 
 has_clicked_once = None
 half_knife = None
+registered_fast_merge_keymaps = []
+
+def register_fast_merge_keymaps():
+    global registered_fast_merge_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+
+    kmi = km.keymap_items.new('keyops.fast_merge', 'ONE', 'PRESS', repeat=True)
+    registered_fast_merge_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('mesh.merge', 'ONE', 'PRESS', alt=True)
+    kmi.properties.type = 'CENTER'
+    registered_fast_merge_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('mesh.fast_connect', 'ONE', 'PRESS', shift=True)
+    registered_fast_merge_keymaps.append((km, kmi))
 
 def find_nearest_visible_vertex_to_mouse(context, mouse_position, vertices, matrix_world):
     def is_vertex_visible(vertex):
@@ -151,15 +168,19 @@ class FastMerge(bpy.types.Operator):
         has_clicked_once = None
             
         return {'FINISHED'}
-    def register():
-        bpy.utils.register_class(FastConnect)
-        bpy.utils.register_class(Connect)
-        #bpy.utils.register_class(FastKnife)
+def register_fast_merge():
+    bpy.utils.register_class(FastMerge)
+    bpy.utils.register_class(FastConnect)
+    bpy.utils.register_class(Connect)
+    #bpy.utils.register_class(FastKnife)
+    register_fast_merge_keymaps()
 
-    def unregister():
-        bpy.utils.unregister_class(FastConnect)
-        bpy.utils.unregister_class(Connect)
-        #bpy.utils.unregister_class(FastKnife)
+def unregister_fast_merge():
+    clear_registered_keymaps(registered_fast_merge_keymaps)
+    bpy.utils.unregister_class(FastMerge)
+    bpy.utils.unregister_class(FastConnect)
+    bpy.utils.unregister_class(Connect)
+    #bpy.utils.unregister_class(FastKnife)
 
 class FastKnife(bpy.types.Operator):
     bl_idname = 'mesh.fast_knife'

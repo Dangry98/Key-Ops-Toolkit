@@ -1,35 +1,3 @@
-classes = {
-           #Maya
-           'AUTO_DELETE': [('operators.auto_delete', [('AutoDelete', 'auto_delete')])],
-           'TOGGLE_RETOPOLOGY': [('operators.toggle_retopology', [('ToggleRetopology', 'toggle_retopology')])],
-           'MAYA_PIVOT': [('operators.maya_pivot', [('PivotPress', 'pivot_press')])],
-           'MAYA_NAVIGATION': [('operators.maya_navigation', [('MayaNavigation', 'maya_navigation')])],
-           'DOUBLE_CLICK_SELECT_ISLAND': [('operators.double_click_select_island', [('DoubleClickSelectIsland', 'double_click_select_island')])],        
-           #UV
-           'UV_PIES': [('menu.pies', [('UVSpacePie', 'uv_space_pie')])],
-           'UV_TOOLS': [('operators.uv_tools', [('SmartUVSync', 'smart_uv_sync')])],                                                                                                         
-           #Extras
-           'LEGACY_SHORTCUTS': [('operators.legacy_shortcuts', [('LegacyShortcuts', 'legacy_shortcuts')])],
-           'FAST_MERGE': [('operators.fast_merge', [('FastMerge', 'fast_merge')])],     
-           'MODI_KEY': [('operators.modi_key', [('ModiKey', 'modi_key')])],
-           'VIEWPORT_MENU': [('operators.viewport_menu', [('ViewportMenu', 'viewport_menu')])],
-           'ATRI_OP': [('operators.atri_op', [('AtriOP', 'atri_op')])],
-           'OUTLINER_OPTIONS': [('operators.outliner_options', [('OutlinerOptions', 'outliner_options')])],
-           #Pie Menu
-           'ADD_OBJECTS_PIE': [('operators.add_mesh', [('AddMesh', 'add_mesh')])],
-           'UTILITY_PIE': [('menu.pies', [('UtilityPie', 'utility_pie')])],
-           'ADD_MODIFIER_PIE': [('operators.add_modifier', [('Dummy_AddModifier', 'dummy_add_modifier')])],
-           'WORKSPACE_PIE': [('menu.pies', [('WorkspacePie', 'workspace_pie')])],             
-           'CURSOR_PIE': [('operators.origin_to_selection', [('OriginToSelection', 'origin_to_selection')])],     
-           #Game Art Toolkit
-           'CAD_DECIMATE': [('operators.cad_decimate', [('CADDecimate', 'cad_decimate')])],
-           'AUTO_LOD': [('operators.auto_lod', [('AutoLOD', 'auto_lod')])],
-           'QUICK_BAKE_NAME': [('operators.quick_bake_name', [('QuickBakeName', 'quick_bake_name')])],
-           'POLYCOUNT_LIST': [('operators.poly_count_list', [('PolyCountList', 'poly_count_list')])], 
-           'TOOLKIT_PANEL': [('operators.toolkit_panel', [('ToolkitPanel', 'toolkit_panel')])],
-           'QUICK_EXPORT': [('operators.quick_export', [('QuickExport', 'quick_export')])],
-           'MATERIAL_INDEX': [('operators.material_index', [('MaterialIndex', 'material_index')])],
-        }
 keymap_items = {   
         #Maya      
         'AUTO_DELETE': [{'label': 'Auto Delete', 'keymap': 'Mesh', 'idname': 'keyops.auto_delete', 'type': 'DEL', 'value': 'PRESS'}],

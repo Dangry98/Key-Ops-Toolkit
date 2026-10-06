@@ -1,14 +1,26 @@
 import bpy.types
 from ..utils.pref_utils import get_is_addon_enabled
+from ..utils.pref_utils import clear_registered_keymaps
 from mathutils import Vector, Matrix
 from bpy.types import Menu
 from ..utils.utilities import force_show_obj, is_object_mesh
 from ..utils.pref_utils import get_icon
 
+# TODO: Use geometry nodes so we can auto pick best boolean solver depending on manifold etc. Also we can boolean any object type like curves/text!
+
 hardops = None
 modifier_list = None
 started_in_edit_mode = False
 BLENDER_VERSION = bpy.app.version
+registered_add_modifier_pie_keymaps = []
+
+def register_add_modifier_pie_keymaps():
+    global registered_add_modifier_pie_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Window', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'Q', 'PRESS', shift=True)
+    kmi.properties.name = 'KEYOPS_MT_add_modifier_pie'
+    registered_add_modifier_pie_keymaps.append((km, kmi))
 
 class Dummy_AddModifier(bpy.types.Operator):
     bl_description = "Add a modifier"
@@ -79,6 +91,24 @@ def toggle_wire_solid_display(context, obj, value=None):
         is_solid = value == 'SOLID'
         obj.visible_camera = is_solid
         obj.visible_shadow = is_solid
+
+
+def get_layer_collection_for_collection(context, collection):
+    """Return the matching LayerCollection anywhere in the active view layer tree."""
+    if not context or not context.view_layer or not collection:
+        return None
+
+    def _find(parent):
+        if parent.collection == collection:
+            return parent
+        for child in parent.children:
+            found = _find(child)
+            if found:
+                return found
+        return None
+
+    return _find(context.view_layer.layer_collection)
+
 
 class BooleanScroll(bpy.types.Operator):
     bl_description = "Scroll through boolean modifiers"
@@ -190,38 +220,45 @@ booleon_descriptions = {
     'INTERSECT': "Intersect",
     'SLICE': "Slice"
 }
+
+BOOLEAN_OPERATION_ITEMS = (
+    ('DIFFERENCE', 'Difference', ''),
+    ('UNION', 'Union', ''),
+    ('INTERSECT', 'Intersect', ''),
+    ('SLICE', 'Slice', ''),
+)
+
 class AddBooleanModifier(bpy.types.Operator):
     bl_description = "Add a boolean modifier"
     bl_idname = "object.add_boolean_modifier_operator"
     bl_label = "Add Boolean"
     bl_options = {'REGISTER', 'UNDO'}
 
-    type: bpy.props.StringProperty(name="Type", description="", default="") #type:ignore
+    # Backward compatibility for existing keymaps/UI that set .type directly.
+    type: bpy.props.EnumProperty(name="Type", description="", items=BOOLEAN_OPERATION_ITEMS, default='DIFFERENCE') #type:ignore
     solver: bpy.props.EnumProperty(name="Solver", description="", items=(
             ('EXACT', 'Exact', ''),
             ('FAST', 'Fast', ''),
             ('MANIFOLD', 'Manifold', '')),
             default='FAST') #type:ignore
-    
     parant: bpy.props.BoolProperty(name="Parent Boolean", description="", default=False) #type:ignore
     apply: bpy.props.BoolProperty(name="Apply", description="", default=False) #type:ignore
 
     @classmethod
     def poll(cls, context):
-        # return context.mode == "OBJECT" and is_object_mesh(context.object)
         if context.object:
             return context.mode == "OBJECT" and context.object.type == "MESH"
-        # return len(context.selected_objects) >= 2 
 
     @classmethod   
     def description(cls, context, operator):
-        return booleon_descriptions[operator.type]
+        return booleon_descriptions.get(operator.type, "Add a boolean modifier")
     
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         # booleon type
-        row.label(text=self.type.title(), icon_value=get_icon(self.type.lower()))
+        row.label( icon_value=get_icon(self.type.lower()))
+        row.prop(self, "type", expand=False,text="")
         row = layout.row()
         row.label(text="Boolean Solver")
         row = layout.row()
@@ -231,6 +268,7 @@ class AddBooleanModifier(bpy.types.Operator):
 
     # TODO All booelons should be geometry nodes, so we can support cutting holes and booleon any object type like curves/text!
     def execute(self, context):
+        boolean_type = self.type
         active = context.object
         cutters = [obj for obj in bpy.context.selected_objects if obj != active and obj.type == "MESH"]
         if len(cutters) < 1:
@@ -239,7 +277,7 @@ class AddBooleanModifier(bpy.types.Operator):
         
         slice_booleon_diffrance_objs = []
 
-        if self.type == 'SLICE':
+        if boolean_type == 'SLICE':
             cutters.append(active)
 
         def move_to_cutter_collection(objs):
@@ -254,29 +292,25 @@ class AddBooleanModifier(bpy.types.Operator):
                     for coll in obj.users_collection:
                         coll.objects.unlink(obj)
                         cutter_collection.objects.link(obj)
-        
-            if cutter_collection.hide_viewport == True or context.view_layer.layer_collection.children[cutter_collection.name].hide_viewport == True:
+
+            layer_collection = get_layer_collection_for_collection(context, cutter_collection)
+            if cutter_collection.hide_viewport or (layer_collection and layer_collection.hide_viewport):
                 cutter_collection.hide_viewport = False
-                context.view_layer.layer_collection.children[cutter_collection.name].hide_viewport = False
+                if layer_collection:
+                    layer_collection.hide_viewport = False
                 for obj in cutter_collection.objects:
                     obj.hide_set(True)
 
             for obj in objs:
                 obj.hide_set(False)
 
-        operations = {
-            'UNION': 'UNION',
-            'DIFFERENCE': 'DIFFERENCE', 
-            'INTERSECT': 'INTERSECT',
-            'SLICE': 'SLICE'
-        }
-
         solver = self.solver
-        old_version = BLENDER_VERSION < (4, 5)
-        if old_version and self.solver == 'MANIFOLD':
+
+        # veroning for past blender versions
+        if BLENDER_VERSION < (4, 5) and self.solver == 'MANIFOLD':
             self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, falling back to Fast solver")
             solver = 'FAST'
-        # if 5.0 and up
+        # if 5.0 and up, fast was renamede to float
         if BLENDER_VERSION >= (5, 0, 0) and self.solver == 'FAST':
             solver = "FLOAT"
                     
@@ -287,7 +321,7 @@ class AddBooleanModifier(bpy.types.Operator):
                 # matris inverse to get the correct location of the object
                 obj.matrix_parent_inverse = active.matrix_world.inverted() 
 
-            if self.type == 'SLICE':
+            if boolean_type == 'SLICE':
                 if obj != active:
                     slice_booleon_diffrance_objs.append(obj)
                     toggle_wire_solid_display(context, obj, value='WIRE')
@@ -295,12 +329,12 @@ class AddBooleanModifier(bpy.types.Operator):
             else:
                 if obj != active:
                     mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = operations[self.type]
+                    mod.operation = boolean_type
                     mod.solver = solver
                     mod.object = obj
                     toggle_wire_solid_display(context, obj, value='WIRE')
 
-        if self.type == 'SLICE':
+        if boolean_type == 'SLICE':
             if slice_booleon_diffrance_objs:
                 duplicates = []
                 for i, obj in enumerate(slice_booleon_diffrance_objs):
@@ -610,12 +644,12 @@ class AddModifier(bpy.types.Operator):
                         if obj.data.total_vert_sel > 0:
                             if self.modified:
                                 group = len(obj.vertex_groups) - 1
-                                eval = obj.evaluated_get(depsgraph)
-                                me = eval.to_mesh()
+                                m = obj.evaluated_get(depsgraph)
+                                me = m.to_mesh()
                                 #while using selection instead is way faster, it unforenly does not work in some cases when using modifers if the selction is not propugated
                                 verts += [obj.matrix_world @ v.co for v in me.vertices if group in [ vg.group for vg in v.groups]]
                               
-                                eval.to_mesh_clear()
+                                m.to_mesh_clear()
                             else:
                                 verts += [obj.matrix_world @ v.co for v in obj.data.vertices if v.select]   
                     if not verts: return {"CANCELLED"}
@@ -655,15 +689,15 @@ class AddModifier(bpy.types.Operator):
                             # verts = [obj.data.vertices[i].co for i in range(len(obj.data.vertices)) if obj.data.vertices[i].select]
                             if self.modified:
                                 group = len(obj.vertex_groups) - 1
-                                eval = obj.evaluated_get(depsgraph)
-                                me = eval.to_mesh()
+                                m = obj.evaluated_get(depsgraph)
+                                me = m.to_mesh()
                                 #while using selection instead is way faster, it unforenly does not work in some cases when using modifers if the selction is not propugated
                                 if obj.modifiers:
                                     verts += [Matrix() @ v.co for v in me.vertices if group in [ vg.group for vg in v.groups]]
                                 else:
                                     verts = [v.co for v in me.vertices if v.select]
                                     
-                                eval.to_mesh_clear()
+                                m.to_mesh_clear()
                             else:
                                 verts = [v.co for v in obj.data.vertices if v.select]
                             if not verts: return {"CANCELLED"}
@@ -708,7 +742,13 @@ class AddModifier(bpy.types.Operator):
             print("Execution time: ", time.time() - exec_time)
         return {'FINISHED'} 
     
+def register_add_modifier_pie():
+    bpy.utils.register_class(AddModifierPie)
+    register_add_modifier_pie_keymaps()
 
+def unregister_add_modifier_pie():
+    clear_registered_keymaps(registered_add_modifier_pie_keymaps)
+    bpy.utils.unregister_class(AddModifierPie)
 
 def create_lattice_object(self, context):
     global modifier_list

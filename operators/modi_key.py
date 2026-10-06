@@ -2,10 +2,43 @@ from typing import Set
 import bpy.types
 from bpy.types import Context, Operator
 from ..utils.pref_utils import get_is_addon_enabled
+from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.mesh_utils import modifier_toggle_visability_based
 import time
 
 modifier_list = None
+registered_modi_key_keymaps = []
+
+def register_modi_key_keymaps():
+    global registered_modi_key_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Property Editor', space_type='PROPERTIES')
+
+    def add(idname, type, value='PRESS', repeat=False, ctrl=False, shift=False, alt=False, prop_type=None):
+        kmi = km.keymap_items.new(idname, type, value, repeat=repeat, ctrl=ctrl, shift=shift, alt=alt)
+        if prop_type is not None:
+            kmi.properties.type = prop_type
+        registered_modi_key_keymaps.append((km, kmi))
+
+    add('keyops.modi_key', 'Q', repeat=True, prop_type='move_up')
+    add('keyops.modi_key', 'Q', shift=True, prop_type='move_top')
+    add('keyops.modi_key', 'E', repeat=True, prop_type='move_down')
+    add('keyops.modi_key', 'E', shift=True, prop_type='move_bottom')
+    add('keyops.modi_key', 'W', repeat=True, prop_type='select_up')
+    add('keyops.modi_key', 'W', shift=True, prop_type='select_top')
+    add('keyops.modi_key', 'S', repeat=True, prop_type='select_down')
+    add('keyops.modi_key', 'S', shift=True, prop_type='select_bottom')
+    add('keyops.modi_key', 'ONE', prop_type='Render_Toggle')
+    add('keyops.modi_key', 'TWO', prop_type='Viewport_Toggle')
+    add('keyops.modi_key', 'TWO', alt=True, prop_type='Viewport_Toggle_all_selected')
+    add('keyops.modi_key', 'THREE', prop_type='Edit_Toggle')
+    add('keyops.modi_key', 'FOUR', prop_type='Cage_Toggle')
+    add('keyops.modi_key', 'X', prop_type='delete')
+    add('keyops.modi_key', 'X', alt=True, prop_type='delete_named_modi_on_all_selected')
+    add('keyops.modi_key', 'A', prop_type='Apply')
+    add('keyops.modi_key_no_undo', 'TAB', prop_type='Toggle_Space')
+    add('keyops.modi_key_no_undo', 'M', prop_type='Material_Tab')
+    add('keyops.modi_key', 'D', prop_type='Duplicate')
 
 def sync_bpy_object_props(source, dest):
     for p in source.bl_rna.properties:
@@ -136,7 +169,11 @@ class ModiKey(Operator):
 
                     if modifier_list:     
                         if bpy.context.mode == 'OBJECT':   
-                            bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
+                            try:
+                                bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
+                            except Exception as e:
+                                self.report({'ERROR'}, f"Failed to apply modifier: {e}")
+                                return {'CANCELLED'}
                                                         
                             # does not work with modifers that are not visible in edit mode, make exception for them?
                             #hide all modifiers except the active one
@@ -294,10 +331,14 @@ class ModiKey(Operator):
             elif self.type == 'select':
                 pass
         return {'FINISHED'}
-    def register():
-        bpy.utils.register_class(ModiKeyNoUndo)
-    def unregister():
-        bpy.utils.unregister_class(ModiKeyNoUndo)
+def register_modi_key():
+    bpy.utils.register_class(ModiKey)
+    bpy.utils.register_class(ModiKeyNoUndo)
+    register_modi_key_keymaps()
+def unregister_modi_key():
+    clear_registered_keymaps(registered_modi_key_keymaps)
+    bpy.utils.unregister_class(ModiKeyNoUndo)
+    bpy.utils.unregister_class(ModiKey)
 
 
 class ModiKeyNoUndo(Operator):

@@ -1,11 +1,21 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled, get_addon_preferences, get_icon
+from ..utils.pref_utils import clear_registered_keymaps
 
 xray_select = None
 theme_wrong = False
 check_theme_once = False
 cached_theme_colors = None
 BLENDER_VERSION = bpy.app.version
+registered_toggle_retopology_keymaps = []
+
+def register_toggle_retopology_keymaps():
+    global registered_toggle_retopology_keymaps
+    wm = bpy.context.window_manager
+    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('keyops.toggle_retopology', 'FIVE', 'PRESS')
+    kmi.properties.type = ''
+    registered_toggle_retopology_keymaps.append((km, kmi))
 
 def reset_retopo_themes_on_unregister_addon():
     if bpy.context.preferences.use_preferences_save == True:
@@ -295,14 +305,6 @@ class ToggleRetopology(bpy.types.Operator):
                 bpy.ops.object.mode_set(mode='OBJECT')
         
         return {'FINISHED'}
-    def register():
-        # bpy.utils.register_class(Retopolgy_Panel)
-        bpy.utils.register_class(RETOPOLOGY_PT_Settings)
-    def unregister():
-        # bpy.utils.unregister_class(Retopolgy_Panel)
-        bpy.utils.unregister_class(RETOPOLOGY_PT_Settings)
-        # load_theme_colors_from_prefs(use_cache=False)
-    
 
 def draw_retopology_panel(self, context, draw_header=False):
     prefs = get_keyops_prefs()
@@ -450,3 +452,14 @@ class RETOPOLOGY_PT_Settings(bpy.types.Panel):
             # # row = layout.row()
             # row.operator("keyops.toggle_retopology", text="Set 'Quadraw' Like Shortcuts", icon="GREASEPENCIL").type = "set_quadraw_shortcuts"
 
+def register_toggle_retopology():
+    bpy.utils.register_class(ToggleRetopology)
+    # bpy.utils.register_class(Retopolgy_Panel)
+    bpy.utils.register_class(RETOPOLOGY_PT_Settings)
+    register_toggle_retopology_keymaps()
+
+def unregister_toggle_retopology():
+    clear_registered_keymaps(registered_toggle_retopology_keymaps)
+    bpy.utils.unregister_class(ToggleRetopology)
+    # bpy.utils.unregister_class(Retopolgy_Panel)
+    bpy.utils.unregister_class(RETOPOLOGY_PT_Settings)
