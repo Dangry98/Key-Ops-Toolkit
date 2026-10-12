@@ -1064,7 +1064,9 @@ class ToolkitPanel(bpy.types.Operator):
 
                 z_min = min(v[2] for v in all_bounds)
                 
-                for obj in context.selected_objects:
+                # only do for objs that roots
+                roots = [o for o in context.selected_objects if o.parent is None]
+                for obj in roots:
                     obj.matrix_world.translation -= Vector((0, 0, z_min))
 
                 # bpy.ops.transform.translate(value=(0, 0, -z_min), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(False, False, True), mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False)
