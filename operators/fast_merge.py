@@ -2,6 +2,7 @@ import bpy.types
 import bmesh
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
+from ..utils import mesh_utils as MeshUtils
 from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
 from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
@@ -39,6 +40,61 @@ def find_nearest_visible_vertex_to_mouse(context, mouse_position, vertices, matr
     return min(filter(is_vertex_visible, vertices), key=distance_to_mouse)
 
 
+def should_merge_to_nearest(prefs, selected_verts, active_vert):
+    """Return True when fast merge should pick the nearest visible target."""
+    return (
+        (len(selected_verts) == 1 and prefs.fast_merge_merge_options == "only merge if active or only 1 verts is selected")
+        or prefs.fast_merge_merge_options == "always merge to nearest vert"
+        or (prefs.fast_merge_merge_options == "merge to nerest vert if no active" and active_vert is None)
+        or len(selected_verts) == 1
+    )
+
+
+def get_merge_candidates(selected_verts):
+    """Collect selected vertices and their neighbors once."""
+    vertices = []
+    for vert in selected_verts:
+        vertices.extend(edge.other_vert(vert) for edge in vert.link_edges)
+
+    vertices += selected_verts
+    return list(set(vertices))
+
+
+def get_selected_verts_and_active(bm):
+    """Return the current selected verts and a valid active vert if one exists."""
+    selected_verts = [vert for vert in bm.verts if vert.select]
+    active_vert = bm.select_history.active
+    if active_vert is None or not getattr(active_vert, "is_valid", False):
+        active_vert = None
+    return selected_verts, active_vert
+
+
+def merge_selected_to_target(context, bm, selected_verts, target_vert, preserve_uvs):
+    """Merge selected vertices into the target using the chosen UV behavior."""
+    if preserve_uvs:
+        MeshUtils.merge_vertices_preserve_uvs(context, selected_verts, target_vert, bm=bm, me=context.active_object.data)
+    else:
+        bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=target_vert.co)
+        bmesh.update_edit_mesh(context.active_object.data)
+
+
+def set_active_merged_vertex(context, target_index):
+    """Restore the merged vertex as active from the refreshed edit mesh."""
+    bm = bmesh.from_edit_mesh(context.active_object.data)
+    bm.verts.ensure_lookup_table()
+    active_vert = bm.verts[target_index] if target_index is not None and target_index < len(bm.verts) else None
+
+    if active_vert is None or not active_vert.is_valid or not active_vert.select:
+        active_vert = next((vert for vert in bm.verts if vert.select), None)
+        if active_vert is None:
+            return
+
+    active_vert.select = True
+    bm.select_history.clear()
+    bm.select_history.add(active_vert)
+    bmesh.update_edit_mesh(context.active_object.data)
+
+
 class FastMerge(bpy.types.Operator):
     bl_idname = "keyops.fast_merge"
     bl_label = "Fast Merge"
@@ -64,93 +120,65 @@ class FastMerge(bpy.types.Operator):
 
     def execute(self, context):
         bm = bmesh.from_edit_mesh(context.active_object.data)
-        selected_verts = [vert for vert in bm.verts if vert.select]
+        selected_verts, active_vert = get_selected_verts_and_active(bm)
         global has_clicked_once 
-        active_vert = bm.select_history.active
     
-        def merge(self, context, bm=bm, selected_verts=selected_verts):
-            active_vert = bm.select_history.active
-            if not selected_verts == None:
-                if len(selected_verts) == 0:
-                    self.report({'WARNING'}, "No vertices selected")
-                    return {'FINISHED'}
-            if len(selected_verts) == 1 and self.prefs.fast_merge_merge_options == "only merge if active or only 1 verts is selected" or self.prefs.fast_merge_merge_options == "always merge to nearest vert" or self.prefs.fast_merge_merge_options == "merge to nerest vert if no active" and active_vert == None or len(selected_verts) == 1:
+        def merge(self, context):
+            bm = bmesh.from_edit_mesh(context.active_object.data)
+            selected_verts, active_vert = get_selected_verts_and_active(bm)
+            if len(selected_verts) == 0:
+                self.report({'WARNING'}, "No vertices selected")
+                return {'FINISHED'}
+
+            if should_merge_to_nearest(self.prefs, selected_verts, active_vert):
                 obj = context.object
                 matrix_world = obj.matrix_world.copy()
-                bm = bmesh.from_edit_mesh(obj.data)
-                vertices = []
-
-                for vert in selected_verts:
-                    vertices.extend(edge.other_vert(vert) for edge in vert.link_edges)
-
-                vertices += selected_verts
-                vertices = list(set(vertices))
+                vertices = get_merge_candidates(selected_verts)
                 nearest_vertex = find_nearest_visible_vertex_to_mouse(context, self.mouse_position, vertices, matrix_world)
 
                 if nearest_vertex:
                     if nearest_vertex not in selected_verts:
                         selected_verts.append(nearest_vertex)
 
-                    if self.preserve_uvs:
-                        uv_layer = bm.loops.layers.uv.active
-                        #fixes error in some very rare cases, but might not be worth the potential performance hit
-                        if uv_layer and nearest_vertex.link_loops:
-                            for vert in selected_verts:
-                                for loop in vert.link_loops:
-                                    if loop[uv_layer] and nearest_vertex.link_loops[0][uv_layer]:
-                                        loop[uv_layer].uv = nearest_vertex.link_loops[0][uv_layer].uv
-                                    
-                        bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=nearest_vertex.co)
-                        bmesh.update_edit_mesh(obj.data)
-                    else:
-                        bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=nearest_vertex.co)
-                        bmesh.update_edit_mesh(obj.data)
-                        
+                    target_index = nearest_vertex.index
+                    merge_selected_to_target(context, bm, selected_verts, nearest_vertex, self.preserve_uvs)
+                    set_active_merged_vertex(context, target_index)
                     self.report({'INFO'}, "Merged %d vertices" % (len(selected_verts) - 1))
                 return {'FINISHED'}
-            
+
+            if active_vert is not None and active_vert in selected_verts:
+                amount_of_verts_merged = len(selected_verts)
+                target_index = active_vert.index
+                merge_selected_to_target(context, bm, selected_verts, active_vert, self.preserve_uvs)
+                set_active_merged_vertex(context, target_index)
+                self.report({'INFO'}, "Merged %d vertices" % (amount_of_verts_merged - 1))
             else:
-                selected_history = bm.select_history.active
-                active_vert = selected_history if selected_history in selected_verts else []
-
-                if active_vert:
-                    if self.preserve_uvs:
-                        amount_of_verts_merged = len(selected_verts)
-                        bpy.ops.mesh.merge(uvs=True, type='LAST')
-                    else:
-                        amount_of_verts_merged = len(selected_verts)
-                        bmesh.ops.pointmerge(bm, verts=selected_verts, merge_co=active_vert.co)
-                        bmesh.update_edit_mesh(context.active_object.data)
-                        
-                    self.report({'INFO'}, "Merged %d vertices" % (amount_of_verts_merged - 1))
-
-                else:
-                    self.report({'WARNING'}, "No Active Vertex to Merge to")
+                self.report({'WARNING'}, "No Active Vertex to Merge to")
 
         if self.prefs.fast_merge_soft_limit == "no_limit":  
-            merge(self, context, bm, selected_verts)
+            merge(self, context)
 
         elif self.prefs.fast_merge_soft_limit == "max_polycount":
             if self.prefs.fast_merge_polycount >= len(selected_verts):
-                merge(self, context, bm, selected_verts)
+                merge(self, context)
             else:
                 self.report({'WARNING'}, "Limit - Too many vertices selected")
         elif self.prefs.fast_merge_soft_limit == "all_selected":
             if len(selected_verts) == len(bm.verts):
                 self.report({'WARNING'}, "Limit - All vertices are selected")
             else:
-                merge(self, context, bm, selected_verts)
+                merge(self, context)
 
         elif self.prefs.fast_merge_soft_limit == "max_limit_&_all_selected":
             if len(selected_verts) == len(bm.verts) and self.prefs.fast_merge_polycount < len(selected_verts):
                 self.report({'WARNING'}, "Limit - All vertices are selected and too many vertices selected")
             elif self.prefs.fast_merge_polycount >= len(selected_verts):
-                merge(self, context, bm, selected_verts)
+                merge(self, context)
             else:
                 self.report({'WARNING'}, "Limit - Too many vertices selected")
 
         elif self.prefs.fast_merge_soft_limit == "ask_if_no_active_vert":
-            if active_vert == None:
+            if active_vert is None:
                 if has_clicked_once == None:
                     has_clicked_once = True
                     if not self.prefs.fast_merge_merge_options == "only merge if active or only 1 verts is selected":
@@ -158,12 +186,9 @@ class FastMerge(bpy.types.Operator):
                     return {'FINISHED'}
                 else:
                     has_clicked_once = None
-                    merge(self, context, bm, selected_verts)
-                    current_selected_verts = [vert for vert in bm.verts if vert.select]
-                    if len(current_selected_verts) > 0:
-                        bm.select_history.add(current_selected_verts[0])
+                    merge(self, context)
             else:
-                merge(self, context, bm, selected_verts)
+                merge(self, context)
             
         has_clicked_once = None
             
