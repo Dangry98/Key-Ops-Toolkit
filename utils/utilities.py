@@ -1,10 +1,142 @@
 import bpy, bmesh
+import inspect
 import numpy as np # type: ignore
 from mathutils import Matrix, Vector
-from .pref_utils import get_is_addon_enabled
+from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 
 BLENDER_VERSION = bpy.app.version
 BLENDER_VERSION_MAJOR_POINT_MINOR = float(bpy.app.version_string[0:4].strip("."))
+
+
+def get_blender_key_icon(key_name):
+    mapping = {
+        'Ctrl': 'EVENT_CTRL',
+        'Control': 'EVENT_CTRL',
+        'Shift': 'EVENT_SHIFT',
+        'Alt': 'EVENT_ALT',
+        'D': 'EVENT_D',
+        'X': 'EVENT_X',
+        'Q': 'EVENT_Q',
+        'E': 'EVENT_E',
+        'H': 'EVENT_H',
+        'M': 'EVENT_M',
+        'C': 'EVENT_C',
+        'W': 'EVENT_W',
+        'S': 'EVENT_S',
+        'Z': 'EVENT_Z',
+        'SPACE': 'EVENT_SPACEKEY',
+        'Esc': 'ESC',
+        'ESC': 'ESC',
+        'LMB': 'MOUSE_LMB',
+        'RMB': 'MOUSE_RMB',
+        'MMB': 'MOUSE_MMB',
+    }
+    return mapping.get(key_name, '')
+
+
+def get_edit_mesh_tool_defs(context):
+    tool_defs = []
+
+    try:
+        tools_class = ToolSelectPanelHelper._tool_class_from_space_type('VIEW_3D')
+        if not tools_class or context is None:
+            return tool_defs
+
+        sig = inspect.signature(tools_class.tools_from_context)
+        supports_mode_arg = "mode" in sig.parameters
+
+        def collect_tools_from_context(ctx):
+            if supports_mode_arg:
+                toolbar_tools = tools_class.tools_from_context(ctx, mode='EDIT_MESH')
+            else:
+                toolbar_tools = tools_class.tools_from_context(ctx)
+
+            for tool_def in ToolSelectPanelHelper._tools_flatten(toolbar_tools):
+                tool_defs.append(tool_def)
+
+        collect_tools_from_context(context)
+
+        # If the current context is not suitable (e.g. preferences), try a VIEW_3D override.
+        if not tool_defs:
+            wm = context.window_manager
+            for window in wm.windows:
+                screen = window.screen
+                if not screen:
+                    continue
+
+                for area in screen.areas:
+                    if area.type != 'VIEW_3D':
+                        continue
+
+                    window_region = None
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            window_region = region
+                            break
+
+                    if window_region is None:
+                        continue
+
+                    with context.temp_override(window=window, area=area, region=window_region):
+                        collect_tools_from_context(bpy.context)
+
+                    if tool_defs:
+                        break
+
+                if tool_defs:
+                    break
+    except Exception:
+        pass
+
+    return tool_defs
+
+def get_tool_icon_value(tool_id, context):
+    if not tool_id:
+        return 0
+
+    for tool_def in get_edit_mesh_tool_defs(context):
+        if getattr(tool_def, "idname", "") != tool_id:
+            continue
+
+        icon_handle = getattr(tool_def, "icon", None)
+        if not icon_handle:
+            return 0
+
+        try:
+            return ToolSelectPanelHelper._icon_value_from_icon_handle(icon_handle)
+        except Exception:
+            return 0
+
+    return 0
+
+def get_tool_display_name(tool_id, context):
+    if not tool_id:
+        return ""
+
+    for tool_def in get_edit_mesh_tool_defs(context):
+        if getattr(tool_def, "idname", "") != tool_id:
+            continue
+
+        label = getattr(tool_def, "label", "")
+        if callable(label):
+            try:
+                label = label()
+            except Exception:
+                label = ""
+
+        if label:
+            return str(label)
+
+    for tool_class in bpy.types.WorkSpaceTool.__subclasses__():
+        if getattr(tool_class, "bl_idname", "") != tool_id:
+            continue
+
+        class_label = getattr(tool_class, "bl_label", "")
+        if class_label:
+            return str(class_label)
+
+    readable_tail = tool_id.split(".")[-1]
+    return readable_tail.replace("_", " ").title()
 
 def get_obj_evaluated_data(obj, depsgraph=None): 
     if not depsgraph:
@@ -146,13 +278,6 @@ def select_ring():
         bpy.ops.mesh.select_edge_ring_multi()
     else:
         bpy.ops.mesh.loop_multi_select(ring=True)
-
-def is_set_edge_flow_installed():
-    if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
-        return True
-    else:
-        bpy.ops.keyops.toolkit_panel("INVOKE_DEFAULT", type="operation_missing", addon_id="EdgeFlow")
-        return False
 
 def add_shortcuts(list):
     wm = bpy.context.window_manager

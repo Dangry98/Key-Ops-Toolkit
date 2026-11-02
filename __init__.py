@@ -214,7 +214,8 @@ def extension_register_unregister(extension, register):
 def apply_enabled_extensions(prefs, should_register):
     """We loop troguht the prefrences varibles and get the extensions name from the prefrences if 'enable_' in name. 
     Then we call the extension_register_unregister function with the extension name.
-    While this is a bit unconventional, this is to avoid a lot of extra repetitive code in the register and unregister functions"""
+    
+    A bit unconventional, but avoid a lot of extra repetitive duplicate code in the register and unregister functions"""
     
     for pref_name in KeyOpsPreferences.__annotations__:
         if not pref_name.startswith("enable_"): # means its an prefrences that will register/unregister classes/keymaps

@@ -36,32 +36,48 @@ def unregister_outliner_click_keymap():
 def register_handler(dummy=None, depsgraph=None):
     bpy.app.timers.register(lambda: enabled_selection_options(bpy.context.scene, bpy.context), first_interval=0.3)
 
-def selection_option_handler(dummy, depsgraph):
-    global previous_selected_objects
-    global clicked_in_outliner
+def _get_valid_outliner_override():
+    if not bpy.context.window_manager:
+        return None
+
+    for window in bpy.context.window_manager.windows:
+        if not window.screen:
+            continue
+        for area in window.screen.areas:
+            if area.type != 'OUTLINER':
+                continue
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if region is not None:
+                return {
+                    'window': window,
+                    'screen': window.screen,
+                    'area': area,
+                    'region': region,
+                }
+    return None
+
+
+def selection_option_handler():
+    global previous_selected_objects, clicked_in_outliner
+
+    if not (bpy.context.scene.auto_focus_in_outliner or bpy.context.scene.select_children or bpy.context.scene.collapse_unselected_collections):
+        return None
+
     current_selected_objects = bpy.context.selected_objects
-    
+
     if previous_selected_objects != current_selected_objects:
         previous_selected_objects = current_selected_objects
 
         if bpy.context.scene.auto_focus_in_outliner or bpy.context.scene.collapse_unselected_collections:
             if not clicked_in_outliner:
-                outliner_areas = [a for a in bpy.context.screen.areas if a.type == "OUTLINER"]
-                if not outliner_areas:
-                    return  # No outliner area found, exit the function
-                largest_area = max(outliner_areas, key=lambda a: a.width * a.height)
-                largest_region = next(r for r in largest_area.regions if r.type == "WINDOW")
+                override = _get_valid_outliner_override()
+                if override is None:
+                    return 0.1
 
-                override_context = {
-                    'area': largest_area,
-                    'region': largest_region
-                }
-
-                with bpy.context.temp_override(**override_context):
+                with bpy.context.temp_override(**override):
                     if bpy.context.scene.collapse_unselected_collections:
                         bpy.ops.outliner.expanded_toggle()
                         bpy.ops.outliner.expanded_toggle()
-
                     bpy.ops.outliner.show_active()
 
         def walk_children(ob):
@@ -75,6 +91,7 @@ def selection_option_handler(dummy, depsgraph):
                     child.select_set(True)
 
     clicked_in_outliner = False
+    return 0.1
 
 def draw_options_in_outliner(self, context):
     layout = self.layout
@@ -88,15 +105,14 @@ def draw_options_in_outliner(self, context):
         row.prop(context.scene, 'select_children')
 
 def enabled_selection_options(self, context):
-    if self.auto_focus_in_outliner or self.select_children or self.collapse_unselected_collections:
-        if selection_option_handler not in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.append(selection_option_handler)
-            if not any('keyops.outliner_click' in km.keymap_items for km in bpy.context.window_manager.keyconfigs.addon.keymaps):
-                register_outliner_click_keymap()
-    else:
-        if selection_option_handler in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.remove(selection_option_handler)
-            unregister_outliner_click_keymap()
+    active = bool(self.auto_focus_in_outliner or self.select_children or self.collapse_unselected_collections)
+    if active and not bpy.app.timers.is_registered(selection_option_handler):
+        bpy.app.timers.register(selection_option_handler, first_interval=0.1)
+        if not any('keyops.outliner_click' in km.keymap_items for km in bpy.context.window_manager.keyconfigs.addon.keymaps):
+            register_outliner_click_keymap()
+    elif not active and bpy.app.timers.is_registered(selection_option_handler):
+        bpy.app.timers.unregister(selection_option_handler)
+        unregister_outliner_click_keymap()
 
 class OutlinerClick(bpy.types.Operator):
     bl_idname = "keyops.outliner_click"
@@ -151,8 +167,8 @@ def register_outliner_options():
 def unregister_outliner_options():
     if BLENDER_VERSION < (5, 2, 0):
         bpy.utils.unregister_class(OutlinerClick)
-        if selection_option_handler in bpy.app.handlers.depsgraph_update_post:
-            bpy.app.handlers.depsgraph_update_post.remove(selection_option_handler)
+        if bpy.app.timers.is_registered(selection_option_handler):
+            bpy.app.timers.unregister(selection_option_handler)
         handlers = [h.__name__ for h in bpy.app.handlers.load_post]
         if 'register_handler' in handlers:
             bpy.app.handlers.load_post.remove(register_handler)

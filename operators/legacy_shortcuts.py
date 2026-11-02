@@ -1,5 +1,6 @@
 import bpy.types
 from ..utils.pref_utils import clear_registered_keymaps
+# old useful leagacy shortcuts that are no longer in Blender but still useful to have. Optional enable in the addon preferences
 
 registered_legacy_shortcuts_keymaps = []
 

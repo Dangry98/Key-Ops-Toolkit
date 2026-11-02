@@ -1,15 +1,8 @@
 import bpy.types
 from bpy.types import Menu
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.pref_utils import get_is_addon_enabled
-from ..utils.pref_utils import get_keyops_prefs
 
 
-hardops = None
-uvpackmaster = None
-uvtoolkit = None
-zenuv = None
-polyquilt = None
 registered_workspace_pie_keymaps = []
 registered_uv_pies_keymaps = []
 registered_utility_pie_keymaps = []
@@ -103,28 +96,8 @@ class UVSpacePie(Menu):
         layout = self.layout
         pie = layout.menu_pie()
 
-        global uvtoolkit
-        global uvpackmaster
-        global zenuv
-
-        if uvtoolkit is None:
-            uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-        if uvpackmaster is None:
-            uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
-        if zenuv is None:
-            zenuv = get_is_addon_enabled("ZenUV")
-       
-        if uvtoolkit:
-            pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
-        elif zenuv:
-            pie.operator("uv.zenuv_quadrify", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
-        if zenuv:
-             pie.operator("uv.zenuv_isolate_island", text="Isolate Island (Toggle)") #RIGHT
-        else:
-            pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
-        # if uvpackmaster and zenuv:
-        #     pie.operator("uv.zenuv_pack", text="Pack Master", icon="MOD_MULTIRES") #BOTTOM
-        # else:
+        pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
+        pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
         pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
         pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #TOP
@@ -133,15 +106,7 @@ class UVSpacePie(Menu):
 
         pie.operator("keyops.unwrap_selected", text="Unwrap Selected", icon="UV_VERTEXSEL") #RIGHT TOP
 
-        if uvtoolkit and zenuv:
-            if bpy.context.tool_settings.use_uv_select_sync:
-                pie.operator("uv.zenuv_reshape_island", text="Straighten after Edge", icon="UV_EDGESEL") #LEFT BOTTOM
-            else:    
-                pie.operator("uv.toolkit_straighten_island", text="Straighten after Edge", icon="UV_EDGESEL")
-        elif uvtoolkit:
-            pie.operator("keyops.streighten_after_edge", text="Straighten after Edge", icon="UV_EDGESEL")
-        elif zenuv:
-            pie.operator("uv.zenuv_reshape_island", text="Straighten after Edge", icon="UV_EDGESEL") #LEFT BOTTOM
+        pie.operator("keyops.streighten_after_edge", text="Straighten after Edge", icon="UV_EDGESEL") #LEFT BOTTOM
 
         pie.operator("image.view_selected", text="View Selected", icon="ZOOM_SELECTED") #RIGHT BOTTOM
 
@@ -167,20 +132,6 @@ class UtilityPie(Menu):
         layout = self.layout
         pie = layout.menu_pie()
 
-        uvpackmaster = None
-        uvtoolkit = None
-        zenuv = None
-        polyquilt = None
-
-        if zenuv is None:
-            zenuv = get_is_addon_enabled("ZenUV")
-        if uvtoolkit is None:
-            uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-        if uvpackmaster is None:
-            uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
-        if polyquilt is None:
-            polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
-
         pie.prop(context.scene.tool_settings, "use_edge_path_live_unwrap", text="Live Unwrap", toggle=True) #LEFT
 
         pie.operator("wm.call_menu", text="UV Mapping Menu").name = "VIEW3D_MT_uv_map" #RIGHT     
@@ -189,14 +140,9 @@ class UtilityPie(Menu):
       
         pie.operator("uv.unwrap", text="Unfold and Pack", icon= "UV_FACESEL") #TOP
 
-        if polyquilt:
-            pie.operator("wm.tool_set_by_id", text="Seam Tool", icon="MOD_LINEART").name = "mesh_tool.poly_quilt_seam" #LEFT TOP 
-
         pie.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Correct Face Attributesg", toggle=True) #RIGHT TOP
         
-        if zenuv and bpy.context.mode == 'EDIT_MESH':
-            pie.operator("uv.zenuv_quadrify", text="Quadrify Island after edge", icon="UV_ISLANDSEL") #LEFT BOTTOM
-        elif bpy.context.mode == "OBJECT":
+        if bpy.context.mode == "OBJECT":
             pie.operator("keyops.make_single_user" , text="Make Single User") #LEFT BOTTOM
         
         pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
@@ -220,58 +166,22 @@ class UVQPie(Menu):
     bl_idname = "KEYOPS_MT_uv_q_pie"
     bl_label = "UV Q Pie"
 
-    uvpackmaster = None
-    uvtoolkit = None
-    zenuv = None
-    polyquilt = None
-
-    if zenuv is None:
-        zenuv = get_is_addon_enabled("ZenUV")
-    if uvtoolkit is None:
-        uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-    if uvpackmaster is None:
-        uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
-    if polyquilt is None:
-        polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
-
-
     def draw(self, context):
         layout = self.layout
         pie = layout.menu_pie()
         pie.operator("uv.select_overlap", text="Select Overlapping") #LEFT
 
-        if zenuv:
-            pie.operator("uv.zenuv_orient_island", text="Orient Island to Edge", icon="UV_EDGESEL").mode="BY_SELECTION" #RIGHT
-        else:
-            pie.operator("keyops.orient_island_to_edge", text="Orient Island to Edge") #RIGHT
+        pie.operator("keyops.orient_island_to_edge", text="Orient Island to Edge") #RIGHT
           
         pie.operator("keyops.stack_similar_islands" , text="Stack Similar Islands", icon="CON_SIZELIKE") #BOTTOM
 
-        if uvtoolkit:
-            pie.operator("uv.toolkit_sharp_edges_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT") #TOP
-        else:
-            pie.operator("keyops.sharp_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
+        pie.operator("keyops.sharp_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
         
         pie.operator("uv.seams_from_islands", text="Seams from Islands") #LEFT TOP
 
-        if zenuv:
-            pie.operator("mesh.zenuv_mirror_seams", text="Mirror Seams", icon="MOD_MIRROR") #RIGHT TOP
-        elif uvtoolkit:
-            pie.operator("uv.toolkit_mirror_seam" , text="Mirror Seams", icon="MOD_MIRROR") #RIGHT TOP
-        else:
-            pie.operator("keyops.mirror_seams" , text="Mirror Selected Seams", icon="MOD_MIRROR")
+        pie.operator("keyops.mirror_seams" , text="Mirror Selected Seams", icon="MOD_MIRROR")
 
-        if uvpackmaster:
-            pie.operator("uvpackmaster3.split_overlapping", text="Unstack Islands", icon="MOD_ARRAY") #LEFT BOTTOM
-        elif zenuv:
-            pie.operator("uv.zenuv_unstack", text="Unstack Islands", icon="MOD_ARRAY") #LEFT BOTTOM
-        elif uvtoolkit:
-            pie.operator("uv.toolkit_unstack_overlapped_uvs", text="Unstack Islands", icon="MOD_ARRAY") #LEFT BOTTOM
-        
-        if zenuv:
-            pie.operator("uv.zenuv_select_similar", text="Select Similar Islands")
-        else:
-            pie.operator("keyops.select_similar_islands", text="Select Similar Islands")
+        pie.operator("keyops.select_similar_islands", text="Select Similar Islands")
 
         
     def register():
@@ -373,15 +283,6 @@ class StreightenSelection(bpy.types.Operator):
         description="Pin Island",
         default=True) # type: ignore
 
-    global uvtoolkit
-    global zenuv
-
-    if uvtoolkit is None:
-        uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-    
-    if zenuv is None:
-        zenuv = get_is_addon_enabled("ZenUV")
-
     def execute(self, context):
             if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
@@ -422,16 +323,8 @@ class StackSimilarIslands(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        global uvpackmaster
-
-        if uvpackmaster is None:
-            uvpackmaster = get_is_addon_enabled("uvpackmaster3" or "uvpackmaster2" or "uvpackmaster")
-
-        if uvpackmaster:
-            bpy.ops.uvpackmaster3.align_similar()
-        else:
-            bpy.ops.uv.copy()
-            bpy.ops.uv.paste()
+        bpy.ops.uv.copy()
+        bpy.ops.uv.paste()
         return {'FINISHED'}
 
 class MirrorSeams(bpy.types.Operator):
@@ -455,25 +348,17 @@ class SelectSimilarIslands(bpy.types.Operator):
     bl_label = "Select Similar Islands"
     bl_options = {'REGISTER', 'UNDO'}
 
-    global uvtoolkit
-
-    if uvtoolkit is None:
-        uvtoolkit = get_is_addon_enabled("UVToolkit-main" or "UVToolkit")
-
     @classmethod
     def poll(cls, context):
         return context.active_object is not None
     
     def execute(self, context):
-        if uvtoolkit:
-            bpy.ops.uv.select_similar()
-        else:
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            if bpy.context.tool_settings.use_uv_select_sync:
-                bpy.ops.keyops.smart_uv_sync()
+        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+        if bpy.context.tool_settings.use_uv_select_sync:
+            bpy.ops.keyops.smart_uv_sync()
 
-            bpy.ops.uv.select_mode(type='ISLAND')
+        bpy.ops.uv.select_mode(type='ISLAND')
 
-            bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
+        bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
 
-            return {'FINISHED'}
+        return {'FINISHED'}

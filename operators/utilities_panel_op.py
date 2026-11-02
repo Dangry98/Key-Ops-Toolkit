@@ -1,10 +1,10 @@
 import bpy
-from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import get_keyops_prefs
 import tempfile
 import bmesh
 import math
 from ..resources.geometry_nodes_scripits import triplanar_uv_mapping_node_group
-from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed, BLENDER_VERSION_MAJOR_POINT_MINOR
+from ..utils.utilities import select_loop, select_ring, BLENDER_VERSION_MAJOR_POINT_MINOR
 from .extrude_edge_along_normals import register_extrude_edge_along_normals, unregister_extrude_edge_along_normals
 from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
 
@@ -104,7 +104,6 @@ class UtilitiesPanelOP(bpy.types.Operator):
     select_children: bpy.props.BoolProperty(name="Select Children", default=True) # type: ignore    
     select_parent: bpy.props.BoolProperty(name="Select Parent", default=True) # type: ignore
     select_top_parent: bpy.props.BoolProperty(name="Select Top Parent", default=True) # type: ignore
-    set_material_index: bpy.props.BoolProperty(name="Set Material Index", default=False) # type: ignore
     join_objects: bpy.props.BoolProperty(name="Join Objects", default=True) # type: ignore
     apply_instances: bpy.props.BoolProperty(name="Apply Instances", default=True) # type: ignore
     scale: bpy.props.FloatProperty(name="Scale", default=5.0) # type: ignore
@@ -145,7 +144,6 @@ class UtilitiesPanelOP(bpy.types.Operator):
                 layout.prop(self, "select_top_parent")
                 layout.prop(self, "select_children")
         if self.type == "Apply_and_Join":
-            layout.prop(self, "set_material_index")   
             layout.prop(self, "join_objects")  
             layout.prop(self, "join_children")   
             layout.prop(self, "apply_instances") 
@@ -450,8 +448,7 @@ class UtilitiesPanelOP(bpy.types.Operator):
             if bpy.app.version <= (4, 0, 0):
                 bpy.context.object.data.use_auto_smooth = True
 
-            if self.set_material_index == True and prefs.enable_material_index:
-                bpy.ops.keyops.material_index(type="Make_Material_Index")
+
             bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
             context.scene.cursor.location = (pos2[0], pos2[1], pos2[2])
 
@@ -638,87 +635,84 @@ class UtilitiesPanelOP(bpy.types.Operator):
                     obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
                     
         if self.type == "subdivide_cylinder":
-            if is_set_edge_flow_installed:
-                mesh_obj = bpy.context.active_object
+            mesh_obj = bpy.context.active_object
 
+            bm = bmesh.from_edit_mesh(mesh_obj.data)
+
+            active_edge = bm.select_history.active
+            selected_edges = [e for e in bm.edges if e.select]
+
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+
+            if len(selected_edges) == 0:
+                self.report({'WARNING'}, "No edges selected")
+                return {'CANCELLED'}
+
+            if active_edge is None or not isinstance(active_edge, bmesh.types.BMEdge):
+                loop = selected_edges[0].link_loops[0]
+            else:
+                loop = active_edge.link_loops[0]
+
+            next_loop = loop.link_loop_next
+
+            for edge in bm.edges:
+                edge.select = False
+            next_loop.edge.select = True
+
+            select_ring()
+            select_loop()
+
+            if self.angle_to_add <= 1.570:
+                bm = bmesh.from_edit_mesh(mesh_obj.data)
+                # Define the angle threshold for edge deletion
+                angle_threshold = math.radians(self.angle_to_skip)
+
+                # Loop through all edges in the mesh
+                for edge in bm.edges:
+                    # Check if the edge has exactly 2 faces
+                    if len(edge.link_faces) == 2:
+                        # Calculate the angle between the connected faces
+                        angle = edge.calc_face_angle()
+
+                        # Check if the angle is below the threshold
+                        if angle < angle_threshold:
+                            # Mark the edge to be deselected
+                            edge.select = False
+                    else:
+                        # Handle the case where the edge doesn't have 2 faces
+                        self.report({'WARNING'}, "Edge doesn't use 2 faces")
+
+                # Update the mesh
+                bmesh.update_edit_mesh(mesh_obj.data)
+
+            if self.use_full_edge_loops == True:
+                select_loop()
+
+
+            bpy.ops.mesh.connect2()
+            bpy.ops.mesh.set_mesh_edge_flow('INVOKE_DEFAULT',tension=180, iterations=3)
+
+            if self.triangulate_end == True:
                 bm = bmesh.from_edit_mesh(mesh_obj.data)
 
-                active_edge = bm.select_history.active
-                selected_edges = [e for e in bm.edges if e.select]
-
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-
-                if len(selected_edges) == 0:
-                    self.report({'WARNING'}, "No edges selected")
-                    return {'CANCELLED'}
-
-                if active_edge is None or not isinstance(active_edge, bmesh.types.BMEdge):
-                    loop = selected_edges[0].link_loops[0]
-                else:
-                    loop = active_edge.link_loops[0]
-
-                next_loop = loop.link_loop_next
+                new_selected_edges = [e for e in bm.edges if e.select]
+                
+                select_ring()
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+                bpy.ops.mesh.region_to_loop()
+                bpy.ops.mesh.loop_to_region()
+                bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
 
                 for edge in bm.edges:
                     edge.select = False
-                next_loop.edge.select = True
 
-                select_ring()
-                select_loop()
+                for edge in new_selected_edges:
+                    edge.select = True
 
-                if self.angle_to_add <= 1.570:
-                    bm = bmesh.from_edit_mesh(mesh_obj.data)
-                    # Define the angle threshold for edge deletion
-                    angle_threshold = math.radians(self.angle_to_skip)
+                bmesh.update_edit_mesh(mesh_obj.data)
+                bm.free()
 
-                    # Loop through all edges in the mesh
-                    for edge in bm.edges:
-                        # Check if the edge has exactly 2 faces
-                        if len(edge.link_faces) == 2:
-                            # Calculate the angle between the connected faces
-                            angle = edge.calc_face_angle()
-
-                            # Check if the angle is below the threshold
-                            if angle < angle_threshold:
-                                # Mark the edge to be deselected
-                                edge.select = False
-                        else:
-                            # Handle the case where the edge doesn't have 2 faces
-                            self.report({'WARNING'}, "Edge doesn't use 2 faces")
-
-                    # Update the mesh
-                    bmesh.update_edit_mesh(mesh_obj.data)
-
-                if self.use_full_edge_loops == True:
-                    select_loop()
-
-
-                bpy.ops.mesh.connect2()
-                bpy.ops.mesh.set_edge_flow('INVOKE_DEFAULT',tension=180, iterations=3)
-
-                if self.triangulate_end == True:
-                    bm = bmesh.from_edit_mesh(mesh_obj.data)
-
-                    new_selected_edges = [e for e in bm.edges if e.select]
-                    
-                    select_ring()
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                    bpy.ops.mesh.region_to_loop()
-                    bpy.ops.mesh.loop_to_region()
-                    bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-
-                    for edge in bm.edges:
-                        edge.select = False
-
-                    for edge in new_selected_edges:
-                        edge.select = True
-
-                    bmesh.update_edit_mesh(mesh_obj.data)
-                    bm.free()
-
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-            else:
-                self.report({'WARNING'}, "EdgeFlow addon not installed, please install it to use this operator")
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
         if self.type == "change_cylinder_segments_modifier":
             bpy.ops.mesh.select_all(action='INVERT')
@@ -1033,7 +1027,7 @@ class EditModePanel(bpy.types.Panel):
         row.operator("mesh.connect2", text="Connect")
         row.operator("mesh.subdivide", text="Subdivide")
         row = col.row(align=True)
-        row.operator("mesh.set_edge_flow", text="Set Flow")
+        row.operator("mesh.set_mesh_edge_flow", text="Set Flow")
         row.operator("mesh.edge_face_add", text="Fill")
 
         row = col.row(align=True)

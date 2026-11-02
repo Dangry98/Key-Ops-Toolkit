@@ -3,12 +3,12 @@ import bmesh
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from ..utils import mesh_utils as MeshUtils
-from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import select_loop, select_ring, is_set_edge_flow_installed
+from ..utils.utilities import select_loop, select_ring
+from .fast_knife import FastKnife
 
 has_clicked_once = None
-half_knife = None
 registered_fast_merge_keymaps = []
 
 def register_fast_merge_keymaps():
@@ -195,91 +195,17 @@ class FastMerge(bpy.types.Operator):
         return {'FINISHED'}
 def register_fast_merge():
     bpy.utils.register_class(FastMerge)
+    bpy.utils.register_class(FastKnife)
     bpy.utils.register_class(FastConnect)
     bpy.utils.register_class(Connect)
-    #bpy.utils.register_class(FastKnife)
     register_fast_merge_keymaps()
 
 def unregister_fast_merge():
     clear_registered_keymaps(registered_fast_merge_keymaps)
     bpy.utils.unregister_class(FastMerge)
+    bpy.utils.unregister_class(FastKnife)
     bpy.utils.unregister_class(FastConnect)
     bpy.utils.unregister_class(Connect)
-    #bpy.utils.unregister_class(FastKnife)
-
-class FastKnife(bpy.types.Operator):
-    bl_idname = 'mesh.fast_knife'
-    bl_label = 'FastKnife'
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    mouse_position = Vector((0, 0))
-
-    @classmethod
-    def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
-    
-    def invoke(self, context, event):
-        self.mouse_position[0] = event.mouse_region_x
-        self.mouse_position[1] = event.mouse_region_y
-        return self.execute(context)
-
-    def execute(self, context):
-
-            
-        obj = context.edit_object
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
-
-
-
-        def dissolve_redundant_edges(bm, vert, excluded_verts = []):
-            dissolved_edges = []
-            l = len(vert.link_edges)
-            for e in vert.link_edges:
-                if not e.other_vert(vert) in excluded_verts and l > 2:
-                    dissolved_edges.append(e)
-                    l -= 1
-            bmesh.ops.dissolve_edges(bm, edges = dissolved_edges, use_verts = False, use_face_split = False)
-
-
-        def addVertOnFace(self, co, face):
-            vert = bmesh.ops.poke(self.bmesh, faces=[face])['verts'][0]
-            vert.co = co
-            dissolve_redundant_edges(self.bmesh, vert)
-            return vert
-
-        def addVertOnEdge(self, co, edge):
-            edge, vert = bmesh.utils.edge_split(edge, edge.verts[0], .5)
-            vert.co = co
-            return vert
-        
-        
-        def find_closest_edge_or_face_or_vert_to_mouse(self, context, mouse_position, bm):
-            obj = context.object
-            matrix_world = obj.matrix_world.copy()
-            vertices = [v for v in bm.verts if v.select]
-            edges = [e for e in bm.edges if e.select]
-            faces = [f for f in bm.faces if f.select]
-
-            def distance_to_mouse(element):
-                world_position = matrix_world @ element.calc_center_median()
-                screen_pos = location_3d_to_region_2d(context.region, context.space_data.region_3d, world_position)
-                return (mouse_position - screen_pos).length if screen_pos else float('inf')
-
-            closest_element = min(vertices + edges + faces, key=distance_to_mouse)
-            return closest_element
-        
-        #finds the closest edge or face or vert to the mouse and then decides if it should add a vert on edge ot add vert on face
-        closest_element = find_closest_edge_or_face_or_vert_to_mouse(self, context, self.mouse_position, bm)
-        
-        if isinstance(closest_element, bmesh.types.BMVert):
-            addVertOnEdge(self, closest_element.co, closest_element.link_edges[0])
-        elif isinstance(closest_element, bmesh.types.BMEdge):
-            addVertOnEdge(self, closest_element.verts[0].co.lerp(closest_element.verts[1].co, .5), closest_element)
-        elif isinstance(closest_element, bmesh.types.BMFace):
-            addVertOnFace(self, closest_element.calc_center_median(), closest_element)
-
-        return {'FINISHED'}
 
 class FastConnect(bpy.types.Operator):
     bl_idname = 'mesh.fast_connect'
@@ -301,11 +227,6 @@ class FastConnect(bpy.types.Operator):
         return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
-        global half_knife
-
-        if half_knife is None:
-            half_knife = get_is_addon_enabled('Half_Knife')
-
         obj = context.edit_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
@@ -316,10 +237,7 @@ class FastConnect(bpy.types.Operator):
             vert_sel = {v for v in bm.verts if v.select}
 
             if not vert_sel or len(vert_sel) == 1:
-                if half_knife:
-                    bpy.ops.mesh.half_knife_operator('INVOKE_DEFAULT', auto_cut=True, cut_with_preview_from_void = False)
-                else:
-                    bpy.ops.mesh.knife_tool('INVOKE_DEFAULT')
+                bpy.ops.mesh.fast_knife('INVOKE_DEFAULT')
                 return {'FINISHED'}
             
             elif len(vert_sel) > 1:
@@ -437,8 +355,6 @@ class Connect(bpy.types.Operator):
                     bm.free()
 
         if self.set_flow:
-            
-            if is_set_edge_flow_installed():
-                bpy.ops.mesh.set_edge_flow('INVOKE_DEFAULT', tension=180, iterations=3)
+            bpy.ops.mesh.set_mesh_edge_flow('INVOKE_DEFAULT', tension=180, iterations=3)
 
         return {'FINISHED'}

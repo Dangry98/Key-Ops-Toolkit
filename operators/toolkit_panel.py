@@ -1,9 +1,9 @@
 import bpy
-from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 import bmesh
 import math
-from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR
+from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR, select_loop, select_ring
 from mathutils import Vector
 from ..utils.pref_utils import get_icon
 from .add_modifier import AddModifier
@@ -12,6 +12,8 @@ from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
 from .extrude_edge_along_normals import register_extrude_edge_along_normals, unregister_extrude_edge_along_normals
 from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
+from .set_flow import register_set_flow, unregister_set_flow
+from .fast_mirror import register_fast_mirror, unregister_fast_mirror
 from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group, get_all_bouding_box_node_group
 
 BLENDER_VERSION = bpy.app.version
@@ -50,9 +52,27 @@ def register_toolkit_panel_keymaps():
     kmi.properties.type = 'SLICE'
     registered_toolkit_panel_keymaps.append((km, kmi))
 
+    kmi = km.keymap_items.new('keyops.fast_mirror', 'X', 'PRESS', alt=True)
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.fast_mirror_cancel', 'ESC', 'PRESS')
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.fast_mirror_options', 'D', 'PRESS')
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
     km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
     kmi = km.keymap_items.new('wm.call_menu', 'M', 'PRESS', alt=True)
     kmi.properties.name = 'MATERIAL_MT_material_list'
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.fast_mirror', 'X', 'PRESS', alt=True)
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.fast_mirror_cancel', 'ESC', 'PRESS')
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    kmi = km.keymap_items.new('keyops.fast_mirror_options', 'D', 'PRESS')
     registered_toolkit_panel_keymaps.append((km, kmi))
 
 # fix attribute toggle in edit mode/objet mode
@@ -850,23 +870,23 @@ class ToolkitPanel(bpy.types.Operator):
                     bpy.ops.mesh.select_all(action='DESELECT')
                     current_selection[0].select = True
 
-                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                    select_ring()
                     bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=0)
 
                     #compare if current_selection does not match any in the new_selection, if then increase the offset with +1
                     new_selection = [e for e in bm.edges if e.select]
                     if any(e in current_selection for e in new_selection):
-                        bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=True)
+                        select_ring()
                         bpy.ops.mesh.select_nth('EXEC_DEFAULT', True, skip=1, nth=1, offset=1)
 
-                    bpy.ops.mesh.loop_multi_select('EXEC_DEFAULT', True, ring=False)
+                    select_loop()
 
                     if self.angle_to_skip <= 1.570:
                         bpy.ops.mesh.select_all(action='INVERT')
                         bpy.ops.mesh.edges_select_sharp(sharpness=self.angle_to_skip)
                         bpy.ops.mesh.select_all(action='INVERT')
                         if self.full_edge_loops == True:
-                            bpy.ops.mesh.loop_multi_select(ring=False)
+                            select_loop()
 
                     bpy.ops.mesh.dissolve_mode('EXEC_DEFAULT', True, use_verts=True)
                     bpy.ops.mesh.select_by_attribute()
@@ -881,88 +901,84 @@ class ToolkitPanel(bpy.types.Operator):
                     obj.data.attributes.remove(obj.data.attributes.get('Edge_Un_Subdivied_Cylinder'))
                     
         elif self.type == "subdivide_cylinder":
-            if get_is_addon_enabled("EdgeFlow-blender_28") or get_is_addon_enabled("EdgeFlow"):
-                mesh_obj = bpy.context.active_object
+            mesh_obj = bpy.context.active_object
 
+            bm = bmesh.from_edit_mesh(mesh_obj.data)
+
+            active_edge = bm.select_history.active
+            selected_edges = [e for e in bm.edges if e.select]
+
+            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+
+            if len(selected_edges) == 0:
+                self.report({'WARNING'}, "No edges selected")
+                return {'CANCELLED'}
+
+            if active_edge is None or not isinstance(active_edge, bmesh.types.BMEdge):
+                loop = selected_edges[0].link_loops[0]
+            else:
+                loop = active_edge.link_loops[0]
+
+            next_loop = loop.link_loop_next
+
+            for edge in bm.edges:
+                edge.select = False
+            next_loop.edge.select = True
+
+            select_ring()
+            select_loop()
+
+            if self.angle_to_add <= 1.570:
+                bm = bmesh.from_edit_mesh(mesh_obj.data)
+                # Define the angle threshold for edge deletion
+                angle_threshold = math.radians(self.angle_to_skip)
+
+                # Loop through all edges in the mesh
+                for edge in bm.edges:
+                    # Check if the edge has exactly 2 faces
+                    if len(edge.link_faces) == 2:
+                        # Calculate the angle between the connected faces
+                        angle = edge.calc_face_angle()
+
+                        # Check if the angle is below the threshold
+                        if angle < angle_threshold:
+                            # Mark the edge to be deselected
+                            edge.select = False
+                    else:
+                        # Handle the case where the edge doesn't have 2 faces
+                        self.report({'WARNING'}, "Edge doesn't use 2 faces")
+
+                # Update the mesh
+                bmesh.update_edit_mesh(mesh_obj.data)
+
+            if self.use_full_edge_loops == True:
+                select_loop()
+
+
+            bpy.ops.mesh.connect2()
+            bpy.ops.mesh.set_mesh_edge_flow(tension=180, iterations=3)
+
+            if self.triangulate_end == True:
                 bm = bmesh.from_edit_mesh(mesh_obj.data)
 
-                active_edge = bm.select_history.active
-                selected_edges = [e for e in bm.edges if e.select]
-
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-
-                if len(selected_edges) == 0:
-                    self.report({'WARNING'}, "No edges selected")
-                    return {'CANCELLED'}
-
-                if active_edge is None or not isinstance(active_edge, bmesh.types.BMEdge):
-                    loop = selected_edges[0].link_loops[0]
-                else:
-                    loop = active_edge.link_loops[0]
-
-                next_loop = loop.link_loop_next
+                new_selected_edges = [e for e in bm.edges if e.select]
+                
+                select_ring()
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+                bpy.ops.mesh.region_to_loop()
+                bpy.ops.mesh.loop_to_region()
+                bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
 
                 for edge in bm.edges:
                     edge.select = False
-                next_loop.edge.select = True
 
-                bpy.ops.mesh.loop_multi_select(ring=True)
-                bpy.ops.mesh.loop_multi_select(ring=False)
+                for edge in new_selected_edges:
+                    edge.select = True
 
-                if self.angle_to_add <= 1.570:
-                    bm = bmesh.from_edit_mesh(mesh_obj.data)
-                    # Define the angle threshold for edge deletion
-                    angle_threshold = math.radians(self.angle_to_skip)
+                bmesh.update_edit_mesh(mesh_obj.data)
+                bm.free()
 
-                    # Loop through all edges in the mesh
-                    for edge in bm.edges:
-                        # Check if the edge has exactly 2 faces
-                        if len(edge.link_faces) == 2:
-                            # Calculate the angle between the connected faces
-                            angle = edge.calc_face_angle()
-
-                            # Check if the angle is below the threshold
-                            if angle < angle_threshold:
-                                # Mark the edge to be deselected
-                                edge.select = False
-                        else:
-                            # Handle the case where the edge doesn't have 2 faces
-                            self.report({'WARNING'}, "Edge doesn't use 2 faces")
-
-                    # Update the mesh
-                    bmesh.update_edit_mesh(mesh_obj.data)
-
-                if self.use_full_edge_loops == True:
-                    bpy.ops.mesh.loop_multi_select(ring=False)
-
-
-                bpy.ops.mesh.connect2()
-                bpy.ops.mesh.set_edge_flow(tension=180, iterations=3)
-
-                if self.triangulate_end == True:
-                    bm = bmesh.from_edit_mesh(mesh_obj.data)
-
-                    new_selected_edges = [e for e in bm.edges if e.select]
-                    
-                    bpy.ops.mesh.loop_multi_select(ring=True)
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                    bpy.ops.mesh.region_to_loop()
-                    bpy.ops.mesh.loop_to_region()
-                    bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-
-                    for edge in bm.edges:
-                        edge.select = False
-
-                    for edge in new_selected_edges:
-                        edge.select = True
-
-                    bmesh.update_edit_mesh(mesh_obj.data)
-                    bm.free()
-
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-
-            else:
-                self.report({'WARNING'}, "EdgeFlow addon not installed, please install it to use this operator")
+                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
         elif self.type == "change_cylinder_segments_modifier":
             bpy.ops.mesh.select_all(action='INVERT')
@@ -1105,6 +1121,8 @@ class ToolkitPanel(bpy.types.Operator):
         return {'FINISHED'}
 
 def register_toolkit_panel():
+    register_set_flow()
+    register_fast_mirror()
     bpy.utils.register_class(ToolkitPanel)
     # bpy.utils.register_class(NewToolkitPanel)
     # bpy.utils.register_class(ObjectModePanel)
@@ -1126,6 +1144,8 @@ def register_toolkit_panel():
 
 def unregister_toolkit_panel():
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
+    unregister_fast_mirror()
+    unregister_set_flow()
     bpy.utils.unregister_class(ToolkitPanel)
     # bpy.utils.unregister_class(ObjectModePanel)
     # bpy.utils.unregister_class(ModifierPanel)
@@ -1415,12 +1435,7 @@ class ModifierPanel(bpy.types.Panel):
         del bpy.types.Scene.bevel_segments_type
 
 def draw_edge_flow(row):
-    if get_is_addon_enabled("EdgeFlow"):
-        row.operator("mesh.set_edge_flow", text="Set Flow")
-    else:
-        op = row.operator("keyops.toolkit_panel", text="Set Flow")
-        op.type = "operation_missing"
-        op.addon_id = "EdgeFlow"
+    row.operator("mesh.set_mesh_edge_flow", text="Set Flow")
 
 # click vert, edge andface again should go to object mode!        
 def draw_edit_mode_panel(self, context, draw_header=False):
@@ -1451,12 +1466,12 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.select_more", text="", icon="ADD")
         row.operator("mesh.select_less", text="", icon="REMOVE")
 
-        if BLENDER_VERSION < (4, 5, 0):
-            row.operator("mesh.loop_multi_select", text="Loop").ring=False
-            row.operator("mesh.loop_multi_select", text="Ring").ring=True
-        else:
+        if BLENDER_VERSION >= (5, 1, 0):
             row.operator("mesh.select_edge_loop_multi", text="Loop")
             row.operator("mesh.select_edge_ring_multi", text="Ring")
+        else:
+            row.operator("mesh.loop_multi_select", text="Loop").ring=False
+            row.operator("mesh.loop_multi_select", text="Ring").ring=True
 
         row = box.row(align=False)
         row.operator("mesh.region_to_loop", text="Boundary")
@@ -1467,7 +1482,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row.operator("mesh.faces_select_linked_flat", text="By Angle")
         else:
             row.operator("mesh.edges_select_sharp", text="Edge Angle")
-        row.operator("mesh.select_similar", text="Similar")
+        row.operator("keyops.select_similar", text="Similar")
         # Checker deselect
         row = box.row(align=False)
         row.alignment = 'CENTER'
@@ -1587,13 +1602,22 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.subdivide", text="Subdivide")
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
 
-        if get_is_addon_enabled("looptools"):
-            row = box.row(align=False)
-            row.operator("mesh.looptools_flatten", text="Make Planar")
-            row.operator("mesh.looptools_circle", text="Circle")
-            row = box.row(align=False)
-            row.alignment = 'CENTER'
-            row.operator("mesh.looptools_relax", text="Relax")
+        if BLENDER_VERSION >= (5, 0, 0):
+            has_flatten = hasattr(bpy.ops.mesh, "flatten")
+            has_circle = hasattr(bpy.ops.mesh, "circularize")
+            has_relax = hasattr(bpy.ops.mesh, "relax_edge_loops")
+
+            if has_flatten or has_circle:
+                row = box.row(align=False)
+                if has_flatten:
+                    row.operator("mesh.flatten", text="Make Planar")
+                if has_circle:
+                    row.operator("mesh.circularize", text="Circle")
+
+            if has_relax:
+                row = box.row(align=False)
+                row.alignment = 'CENTER'
+                row.operator("mesh.relax_edge_loops", text="Relax")
 
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
@@ -1674,7 +1698,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row.operator("mesh.faces_select_linked_flat", text="By Angle")
         else:
             row.operator("mesh.edges_select_sharp", text="Edge Angle")
-        row.operator("mesh.select_similar", text="Similar")
+        row.operator("keyops.select_similar", text="Similar")
         # Checker deselect
         row = col.row(align=True)
         row.operator("mesh.select_nth", text="Checker Deselect")
@@ -1758,7 +1782,9 @@ class ObjectModePanel(bpy.types.Panel):
         row.operator("object.smart_apply_scale", text="Smart Apply Scale", icon = "FREEZE")
         row = col.row(align=True)
         row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
-
+        row = col.row(align=True)
+        row.operator("keyops.fast_mirror_options", text="Fast Mirror Options", icon="MOD_MIRROR")
+        row.operator("keyops.select_similar", text="Select Similar", icon="SELECT_SIMILAR").type = "select_similar"
 
         box = layout.box()
         box.label(text="High/Low Collections")

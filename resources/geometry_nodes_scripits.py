@@ -1559,7 +1559,6 @@ def unwrap_in_place_tool_node_group():
 	unwrap_in_place_tool.is_mode_sculpt = False
 	unwrap_in_place_tool.is_type_curve = False
 	unwrap_in_place_tool.is_type_mesh = True
-	unwrap_in_place_tool.is_type_point_cloud = False
 	
 	#initialize unwrap_in_place_tool nodes
 	#unwrap_in_place_tool interface

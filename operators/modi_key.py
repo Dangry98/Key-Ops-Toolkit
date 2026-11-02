@@ -1,12 +1,9 @@
 from typing import Set
 import bpy.types
 from bpy.types import Context, Operator
-from ..utils.pref_utils import get_is_addon_enabled
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.mesh_utils import modifier_toggle_visability_based
 import time
 
-modifier_list = None
 registered_modi_key_keymaps = []
 
 def register_modi_key_keymaps():
@@ -63,27 +60,23 @@ class ModiKey(Operator):
         return self.execute(context)
 
     def execute(self, context):
-        global modifier_list
 
         if bpy.context.space_data.context == 'MODIFIER':
-            if modifier_list is None:
-                modifier_list = get_is_addon_enabled('Modifier_List_Fork')  
             
             obj = bpy.context.active_object
             has_Linked_modifiers = False
 
-            if modifier_list: 
-                obj = bpy.context.active_object
-                if obj.modifiers:
-                    mod = obj.modifiers[0]
-                    if len(obj.modifiers) == 1:
-                        if mod.name == "Duplicate Linked Modifiers":
-                            for item in mod.node_group.interface.items_tree:
-                                if item.in_out == "INPUT" and item.identifier == 'Socket_2': 
-                                    if mod[item.identifier]:
-                                        object_name = mod[item.identifier].name
-                                        obj = bpy.data.objects[object_name]
-                                        has_Linked_modifiers = True
+            obj = bpy.context.active_object
+            if obj.modifiers:
+                mod = obj.modifiers[0]
+                if len(obj.modifiers) == 1:
+                    if mod.name == "Duplicate Linked Modifiers":
+                        for item in mod.node_group.interface.items_tree:
+                            if item.in_out == "INPUT" and item.identifier == 'Socket_2': 
+                                if mod[item.identifier]:
+                                    object_name = mod[item.identifier].name
+                                    obj = bpy.data.objects[object_name]
+                                    has_Linked_modifiers = True
            
             active_modifier = obj.modifiers.active
 
@@ -108,19 +101,20 @@ class ModiKey(Operator):
                     obj.modifiers.active = obj.modifiers[-1]
 
                 elif self.type == 'delete':
-                    if modifier_list and not has_Linked_modifiers:
-                        bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
-                    else:
-                        if bpy.context.object.mode == "OBJECT":
-                            obj.modifiers.remove(active_modifier)
-                        else:
-                            current_mode = bpy.context.object.mode
-                            bpy.ops.object.mode_set(mode='OBJECT')
-                            bpy.ops.ed.undo_push()
-                                
-                            obj.modifiers.remove(active_modifier)
+                    if not has_Linked_modifiers:
+                        try:
+                            bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
+                        except:
+                            if bpy.context.object.mode == "OBJECT":
+                                obj.modifiers.remove(active_modifier)
+                            else:
+                                current_mode = bpy.context.object.mode
+                                bpy.ops.object.mode_set(mode='OBJECT')
+                                bpy.ops.ed.undo_push()
+                                    
+                                obj.modifiers.remove(active_modifier)
 
-                            bpy.ops.object.mode_set(mode=current_mode)
+                                bpy.ops.object.mode_set(mode=current_mode)
 
                 elif self.type == 'delete_named_modi_on_all_selected':
                     delete_modi_name = active_modifier.name
@@ -167,43 +161,21 @@ class ModiKey(Operator):
                             visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
                             visibility_modifier_dict_list[active_object_name] = visibility_modifier_list
 
-                    if modifier_list:     
+                    try:
                         if bpy.context.mode == 'OBJECT':   
                             try:
                                 bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
                             except Exception as e:
                                 self.report({'ERROR'}, f"Failed to apply modifier: {e}")
                                 return {'CANCELLED'}
-                                                        
-                            # does not work with modifers that are not visible in edit mode, make exception for them?
-                            #hide all modifiers except the active one
-                            #name = active_modifier.name
-                            # active_modifier = bpy.context.view_layer.objects.active.modifiers.active
-                            # #get a list with all modifers that are visiable or not execpt the active one
-                            # vis_list = [mod.show_viewport for mod in bpy.context.view_layer.objects.active.modifiers if mod != active_modifier]
-                    
-                            # if not active_modifier.show_in_editmode:
-                            #     active_modifier.show_in_editmode = True
-                            # for mod in bpy.context.view_layer.objects.active.modifiers:
-                            #     if mod != active_modifier:
-                            #         mod.show_viewport = False
-                            # #update object data
-                            # bpy.context.view_layer.objects.active.data.update()
-                            # bpy.ops.keyops.utilities_panel_op(type="Instant_Apply_Modifiers", remove_modifiers=False)
-                            # #remove the active modifier from the object
-                            # obj.modifiers.remove(active_modifier)
-
-                            # #restore the visibility of the other modifiers
-                            # for i, mod in enumerate(bpy.context.view_layer.objects.active.modifiers):
-                            #     mod.show_viewport = vis_list[i]
-                                 
+                                                                
                         else:
                             if bpy.context.mode == 'EDIT_MESH':
                                 modifier_toggle_visability_based2()        
                             bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
                             if bpy.context.mode == 'EDIT_MESH':
                                 modifier_toggle_visability_based2()   
-                    else:
+                    except:
                         if bpy.context.mode == 'OBJECT':
                             instances = [o for o in bpy.data.objects if o.data == obj.data]
 

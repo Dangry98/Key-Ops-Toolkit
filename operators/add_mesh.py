@@ -54,7 +54,12 @@ def draw_scale_prop(self, layout):
         row.prop(self, prop_name)
         row.prop(self, "use_relative_scale")    
 
-def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_relative_float, scale_property):
+def is_orthographic_view(context):
+    space_data = context.space_data
+    region_3d = getattr(space_data, "region_3d", None)
+    return region_3d is not None and region_3d.view_perspective == 'ORTHO'
+
+def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_relative_float, scale_property, align_to_view=False):
     if bpy.context.mode == 'EDIT_MESH':
         bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -84,6 +89,12 @@ def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_rel
     bpy.context.collection.objects.link(obj)
 
     obj.location = bpy.context.scene.cursor.location
+
+    if align_to_view:
+        space_data = context.space_data
+        region_3d = getattr(space_data, "region_3d", None)
+        if region_3d is not None and region_3d.view_perspective == 'ORTHO':
+            obj.rotation_euler = region_3d.view_rotation.to_euler()
 
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
@@ -225,12 +236,14 @@ class AddMesh(bpy.types.Operator):
     use_modifiers: bpy.props.BoolProperty(name="Use Modifiers", default=True) #type:ignore
     Vertices: bpy.props.IntProperty(name="Vertices",default=32,min=3,max=256, description="Amount of vertices the circle has") #type:ignore
     rings_count: bpy.props.IntProperty(name="Rings", default=16, min=3, max=256, description="Amount of rings the sphere has")  #type:ignore
+    align_to_view: bpy.props.BoolProperty(name="Align to View", default=True, description="Align Modifier Cylinder to viewport when in orthographic view") #type:ignore
 
     def draw(self, context):
         layout = self.layout
         if self.mesh_type == "MODCYLINDER":
             layout.label(text="Modifier Cylinder", icon="MOD_SCREW")
             layout.prop(self, "segment_amount")
+
         elif self.mesh_type == "QUADSPHERE":
             quad_icon = "MESH_QUADSPHERE" if bpy.app.version >= (5, 3, 0) else "MESH_UVSPHERE"
             layout.label(text="Quad Sphere", icon=quad_icon)
@@ -262,9 +275,13 @@ class AddMesh(bpy.types.Operator):
         if not self.mesh_type == "BLEND":      
             draw_scale_prop(self, layout)
 
+        if is_orthographic_view(context) and self.mesh_type == "MODCYLINDER":
+            layout.prop(self, "align_to_view")
+
     def execute(self, context):
         if self.mesh_type == "MODCYLINDER":
-            AddModCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+            align_to_view = self.align_to_view and is_orthographic_view(context)
+            AddModCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property, align_to_view)
         elif self.mesh_type == "QUADSPHERE":
             AddQuadSphere(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property, self.sub_amount, self.use_modifiers)
         elif self.mesh_type == "CUBE":
