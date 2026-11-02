@@ -1,15 +1,8 @@
 import bpy.types
 from bpy.types import Menu
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.pref_utils import get_is_addon_enabled
-from ..utils.pref_utils import get_keyops_prefs
 
 
-ext_a = None
-ext_c = None
-ext_d = None
-ext_b = None
-polyquilt = None
 registered_workspace_pie_keymaps = []
 registered_uv_pies_keymaps = []
 registered_utility_pie_keymaps = []
@@ -103,27 +96,8 @@ class UVSpacePie(Menu):
         layout = self.layout
         pie = layout.menu_pie()
 
-        global ext_d
-        global ext_c
-        global ext_b
-
-        if ext_d is None:
-            ext_d = False
-        if ext_c is None:
-            ext_c = False
-        if ext_b is None:
-            ext_b = False
-       
-        if ext_d:
-            pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
-        elif ext_b:
-            pie.separator()
-        if ext_b:
-             pie.separator()
-        else:
-            pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
-        # if ext_c and ext_b:
-        # else:
+        pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
+        pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
         pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
         pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #TOP
@@ -132,15 +106,7 @@ class UVSpacePie(Menu):
 
         pie.operator("keyops.unwrap_selected", text="Unwrap Selected", icon="UV_VERTEXSEL") #RIGHT TOP
 
-        if ext_d and ext_b:
-            if bpy.context.tool_settings.use_uv_select_sync:
-                pie.separator()
-            else:    
-                pie.operator("uv.toolkit_straighten_island", text="Straighten after Edge", icon="UV_EDGESEL")
-        elif ext_d:
-            pie.operator("keyops.streighten_after_edge", text="Straighten after Edge", icon="UV_EDGESEL")
-        elif ext_b:
-            pie.separator()
+        pie.operator("keyops.streighten_after_edge", text="Straighten after Edge", icon="UV_EDGESEL") #LEFT BOTTOM
 
         pie.operator("image.view_selected", text="View Selected", icon="ZOOM_SELECTED") #RIGHT BOTTOM
 
@@ -166,20 +132,6 @@ class UtilityPie(Menu):
         layout = self.layout
         pie = layout.menu_pie()
 
-        ext_c = None
-        ext_d = None
-        ext_b = None
-        polyquilt = None
-
-        if ext_b is None:
-            ext_b = False
-        if ext_d is None:
-            ext_d = False
-        if ext_c is None:
-            ext_c = False
-        if polyquilt is None:
-            polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
-
         pie.prop(context.scene.tool_settings, "use_edge_path_live_unwrap", text="Live Unwrap", toggle=True) #LEFT
 
         pie.operator("wm.call_menu", text="UV Mapping Menu").name = "VIEW3D_MT_uv_map" #RIGHT     
@@ -188,14 +140,9 @@ class UtilityPie(Menu):
       
         pie.operator("uv.unwrap", text="Unfold and Pack", icon= "UV_FACESEL") #TOP
 
-        if polyquilt:
-            pie.operator("wm.tool_set_by_id", text="Seam Tool", icon="MOD_LINEART").name = "mesh_tool.poly_quilt_seam" #LEFT TOP 
-
         pie.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Correct Face Attributesg", toggle=True) #RIGHT TOP
         
-        if ext_b and bpy.context.mode == 'EDIT_MESH':
-            pie.separator()
-        elif bpy.context.mode == "OBJECT":
+        if bpy.context.mode == "OBJECT":
             pie.operator("keyops.make_single_user" , text="Make Single User") #LEFT BOTTOM
         
         pie.prop(context.scene.tool_settings, "use_mesh_automerge", text="Auto Merge", toggle=True) #RIGHT BOTTOM
@@ -219,58 +166,22 @@ class UVQPie(Menu):
     bl_idname = "KEYOPS_MT_uv_q_pie"
     bl_label = "UV Q Pie"
 
-    ext_c = None
-    ext_d = None
-    ext_b = None
-    polyquilt = None
-
-    if ext_b is None:
-        ext_b = False
-    if ext_d is None:
-        ext_d = False
-    if ext_c is None:
-        ext_c = False
-    if polyquilt is None:
-        polyquilt = get_is_addon_enabled("PolyQuilt_Fork")
-
-
     def draw(self, context):
         layout = self.layout
         pie = layout.menu_pie()
         pie.operator("uv.select_overlap", text="Select Overlapping") #LEFT
 
-        if ext_b:
-            pie.separator()
-        else:
-            pie.operator("keyops.orient_island_to_edge", text="Orient Island to Edge") #RIGHT
+        pie.operator("keyops.orient_island_to_edge", text="Orient Island to Edge") #RIGHT
           
         pie.operator("keyops.stack_similar_islands" , text="Stack Similar Islands", icon="CON_SIZELIKE") #BOTTOM
 
-        if ext_d:
-            pie.operator("uv.toolkit_sharp_edges_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT") #TOP
-        else:
-            pie.operator("keyops.sharp_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
+        pie.operator("keyops.sharp_from_uv_islands" , text="Sharp Edges from UV Islands", icon="MOD_EDGESPLIT")
         
         pie.operator("uv.seams_from_islands", text="Seams from Islands") #LEFT TOP
 
-        if ext_b:
-            pie.separator()
-        elif ext_d:
-            pie.operator("uv.toolkit_mirror_seam" , text="Mirror Seams", icon="MOD_MIRROR") #RIGHT TOP
-        else:
-            pie.operator("keyops.mirror_seams" , text="Mirror Selected Seams", icon="MOD_MIRROR")
+        pie.operator("keyops.mirror_seams" , text="Mirror Selected Seams", icon="MOD_MIRROR")
 
-        if ext_c:
-            pie.separator()
-        elif ext_b:
-            pie.separator()
-        elif ext_d:
-            pie.operator("uv.toolkit_unstack_overlapped_uvs", text="Unstack Islands", icon="MOD_ARRAY") #LEFT BOTTOM
-        
-        if ext_b:
-            pie.separator()
-        else:
-            pie.operator("keyops.select_similar_islands", text="Select Similar Islands")
+        pie.operator("keyops.select_similar_islands", text="Select Similar Islands")
 
         
     def register():
@@ -372,15 +283,6 @@ class StreightenSelection(bpy.types.Operator):
         description="Pin Island",
         default=True) # type: ignore
 
-    global ext_d
-    global ext_b
-
-    if ext_d is None:
-        ext_d = False
-    
-    if ext_b is None:
-        ext_b = False
-
     def execute(self, context):
             if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
@@ -421,16 +323,8 @@ class StackSimilarIslands(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        global ext_c
-
-        if ext_c is None:
-            ext_c = False
-
-        if ext_c:
-            pass
-        else:
-            bpy.ops.uv.copy()
-            bpy.ops.uv.paste()
+        bpy.ops.uv.copy()
+        bpy.ops.uv.paste()
         return {'FINISHED'}
 
 class MirrorSeams(bpy.types.Operator):
@@ -454,25 +348,17 @@ class SelectSimilarIslands(bpy.types.Operator):
     bl_label = "Select Similar Islands"
     bl_options = {'REGISTER', 'UNDO'}
 
-    global ext_d
-
-    if ext_d is None:
-        ext_d = False
-
     @classmethod
     def poll(cls, context):
         return context.active_object is not None
     
     def execute(self, context):
-        if ext_d:
-            bpy.ops.uv.select_similar()
-        else:
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            if bpy.context.tool_settings.use_uv_select_sync:
-                bpy.ops.keyops.smart_uv_sync()
+        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+        if bpy.context.tool_settings.use_uv_select_sync:
+            bpy.ops.keyops.smart_uv_sync()
 
-            bpy.ops.uv.select_mode(type='ISLAND')
+        bpy.ops.uv.select_mode(type='ISLAND')
 
-            bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
+        bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
 
-            return {'FINISHED'}
+        return {'FINISHED'}

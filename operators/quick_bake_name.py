@@ -16,6 +16,7 @@ import string
 
 from bpy.types import Context
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.utilities import force_show_obj
 
 prefs = get_keyops_prefs()
  
@@ -23,7 +24,7 @@ def random_name(size=5, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
 
 class QuickBakeName(bpy.types.Operator):
-    bl_description = "Quick Bake Name"
+    bl_description = "Quick Bake Name tools"
     bl_idname = "keyops.quick_bake_name"
     bl_label = "Quick Bake Name"
     bl_options = {'REGISTER', 'UNDO'}
@@ -37,6 +38,26 @@ class QuickBakeName(bpy.types.Operator):
     description="Enter a new name for high and low poly objects, it will automatically find them based on the name",
     default="", options={'SKIP_SAVE'},
 ) # type: ignore
+
+    @classmethod
+    def description(cls, context, properties):
+        operation_type = getattr(properties, "type", "")
+
+        if operation_type == "RENAME":
+            return "Rename the current low/high pair by changing the shared base name."
+
+        if operation_type == "set_high_name":
+            return "Set the selected objects to use the _high suffix."
+
+        if operation_type == "set_low_name":
+            return "Set the selected objects to use the _low suffix."
+
+        return """Select at least two objects to create a bake pair.
+
+With two selected objects, the higher-poly object becomes _high and the other becomes _low.
+
+With more than two selected objects, the active object becomes _low and the rest become _high. Extra high objects get numbered suffixes to make them be seen as one in baking software."""
+
     def invoke(self, context, event):
         if self.type == "RENAME":
             active_object = bpy.context.object
@@ -208,8 +229,8 @@ def unregister_quick_bake_name():
         
 class HideShowLowHigh(bpy.types.Operator):
     bl_idname = "keyops.hide_show_low_high"
-    bl_label = "Hide Show Low High"
-    bl_description = "Hide Show Low High"
+    bl_label = ""
+    bl_description = "Select, show, or hide matching high/low objects. Ctrl-click deselects."
     bl_options = {'INTERNAL', 'UNDO'}
 
     group : bpy.props.EnumProperty(items = {
@@ -218,25 +239,74 @@ class HideShowLowHigh(bpy.types.Operator):
         ('ALL', "All", "All"),
     }) # type: ignore
     action : bpy.props.EnumProperty(items = {
+        ('SELECT', "Select", "Select"),
         ('SHOW', "Show", "Show"),
         ('HIDE', "Hide", "Hide")
     }) # type: ignore
+    deselect : bpy.props.BoolProperty(name="Deselect", default=False, options={'SKIP_SAVE'}) # type: ignore
+
+    @classmethod
+    def description(cls, context, properties):
+        group = getattr(properties, "group", "ALL")
+        action = getattr(properties, "action", "SELECT")
+
+        group_label = {
+            'HIGH': 'high-poly',
+            'LOW': 'low-poly',
+            'ALL': 'high and low',
+        }.get(group, 'high and low')
+
+        if action == 'SELECT':
+            return f"Select matching {group_label} objects.\n\nCtrl-click deselects them instead."
+        if action == 'SHOW':
+            return f"Reveal matching {group_label} objects and make them selectable."
+        if action == 'HIDE':
+            return f"Hide matching {group_label} objects in the viewport."
+
+        return "Select, show, or hide matching high/low objects."
+
+    def invoke(self, context, event):
+        self.deselect = bool(event.ctrl)
+        return self.execute(context)
 
     def execute(self, context):
         if self.group == 'HIGH':
-            suffixes = ("_high",) + tuple("_high.{:03d}".format(i) for i in range(128))                                              
+            suffixes = ("_high",) + tuple("_high.{:03d}".format(i) for i in range(128))
         elif self.group == 'LOW':
             suffixes = ("_low",) + tuple("_low.{:03d}".format(i) for i in range(128))
         else:
             suffixes = ("_low",) + tuple("_low.{:03d}".format(i) for i in range(128)) + ("_high",) + tuple("_high.{:03d}".format(i) for i in range(30))
 
+        matches = []
         for obj in bpy.data.objects:
             if not obj.name.endswith(suffixes):
                 continue
-            if self.action == 'SHOW':
-                obj.hide_set(False)
+            matches.append(obj)
+
+        if not matches:
+            self.report({'WARNING'}, f"No {self.group.lower()} objects found")
+            return {'CANCELLED'}
+
+        if self.action == 'SELECT':
+            if self.deselect:
+                for obj in matches:
+                    obj.select_set(False)
             else:
+                matches = force_show_obj(matches, select=not self.deselect)
+                if matches:
+                    context.view_layer.objects.active = matches[0]
+            return {'FINISHED'}
+
+        if self.action == 'SHOW':
+            matches = force_show_obj(matches, select=False)
+            for obj in matches:
+                obj.hide_set(False)
+            return {'FINISHED'}
+
+        if self.action == 'HIDE':
+            for obj in matches:
                 obj.hide_set(True)
+
         return {'FINISHED'}
     
 
@@ -244,8 +314,13 @@ def draw_quick_bake_name(self, context, draw_header=False):
     prefs = get_keyops_prefs()
     if prefs.enable_quick_bake_name:
         def draw_toggle_viewport(context, group, layout):
-            row = layout.row()
+            row = layout.row(align=True)
             row.label(text=group.lower())
+
+            layout.operator_context = 'INVOKE_DEFAULT'
+            op = row.operator("keyops.hide_show_low_high", text="", icon='RESTRICT_SELECT_OFF')
+            op.group = group
+            op.action = 'SELECT'
             op = row.operator("keyops.hide_show_low_high", text="SHOW")
             op.group = group
             op.action = 'SHOW'

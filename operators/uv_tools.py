@@ -1,6 +1,6 @@
 import bmesh
 import bpy
-from ..utils.pref_utils import get_keyops_prefs, get_is_addon_enabled
+from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR
 

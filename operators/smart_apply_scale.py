@@ -20,10 +20,6 @@ MODS = {
     'REMESH': {'voxel_size'},
 }
 
-def apply_scale(obj):
-    bpy.ops.object.transform_apply(scale=True, location=False, rotation=False)
-
-
 def objectsSelectSet(objects, value):
     for o in objects:
         o.select_set(value)
@@ -248,9 +244,7 @@ class SmartApplyScale(bpy.types.Operator):
         layout.prop(self, "scaleTextures")
         layout.prop(self, "makeClonesReal")
         layout.prop(self, "geomtryNodes")
-
-        if BLENDER_VERSION < (5, 0, 0):
-            layout.prop(self, "auto_fix_normals")
+        layout.prop(self, "auto_fix_normals")
 
     def execute(self, context):
         objects = context.selected_objects
@@ -328,16 +322,16 @@ class SmartApplyScale(bpy.types.Operator):
         if warningMessage:
             self.report({'WARNING'}, warningMessage + "Some issues are possible ")
 
-        if self.auto_fix_normals:
-            objs_with_neg_scale = [obj for obj in objects if obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0]
-
-        apply_scale(bpy.context.selected_objects)
-
         old_version = BLENDER_VERSION < (5, 0, 0)
+
         if self.auto_fix_normals and old_version:
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            objs_with_neg_scale = [obj for obj in objects if obj.type == "MESH" and (obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0)]
             for obj in objs_with_neg_scale:
                 s = obj.scale
                 obj.data.flip_normals()
+        else:
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True, corrective_flip_normals=self.auto_fix_normals)
 
         objectsSelectSet(clones, True)
         if self.deselect:

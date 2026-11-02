@@ -1,6 +1,6 @@
 import bpy
 from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
-from .utils.pref_utils import get_addon_name, get_is_addon_enabled, draw_keymap
+from .utils.pref_utils import get_addon_name, draw_keymap, get_registered_keymap_display_items
 from .operators.maya_navigation import update_tablet_navigation, update_sculpt_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
 
@@ -139,7 +139,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
             pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#778f4f17fb27436fa8eb83e89f19d2ae", 0),
                         ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#84cef3262de2491c8e7fa7644c472f27", 1),
-                        ("WIP. Faster way to Add Common Modifers", "enable_add_modifier_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#ed8407c4f8944eeab6fe5be1444c4da2", 1),
+                        ("Faster way to Add Common Modifers", "enable_add_modifier_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#ed8407c4f8944eeab6fe5be1444c4da2", 0),
                         ("Switch Workspace Faster", "enable_workspace_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#2ac346b432b14864922c785ce6a0c89d", 0),
                         ("Better Shift S Pie Menu", "enable_cursor_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#6c9d3f0da9a14256aefff33f73817a9f", 0),
                         ("WIP. UV Pies", "enable_uv_pies", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#37ab2bddffe242e58cde51b2c7896e1b", 1),]
@@ -201,36 +201,22 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 if keymap_item:
                     row.prop(keymap_item.properties, "confirm", text="Confirm X")
            
-                #get the kemap item for the delete key in object mode and show the confirm option
-                # row = layout.row()
-                # row.prop(self, "auto_delete_confirm_edit_mode", text="Confirm X in EditMode")
-                    # column.label(text="Delete Menu is still enabled in Object Mode", icon="QUESTION")
-                    # row.operator("keyops.remove_delete_menu_object_mode_menu", text="Fix")
-                # else:
-                #     column = bb.column()
-                #     layout = column
-                #     row = layout.row()
-                #     row.label(text="Auto Delete")
-                #     row.prop(self, "auto_delete_dissolv_edge")
-                #     row.operator("keyops.add_delete_menu_object_mode_menu", icon ="BACK", text="Reset to Default, popup menu")
-
             if self.enable_toggle_retopology:
+                from .utils.utilities import get_tool_icon_value
+
                 bb = b.box()
                 bb.label(text="Toggle Retopology")
 
                 column = bb.column()
-                column.prop(self, "toggle_retopology_tool_type")
-                if self.toggle_retopology_tool_type == "custom":
-                    column.prop(self, "toggle_retopology_custom_tool")   
-                if self.toggle_retopology_tool_type == "mesh_tool.poly_quilt" and not get_is_addon_enabled ("PolyQuilt_Fork"):
-                    layout = column.split(factor=5.0)
-                    row = layout.row()
-                    row.label(text="Poly Quilt is not installed", icon="QUESTION")
-                    repo_index = 0
-                    pkg_id = "PolyQuilt_Fork"            
-                    props = row.operator("extensions.package_install", text="Install")
-                    props.repo_index = repo_index
-                    props.pkg_id = pkg_id
+                row = column.row(align=True)
+                icon_value = get_tool_icon_value(self.toggle_retopology_custom_tool, bpy.context)
+                if icon_value:
+                    row.label(text="", icon_value=icon_value)
+                else:
+                    row.label(text="", icon='TOOL_SETTINGS')
+                row.prop(self, "toggle_retopology_custom_tool", text="    Tool")
+                row.operator("keyops.search_retopology_tool", text="", icon="VIEWZOOM")
+           
                 column.prop(self, "toggle_retopology_color_enum")
                 layout = column.split(factor=5.0)
                 row = layout.row(align = True)
@@ -369,7 +355,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         #     row.prop(self, "uv_tools_panel_name")
 
     def draw_keymaps(self, box):
-        from .keymaps import keymap_items
+        keymap_items = get_registered_keymap_display_items()
         wm = bpy.context.window_manager
         kc = wm.keyconfigs.user
 
@@ -520,13 +506,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             extension_register_unregister(extension, is_set_to_enalbe)
         return update_enable
 
-    if get_is_addon_enabled ("PolyQuilt_Fork"):
-        default_retology_tool = "mesh_tool.poly_quilt"
-        toggle_retopology_default = True
-    else:
-        default_retology_tool = "mesh_tool.poly_quilt"
-        #default_retology_tool = "builtin.select_box"
-        toggle_retopology_default = True
+    default_retopology_custom_tool = "builtin.select_box"
+
+    toggle_retopology_default = True
 
     enable_auto_delete: BoolProperty(name="Auto Delete", description="Instant context-aware edit mode delete, no more menus.", default=True, update=enable_deco("auto_delete")) # type: ignore
     enable_toggle_retopology: BoolProperty(name="Retopology", description="Toggle a retopology preset with overlay, snapping, tool, and theme settings along with tool.", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
@@ -536,7 +518,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_uv_tools: BoolProperty(name="UV Tools", description="Add UV workflow operators and shortcuts like Smart UV Sync, UV Cut, unwrap, and packing helpers.", default=True, update=enable_deco("uv_tools")) # type: ignore
     enable_uv_pies: BoolProperty(name="UV Pies", description="UV pie menus on Q and Space in the UV editor for fast unwrap and island actions.", default=False, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", description="Utility pie menu on U in object and edit mode for common mesh and UV actions.", default=False, update=enable_deco("utility_pie")) # type: ignore
-    enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=not get_is_addon_enabled ("Non_Destructive_Primitives"), update=enable_deco("add_objects_pie")) # type: ignore
+    enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=True, update=enable_deco("add_objects_pie")) # type: ignore
     enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
     enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", description="Restore useful legacy-inspired modeling and UV shortcuts from older Blender versions.", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore
@@ -561,15 +543,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     maya_navigation_sculpt_navigation: BoolProperty(name="Sculpt", description="Use both Mask and Alt navigation in Sculpt mode, mask is used if mouse is over model, otherwise alt navigation is used.", default=True, update= update_sculpt_navigation) # type: ignore 
     auto_delete_dissolv_edge: BoolProperty(name="Dissolve Edge", default=False, description="Dissolve Edge in Edge Mode ") # type: ignore
     auto_delete_confirm_object_mode: BoolProperty(name="Confirm on X in Object Mode", description="Confirm Delete in Object Mode on the X key", default=False, update= update_auto_delete_confirm_delete) # type: ignore
-    toggle_retopology_tool_type: EnumProperty(
-        name="Tool",
-        items=[
-            ("builtin.select_box", "Select Box", "Choose this option for select box tool"),
-            ("mesh_tool.poly_quilt", "Poly Quilt", "Choose this option for poly quilt tool"),
-            ("none", "None", "Choose this option for no tool"),
-            ("custom", "Custom Tool", "Choose this option for custom tool")],
-        default=default_retology_tool)  # type: ignore
-    toggle_retopology_custom_tool: StringProperty(name="Custom Tool", default="") # type: ignore
+    toggle_retopology_custom_tool: StringProperty(name="Tool", default=default_retopology_custom_tool) # type: ignore
     toggle_retopology_color_enum: EnumProperty(
         name="Theme",
         items=[

@@ -308,6 +308,8 @@ class NewToolkitPanel(bpy.types.Panel):
         )
         
         bpy.utils.register_class(ToggleToolkitPanelEnum)
+        from ..operators.select_similar import register_select_similar
+        register_select_similar()
         
     def unregister():
         del bpy.types.Scene.some_toggle
@@ -318,4 +320,6 @@ class NewToolkitPanel(bpy.types.Panel):
         del bpy.types.Scene.show_cad_decimate_panel
 
         bpy.utils.unregister_class(ToggleToolkitPanelEnum)
+        from ..operators.select_similar import unregister_select_similar
+        unregister_select_similar()
 
