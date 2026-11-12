@@ -7,6 +7,9 @@
 <meta name="description" content="Merge Tool, Fast Loop Cut, Cutter, Fast Mirror, Fast Bevel, Fast Array, Fast Solidify and boolean shortcuts for Blender.">
 <script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="assets/site.css">
 <script src="assets/site.js" defer></script>
 </head>
@@ -17,157 +20,89 @@
 <main><div class="content">
 
 <h1>Modeling Tools</h1>
-<p class="lead">Interactive tools for everyday modeling. The toolbar tools (Merge Tool, Fast Loop Cut, Cutter) live in the 3D Viewport toolbar. The fast modifier tools open from the <a href="pie-menus.html#add-modifier-pie">Add Modifier Pie</a>. While a modal tool runs, all its keys are listed in the status bar.</p>
+<p class="lead">Fast, interactive modeling tools. While a tool runs, its keys are listed in the status bar.</p>
 
 <section class="feature" id="merge-tool">
-  <div class="feature-head"><h2>Merge Tool</h2><span class="badge">Toolbar · Edit Mode</span></div>
-  <p class="pref-name">Preference: <b>Merge Tool</b></p>
-  <p>Maya-style target weld. Drag from a vertex or edge onto another to merge them, without selecting first.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td><kbd>LMB</kbd> drag</td><td>Drag from the source vertex/edge and release on the target</td></tr>
-    <tr><td><kbd>C</kbd></td><td>Toggle merging at the center instead of at the target</td></tr>
-    <tr><td><kbd>RMB</kbd> / <kbd>Esc</kbd></td><td>Cancel</td></tr>
-  </table></div>
-  <div class="media-missing">Video coming soon: target-welding vertices and edges.</div>
+  <div class="feature-head"><h2>Merge Tool</h2></div>
+  <p class="tagline">Drag a vertex or edge onto another to merge them.</p>
+  <figure class="media"><img src="assets/gifs/merge-tool.gif" alt="Merge Tool: dragging vertices onto targets" loading="lazy"></figure>
+  <div class="media-row tool-shots"><figure class="media ui"><img src="assets/shots/merge-tool-icon.png" alt="Merge Tool in the toolbar" loading="lazy"><figcaption>Toolbar</figcaption></figure><figure class="media ui strip"><img src="assets/shots/merge-tool-header.png" alt="Merge Tool options in the tool header" loading="lazy"><figcaption>Tool settings</figcaption></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolbar · Edit Mode</p><div class="table-wrap"><table><tr><th>Input</th><th>Action</th></tr><tr><td><kbd>LMB</kbd> drag</td><td>Drag from source to target</td></tr><tr><td><kbd>C</kbd></td><td>Toggle merge at center</td></tr><tr><td><kbd>RMB</kbd> / <kbd>Esc</kbd></td><td>Cancel</td></tr></table></div><p class="pref">Toggle in preferences: <b>Merge Tool</b></p></details>
 </section>
 
 <section class="feature" id="fast-loop-cut">
-  <div class="feature-head"><h2>Fast Loop Cut</h2><span class="badge key">Alt R</span><span class="badge">Toolbar · Edit Mode</span><span class="badge">New</span></div>
-  <p class="pref-name">Preference: <b>Fast Loop Cut</b></p>
-  <p>Hover an edge to preview a loop exactly at the cursor, then click to cut it. There is no slide step afterwards. <kbd>Alt</kbd> <kbd>R</kbd> switches to the tool.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td><kbd>LMB</kbd></td><td>Cut the previewed loop</td></tr>
-    <tr><td><kbd>Scroll</kbd> / <kbd>+</kbd> <kbd>-</kbd></td><td>Number of cuts</td></tr>
-    <tr><td><kbd>E</kbd> / hold <kbd>Alt</kbd></td><td>Even: keep the loop's shape along the edge (toggle / hold)</td></tr>
-    <tr><td><kbd>C</kbd> / hold <kbd>Shift</kbd></td><td>Center: cut in the middle of the edge (toggle / hold)</td></tr>
-    <tr><td><kbd>F</kbd> / hold <kbd>Ctrl</kbd></td><td>Edge Flow: follow the surface curvature (toggle / hold)</td></tr>
-  </table></div>
-  <div class="media-missing">Video coming soon: hover preview, click to cut, scroll for more cuts.</div>
+  <div class="feature-head"><h2>Fast Loop Cut</h2><span class="badge key">Alt R</span></div>
+  <p class="tagline">Hover to preview, click to cut. No slide step.</p>
+  <figure class="media"><video src="assets/video/fast-loop-cut.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Fast Loop Cut: hover to preview, click to cut, scroll for more cuts"></video></figure>
+  <div class="media-row tool-shots"><figure class="media ui"><img src="assets/shots/fast-loop-cut-icon.png" alt="Fast Loop Cut in the toolbar" loading="lazy"><figcaption>Toolbar</figcaption></figure><figure class="media ui strip"><img src="assets/shots/fast-loop-cut-header.png" alt="Fast Loop Cut options in the tool header" loading="lazy"><figcaption>Tool settings</figcaption></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolbar</p><div class="table-wrap"><table><tr><th>Input</th><th>Action</th></tr><tr><td><kbd>Scroll</kbd> / <kbd>+</kbd> <kbd>-</kbd></td><td>Number of cuts</td></tr><tr><td><kbd>E</kbd> / hold <kbd>Alt</kbd></td><td>Even</td></tr><tr><td><kbd>C</kbd> / hold <kbd>Shift</kbd></td><td>Center</td></tr><tr><td><kbd>F</kbd> / hold <kbd>Ctrl</kbd></td><td>Edge Flow</td></tr></table></div><p class="pref">Toggle in preferences: <b>Fast Loop Cut</b></p></details>
 </section>
 
 <section class="feature" id="cutter">
-  <div class="feature-head"><h2>Cutter</h2><span class="badge">Toolbar · Object Mode</span><span class="badge">New</span></div>
-  <p class="pref-name">Preference: <b>Cutter</b></p>
-  <p>Draw a box, circle or ngon and boolean it into the selected objects, or into the object under the cursor. While drawing you see a light overlay; the boolean is added only when you release, so drawing stays fast on heavy meshes.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td><kbd>LMB</kbd> drag</td><td>Draw the shape</td></tr>
-    <tr><td><kbd>B</kbd> / <kbd>C</kbd> / <kbd>N</kbd></td><td>Shape: Box, Circle, Ngon. For Ngon, click points and close with <kbd>Enter</kbd>, <kbd>Space</kbd> or by clicking the first point.</td></tr>
-    <tr><td>Hold <kbd>Shift</kbd></td><td>Swap between box and circle while drawing</td></tr>
-    <tr><td>Hold <kbd>Ctrl</kbd></td><td>Snap to increments</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>Operation: Difference, Union, Intersect, Slice</td></tr>
-    <tr><td><kbd>Scroll</kbd></td><td>Circle segments (<kbd>Ctrl</kbd> for steps of 4)</td></tr>
-  </table></div>
-  <p>The tool header has the operation, shape, alignment (<i>Edge</i>: align to the closest edge of the face under the cursor; <i>View</i>: align to the view), solver and depth settings.</p>
-  <div class="media-missing">Video coming soon: drawing box, circle and ngon cuts.</div>
+  <div class="feature-head"><h2>Cutter</h2></div>
+  <p class="tagline">Draw a shape to boolean-cut objects.</p>
+  <figure class="media"><video src="assets/video/cutter.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Cutter: drawing a box cut"></video></figure>
+  <div class="media-row tool-shots"><figure class="media ui"><img src="assets/shots/cutter-icon.png" alt="Cutter in the toolbar" loading="lazy"><figcaption>Toolbar</figcaption></figure><figure class="media ui strip"><img src="assets/shots/cutter-header.png" alt="Cutter options in the tool header" loading="lazy"><figcaption>Tool settings</figcaption></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolbar · Object Mode</p><div class="table-wrap"><table><tr><th>Input</th><th>Action</th></tr><tr><td><kbd>LMB</kbd> drag</td><td>Draw the shape</td></tr><tr><td><kbd>B</kbd> <kbd>C</kbd> <kbd>N</kbd></td><td>Box / Circle / Ngon</td></tr><tr><td>Hold <kbd>Shift</kbd></td><td>Swap box and circle</td></tr><tr><td>Hold <kbd>Ctrl</kbd></td><td>Snap</td></tr><tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Difference / Union / Intersect / Slice</td></tr><tr><td><kbd>Scroll</kbd></td><td>Circle segments</td></tr></table></div><p>The boolean is only added when you release, so drawing stays fast on heavy meshes.</p><p class="pref">Toggle in preferences: <b>Cutter</b></p></details>
 </section>
 
 <section class="feature" id="fast-mirror">
-  <div class="feature-head"><h2>Fast Mirror</h2><span class="badge key">Alt X</span><span class="badge">Object &amp; Edit Mode</span><span class="badge">New</span></div>
-  <p class="pref-name">Part of: <b>Object Toolkit</b></p>
-  <p><kbd>Alt</kbd> <kbd>X</kbd> shows a mirror gizmo with one block per axis side. Click a block to mirror on that axis and side. Press <kbd>Alt</kbd> <kbd>X</kbd> again to close the gizmo.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Click</th><th>Mode</th></tr>
-    <tr><td><kbd>LMB</kbd></td><td>Default mode (<i>Mirror</i>: add or update the KeyOps Mirror modifier with clipping)</td></tr>
-    <tr><td><kbd>Ctrl</kbd> + <kbd>LMB</kbd></td><td>Bisect + Mirror</td></tr>
-    <tr><td><kbd>Shift</kbd> + <kbd>LMB</kbd></td><td>New Mirror modifier (with bisect and clipping)</td></tr>
-    <tr><td><kbd>Alt</kbd> + <kbd>LMB</kbd></td><td>Symmetrize (applied)</td></tr>
-    <tr><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> + <kbd>LMB</kbd></td><td>Flip across the axis. Keeps face winding, custom normals and shape keys correct.</td></tr>
-    <tr><td><kbd>D</kbd></td><td>Options menu (while the gizmo is shown)</td></tr>
-  </table></div>
-  <p>Other modes available as the default: <i>Bisect</i> (cut in half, no modifier).</p>
-  <div class="media-missing">Video coming soon: mirroring with the gizmo.</div>
+  <div class="feature-head"><h2>Fast Mirror</h2><span class="badge key">Alt X</span></div>
+  <p class="tagline">Click a block to mirror on that axis.</p>
+  <figure class="media"><video src="assets/video/fast-mirror-edit.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Fast Mirror in Edit Mode"></video></figure>
+  <details class="details"><summary>More info</summary>
+  <figure class="media ui strip"><img src="assets/shots/fast-mirror-status.png" alt="Fast Mirror shortcuts in the status bar" loading="lazy"></figure><div class="table-wrap"><table><tr><th>Click</th><th>Mode</th></tr><tr><td><kbd>LMB</kbd></td><td>Mirror modifier with clipping</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>LMB</kbd></td><td>Bisect + Mirror</td></tr><tr><td><kbd>Shift</kbd> <kbd>LMB</kbd></td><td>New Mirror modifier</td></tr><tr><td><kbd>Alt</kbd> <kbd>LMB</kbd></td><td>Symmetrize</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>LMB</kbd></td><td>Flip</td></tr><tr><td><kbd>D</kbd></td><td>Options menu</td></tr></table></div><p class="pref">Toggle in preferences: <b>Object Toolkit</b></p></details>
 </section>
 
 <section class="feature" id="fast-bevel">
-  <div class="feature-head"><h2>Fast Bevel</h2><span class="badge">Add Modifier Pie</span><span class="badge">New</span></div>
-  <p>Add or adjust a Bevel modifier interactively. <kbd>Ctrl</kbd>-click adds a new bevel limited by 30°, <kbd>Ctrl</kbd> <kbd>Shift</kbd>-click by 60°. In Edit Mode a new bevel only affects the selected edges.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td>Move mouse</td><td>Width (or the active mode)</td></tr>
-    <tr><td><kbd>Scroll</kbd></td><td>Segments (angle in angle mode)</td></tr>
-    <tr><td><kbd>S</kbd> / <kbd>P</kbd> / <kbd>A</kbd></td><td>Segment / profile / angle mode · <kbd>Ctrl</kbd> <kbd>A</kbd> sets 30° / 60°</td></tr>
-    <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Previous / next bevel · <kbd>Shift</kbd> <kbd>Q</kbd> / <kbd>E</kbd> move it up / down</td></tr>
-    <tr><td><kbd>L</kbd> <kbd>W</kbd> <kbd>M</kbd></td><td>Cycle limit method, offset type, miter</td></tr>
-    <tr><td><kbd>C</kbd> · <kbd>Shift</kbd> <kbd>C</kbd> · <kbd>N</kbd></td><td>Clamp overlap · loop slide · harden normals</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Edge / vertex / conversion</td></tr>
-    <tr><td><kbd>X</kbd></td><td>Half the width of the previous bevel</td></tr>
-    <tr><td><kbd>V</kbd> · <kbd>Z</kbd></td><td>Toggle viewport display · wireframe</td></tr>
-    <tr><td><kbd>Tab</kbd></td><td>Settings popup</td></tr>
-    <tr><td><kbd>Shift</kbd> <kbd>Enter</kbd></td><td>Apply the modifier</td></tr>
-    <tr><td><kbd>Shift</kbd> / <kbd>Ctrl</kbd></td><td>Precise / snap</td></tr>
-  </table></div>
-  <div class="media-missing">Video coming soon: dragging a bevel and changing segments.</div>
+  <div class="feature-head"><h2>Fast Bevel</h2></div>
+  <p class="tagline">Drag for width, scroll for segments.</p>
+  <figure class="media"><video src="assets/video/fast-bevel.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Fast Bevel from the Add Modifier Pie"></video></figure>
+  <details class="details"><summary>More info</summary><p class="where">Add Modifier Pie</p>
+  <figure class="media ui strip"><img src="assets/shots/fast-bevel-status.png" alt="Fast Bevel keys in the status bar" loading="lazy"></figure><p><kbd>Ctrl</kbd>-click adds a new bevel limited to 30°, <kbd>Ctrl</kbd> <kbd>Shift</kbd>-click 60°. In Edit Mode a new bevel only affects the selected edges. <kbd>Tab</kbd> opens settings, <kbd>Shift</kbd> <kbd>Enter</kbd> applies.</p></details>
 </section>
 
 <section class="feature" id="fast-array">
-  <div class="feature-head"><h2>Fast Array</h2><span class="badge">Add Modifier Pie</span><span class="badge">New</span></div>
-  <p>Add or adjust an Array modifier interactively. Drag to set the offset and scroll for the count.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td>Move mouse</td><td>Offset</td></tr>
-    <tr><td><kbd>Scroll</kbd></td><td>Count · <kbd>Shift</kbd> <kbd>Scroll</kbd> moves the modifier in the stack</td></tr>
-    <tr><td><kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd></td><td>Axis · <kbd>Shift</kbd> + axis toggles that axis</td></tr>
-    <tr><td><kbd>R</kbd> / <kbd>C</kbd></td><td>Relative / constant offset</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Switch between up to three arrays</td></tr>
-    <tr><td><kbd>Q</kbd> / <kbd>W</kbd></td><td>Move the modifier up / down</td></tr>
-    <tr><td><kbd>S</kbd></td><td>Apply scale (Object Mode)</td></tr>
-    <tr><td><kbd>Shift</kbd> / <kbd>Ctrl</kbd></td><td>Precise / snap</td></tr>
-  </table></div>
-  <div class="media-missing">Video coming soon: building an array with drag and scroll.</div>
+  <div class="feature-head"><h2>Fast Array</h2></div>
+  <p class="tagline">Drag for offset, scroll for count.</p>
+  <figure class="media"><video src="assets/video/fast-array.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Fast Array from the Add Modifier Pie"></video></figure>
+  <details class="details"><summary>More info</summary><p class="where">Add Modifier Pie</p>
+  <figure class="media ui strip"><img src="assets/shots/fast-array-status.png" alt="Fast Array keys in the status bar" loading="lazy"></figure><p><kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd> axis, <kbd>R</kbd> / <kbd>C</kbd> relative or constant, <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> for up to three arrays.</p></details>
 </section>
 
 <section class="feature" id="fast-solidify">
-  <div class="feature-head"><h2>Fast Solidify</h2><span class="badge">Add Modifier Pie</span><span class="badge">New</span></div>
-  <p>Drag to adjust the thickness of the Solidify modifier. <kbd>Ctrl</kbd>-click adds a new Solidify modifier.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Input</th><th>Action</th></tr>
-    <tr><td>Move mouse</td><td>Thickness</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Offset -1 / 0 / 1</td></tr>
-    <tr><td><kbd>4</kbd></td><td>Toggle Simple / Complex mode</td></tr>
-    <tr><td><kbd>R</kbd></td><td>Rim only</td></tr>
-    <tr><td><kbd>A</kbd> · <kbd>Shift</kbd> <kbd>A</kbd></td><td>Add a new Solidify · remove the active one</td></tr>
-    <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Cycle between Solidify modifiers</td></tr>
-    <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Move the modifier up / down</td></tr>
-    <tr><td><kbd>X</kbd></td><td>Pause mouse input</td></tr>
-    <tr><td><kbd>Tab</kbd></td><td>Options popup</td></tr>
-  </table></div>
-  <div class="media-missing">Video coming soon: solidifying a plane.</div>
+  <div class="feature-head"><h2>Fast Solidify</h2></div>
+  <p class="tagline">Drag for thickness.</p>
+  <figure class="media"><video src="assets/video/fast-solidify.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Fast Solidify from the Add Modifier Pie"></video></figure>
+  <details class="details"><summary>More info</summary><p class="where">Add Modifier Pie</p>
+  <figure class="media ui strip"><img src="assets/shots/fast-solidify-status.png" alt="Fast Solidify keys" loading="lazy"></figure><p><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> offset, <kbd>4</kbd> simple / complex, <kbd>R</kbd> rim only, <kbd>A</kbd> add new, <kbd>Tab</kbd> options.</p></details>
 </section>
 
 <section class="feature" id="booleans">
-  <div class="feature-head"><h2>Booleans</h2><span class="badge">Object Mode</span></div>
-  <p class="pref-name">Part of: <b>Object Toolkit</b></p>
-  <p>Select the cutters, then the target last (active), and press a shortcut. The cutters are added as boolean modifiers on the active object.</p>
-  <div class="table-wrap"><table>
-    <tr><th>Shortcut</th><th>Operation</th></tr>
-    <tr><td><kbd>Ctrl</kbd> <kbd>Numpad -</kbd></td><td>Difference</td></tr>
-    <tr><td><kbd>Ctrl</kbd> <kbd>Numpad +</kbd></td><td>Union</td></tr>
-    <tr><td><kbd>Ctrl</kbd> <kbd>Numpad *</kbd></td><td>Intersect</td></tr>
-    <tr><td><kbd>Ctrl</kbd> <kbd>Numpad /</kbd></td><td>Slice</td></tr>
-  </table></div>
-  <p>The <a href="toolkit.html#object-toolkit">Object Toolkit</a> panel has the same operations as buttons, plus a <b>Realtime</b> toggle and <b>Boolean Scroll</b> to step through the booleans on an object. With Realtime off, booleans are hidden while you move, rotate or scale, which keeps heavy scenes responsive.</p>
-  <p>Use <a href="toolkit.html#object-toolkit">Parent Used Objects</a> afterwards so the cutters move with their target.</p>
-  <div class="media-missing">Video coming soon: boolean shortcuts.</div>
+  <div class="feature-head"><h2>Booleans</h2><span class="badge key">Ctrl Numpad</span></div>
+  <p class="tagline">Select cutters, then the target, then press a shortcut.</p>
+  <figure class="media"><img src="assets/gifs/live-booleans.gif" alt="Live Booleans toggle hiding booleans while moving a cutter" loading="lazy"><figcaption>Live Booleans off hides booleans while you move cutters, so heavy meshes stay responsive</figcaption></figure><figure class="media ui"><img src="assets/shots/toolkit-object.png" alt="Boolean buttons in the Object Toolkit" loading="lazy"><figcaption>Same operations in the Toolkit panel, with Realtime and Boolean Scroll</figcaption></figure>
+  <details class="details"><summary>More info</summary><p class="where">Object Mode</p><div class="table-wrap"><table><tr><th>Shortcut</th><th>Operation</th></tr><tr><td><kbd>Ctrl</kbd> <kbd>Numpad -</kbd></td><td>Difference</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>Numpad +</kbd></td><td>Union</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>Numpad *</kbd></td><td>Intersect</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>Numpad /</kbd></td><td>Slice</td></tr></table></div><p><b>Realtime</b> off hides booleans while you move objects. Use <a href='toolkit.html#object-toolkit'>Parent Used Objects</a> so cutters follow the target.</p></details>
 </section>
 
 <section class="feature" id="snap-to-floor">
-  <div class="feature-head"><h2>Snap to Floor</h2><span class="badge key">Alt 3</span><span class="badge">Object Mode</span></div>
-  <p class="pref-name">Part of: <b>Object Toolkit</b></p>
-  <p>Places the selected objects so their lowest point sits on the grid floor. Hold <kbd>Alt</kbd> when clicking the button (or enable <i>Individual</i>) to snap each object on its own, instead of moving the selection as a group.</p>
-  <div class="media-missing">Video coming soon: snapping objects to the floor.</div>
+  <div class="feature-head"><h2>Snap to Floor</h2><span class="badge key">Alt 3</span></div>
+  <p class="tagline">Drops the selection onto the grid floor.</p>
+  <figure class="media"><img src="assets/gifs/snap-to-floor.gif" alt="Snap to Floor dropping a chair onto the floor from the Object Toolkit" loading="lazy"></figure>
+  <details class="details"><summary>More info</summary><p class="where">Object Mode</p><p>Alt-click the button in the Toolkit panel to snap each object on its own.</p><p class="pref">Toggle in preferences: <b>Object Toolkit</b></p></details>
 </section>
 
 <section class="feature" id="select-similar">
-  <div class="feature-head"><h2>Select Similar</h2><span class="badge">Object &amp; Edit Mode</span><span class="badge">New</span></div>
-  <p>In Object Mode, selects meshes similar to the active one. In Edit Mode, selects similar vertices, edges or faces. Comparisons include shape, size, material and attributes. Find it in the Toolkit panel (Object and Edit Toolkit) and in the Object Mode <b>Select</b> menu.</p>
+  <div class="feature-head"><h2>Select Similar</h2></div>
+  <p class="tagline">Select everything similar to the active mesh or element.</p>
+  <details class="details"><summary>More info</summary><p class="where">Object &amp; Edit Mode</p><p>In the Toolkit panel, the Object Mode <b>Select</b> menu and Edit Mode <b>Select › Select Similar</b>. With Hard Ops installed it's also in its Select Grouped menu.</p></details>
 </section>
 
 <section class="feature" id="x-ray-select">
-  <div class="feature-head"><h2>X-Ray Select</h2><span class="badge">Edit Mode</span><span class="badge">New</span></div>
-  <p>Adds a checkbox to the tool header of the Box, Circle and Lasso select tools. When on, those tools always select through the mesh. X-ray is switched on only during the selection, so the mesh keeps looking solid.</p>
+  <div class="feature-head"><h2>X-Ray Select</h2></div>
+  <p class="tagline">Always select through the mesh.</p>
+  <figure class="media ui"><img src="assets/shots/xray-select.png" alt="X-Ray Select checkbox in the tool header" loading="lazy"></figure>
+  <details class="details"><summary>More info</summary><p class="where">Edit Mode</p><p>X-ray only turns on while you drag, so the mesh stays solid.</p></details>
 </section>
 
 <nav id="pager"></nav>

@@ -7,6 +7,9 @@
 <meta name="description" content="The Key Ops Toolkit sidebar panel: object and edit tools, CAD Decimate, Auto LOD, Polycount List, Quick Bake Name, Quick Export and Material Utils.">
 <script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="assets/site.css">
 <script src="assets/site.js" defer></script>
 </head>
@@ -17,131 +20,68 @@
 <main><div class="content">
 
 <h1>Toolkit Panel</h1>
-<p class="lead">The <b>Toolkit</b> tab in the 3D Viewport sidebar (<kbd>N</kbd>) collects the add-on's object, edit-mode and game-art tools in one place.</p>
+<p class="lead">Everything lives in the Toolkit tab of the 3D Viewport sidebar (<kbd>N</kbd>).</p>
 
 <section class="feature" id="toolkit-panel">
-  <div class="feature-head"><h2>Toolkit Panel</h2><span class="badge">Sidebar › Toolkit</span></div>
-  <p class="pref-name">Preference: <b>Object Toolkit</b></p>
-  <p>The icon row at the top of the panel chooses which sections are shown: <b>Object</b> (Retopology, Object/Edit Toolkit and Quick Bake Name), <b>Modifiers</b>, <b>LOD</b>, <b>CAD Decimate</b> and <b>Polycount List</b>. Each section only appears when its feature is enabled. <kbd>Shift</kbd>-click an icon to show several sections at once. The <b>Prefs</b> button in the panel header opens the add-on preferences.</p>
-  <p>In Edit Mode the Object section shows the <a href="#edit-toolkit">Edit Toolkit</a> instead. The <b>Retopology</b> box has Toggle/Exit Retopology, <b>New Retopology at Active</b>, and <b>Reset Theme to Backup</b> if the theme got stuck.</p>
-  <h3>Modifiers section</h3>
-  <p>Offset UV and Triplanar UV (add/remove), Sharp from UV Islands, and quick Lattice, FFD 3× and FFD 4× deformers.</p>
-  <div class="media-missing">Screenshot coming soon: the current Toolkit panel.</div>
+  <div class="feature-head"><h2>Toolkit Panel</h2></div>
+  <p class="tagline">All tools in one sidebar tab.</p>
+  <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-object.png" alt="Toolkit panel, Object section" loading="lazy"></figure><figure class="media"><img src="assets/shots/toolkit-modifiers.png" alt="Modifiers section" loading="lazy"></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">N › Toolkit</p><p><kbd>Shift</kbd>-click icons to show several sections. <b>Prefs</b> opens the add-on preferences.</p><p class="pref">Toggle in preferences: <b>Object Toolkit</b></p></details>
 </section>
 
 <section class="feature" id="object-toolkit">
-  <div class="feature-head"><h2>Object Toolkit</h2><span class="badge">Object Mode</span></div>
-  <div class="table-wrap"><table>
-    <tr><th>Button</th><th>What it does</th><th>Shortcut</th></tr>
-    <tr><td>Combine</td><td>Joins the selected objects and keeps normals, UV maps and transforms intact</td><td></td></tr>
-    <tr><td>Separate</td><td>Separates the object by loose parts, material and more</td><td></td></tr>
-    <tr><td>Apply Modifiers</td><td>Instant Apply All Modifiers: applies even very heavy stacks (like Decimate) in a fraction of the usual time when the result is fairly low-poly. Deduplicates materials. Keep a backup before using it.</td><td><kbd>Alt</kbd> <kbd>C</kbd></td></tr>
-    <tr><td>Freeze Scale</td><td>Smart Apply Scale: applies scale and adjusts modifier values (bevel width, solidify thickness…) so the result looks the same. Also in <b>Object › Apply</b>.</td><td></td></tr>
-    <tr><td>Snap to Floor</td><td>See <a href="modeling-tools.html#snap-to-floor">Snap to Floor</a></td><td><kbd>Alt</kbd> <kbd>3</kbd></td></tr>
-    <tr><td>Clear Normals</td><td>Clears custom split normals</td><td></td></tr>
-    <tr><td>Fast Mirror</td><td>See <a href="modeling-tools.html#fast-mirror">Fast Mirror</a></td><td><kbd>Alt</kbd> <kbd>X</kbd></td></tr>
-    <tr><td>Select Similar</td><td>See <a href="modeling-tools.html#select-similar">Select Similar</a></td><td></td></tr>
-    <tr><td>Parent Used Objects</td><td>Parents every object used by the selection's modifiers (boolean cutters, mirror/array objects, Geometry Nodes inputs) so they move with it. Options: all modifiers or booleans only, and recursive.</td><td></td></tr>
-    <tr><td>Duplicate Linked: Mesh / Modifiers</td><td>Linked duplicate of the mesh, or a duplicate that shares the modifier stack and then moves</td><td><kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>D</kbd></td></tr>
-    <tr><td>Boolean</td><td>See <a href="modeling-tools.html#booleans">Booleans</a></td><td><kbd>Ctrl</kbd> <kbd>Numpad</kbd></td></tr>
-  </table></div>
-  <div class="media-row">
-    <figure class="media"><img src="assets/notion/connect-multi-object.gif" alt="Connect across several objects" loading="lazy"><figcaption>Connect works across several objects in edge mode.</figcaption></figure>
-  </div>
+  <div class="feature-head"><h2>Object Toolkit</h2></div>
+  <p class="tagline">Everyday object operations.</p>
+  <figure class="media ui"><img src="assets/shots/toolkit-object.png" alt="Object Toolkit in the Toolkit panel" loading="lazy"></figure>
+  <details class="details"><summary>More info</summary><p class="where">Object Mode</p><div class="table-wrap"><table><tr><th>Button</th><th>What it does</th><th>Key</th></tr><tr><td>Combine / Separate</td><td>Join keeping normals and UVs / split by loose parts or material</td><td></td></tr><tr><td>Apply Modifiers</td><td>Apply heavy stacks fast. Keep a backup.</td><td><kbd>Alt</kbd> <kbd>C</kbd></td></tr><tr><td>Freeze Scale</td><td>Apply scale and adjust modifiers to match</td><td></td></tr><tr><td>Snap to Floor</td><td><a href='modeling-tools.html#snap-to-floor'>Snap to Floor</a></td><td><kbd>Alt</kbd> <kbd>3</kbd></td></tr><tr><td>Fast Mirror</td><td><a href='modeling-tools.html#fast-mirror'>Fast Mirror</a></td><td><kbd>Alt</kbd> <kbd>X</kbd></td></tr><tr><td>Parent Used Objects</td><td>Parent boolean cutters and other modifier objects to the selection</td><td></td></tr><tr><td>Duplicate Linked</td><td>Linked mesh, or shared modifier stack</td><td><kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>D</kbd></td></tr><tr><td>Boolean</td><td><a href='modeling-tools.html#booleans'>Booleans</a></td><td><kbd>Ctrl</kbd> <kbd>Numpad</kbd></td></tr></table></div><figure class="media"><img src="assets/gifs/smart-apply-scale.gif" alt="Freeze Scale applying scale while modifiers keep their shape" loading="lazy"><figcaption>Freeze Scale (Smart Apply Scale): scale is applied and modifier values are adjusted so the shape stays the same</figcaption></figure></details>
 </section>
 
 <section class="feature" id="edit-toolkit">
-  <div class="feature-head"><h2>Edit Toolkit</h2><span class="badge">Edit Mode</span></div>
-  <p>Selection and modeling operations grouped by selection mode, inspired by 3ds Max's Edit Poly panel:</p>
-  <ul class="plain">
-    <li><b>Selection</b>: grow/shrink, loop, ring, boundary, inner region, by angle, similar, checker deselect, non-manifold, n-gons.</li>
-    <li><b>Edit Vertices / Edges / Polygons</b>: remove, split, extrude, weld, chamfer/bevel, connect, inset, fill, limited dissolve, bridge, flip.</li>
-    <li><b>Edit Geometry</b>: Preserve UVs toggle, merge center, collapse, separate, rip, slice plane, cut, subdivide, un-subdivide, hide/unhide. On Blender 5.0+ with LoopTools: make planar, circle and relax.</li>
-    <li><b>Cylinder</b>: Cylinder from Edge, and Subdivide / Un-Subdivide Cylinder, which keep UVs. The direction follows the active edge. Subdivide Cylinder needs the <a href="https://extensions.blender.org/add-ons/edgeflow/" target="_blank" rel="noopener">EdgeFlow</a> add-on.</li>
-    <li><b>Vertex Color</b>: set the color of the selection.</li>
-    <li>The Extrude menu also gets <b>Offset Extrude Edge</b>.</li>
-  </ul>
-  <div class="media-row">
-    <figure class="media"><img src="assets/notion/subdivide-cylinder.gif" alt="Subdivide and un-subdivide cylinder" loading="lazy"><figcaption>Subdivide / Un-Subdivide Cylinder</figcaption></figure>
-    <figure class="media"><img src="assets/notion/subdivide-cylinder-angle.png" alt="Angle option" loading="lazy" width="277"><figcaption>Change the angle to skip edges above or below it.</figcaption></figure>
-  </div>
+  <div class="feature-head"><h2>Edit Toolkit</h2></div>
+  <p class="tagline">Edit tools that follow the selection mode.</p>
+  <div class="media-row"><figure class="media"><img src="assets/shots/toolkit-edit.png" alt="Edit Toolkit" loading="lazy"></figure><figure class="media"><img src="assets/notion/subdivide-cylinder.gif" alt="Subdivide and un-subdivide cylinder" loading="lazy"><figcaption>Subdivide / Un-Subdivide Cylinder</figcaption></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Edit Mode</p><ul class='plain'><li><b>Cylinder</b>: from Edge, Subdivide and Un-Subdivide (keeps UVs).</li><li><b>Set Flow</b>: built in, based on EdgeFlow.</li><li>Make Planar / Circle / Relax appear with LoopTools on 5.0+.</li><li>The Extrude menu gets <b>Offset Extrude Edge</b>.</li></ul></details>
 </section>
 
 <section class="feature" id="cad-decimate">
-  <div class="feature-head"><h2>CAD Decimate</h2><span class="badge">Toolkit › CAD Decimate</span></div>
-  <p class="pref-name">Preference: <b>CAD Decimate</b></p>
-  <p>Decimates huge scenes that would normally crash Blender (or ZBrush) by running out of memory. It exports the objects, then imports and decimates them one by one.</p>
-  <blockquote class="callout note">Tested on a scene with 330 million triangles and thousands of objects, decimated to a reasonable count. Fast Mode was off and Quality set to Low.</blockquote>
-  <div class="callout warn">It works best on scenes with many separate objects. One giant mesh is still as slow and crash-prone as in plain Blender.</div>
-  <h3>Options</h3>
-  <ul class="plain">
-    <li><b>Percent or Tris Count</b> (High quality): decimate by a ratio or to a target triangle count. Medium/Low use a merge amount instead.</li>
-    <li><b>Quality</b>: <i>High</i> uses the Decimate modifier (slowest, best result). <i>Medium</i> welds by distance (much faster, may merge nearby geometry, loses UVs). <i>Low</i> welds by connected (about 2× faster than Medium, never merges separate parts, loses UVs).</li>
-    <li><b>Fast Mode</b>: faster, but uses more memory and can crash on very heavy input. Turn it off for the safest run.</li>
-    <li><b>Preserve UVs</b>, <b>Export Selected Only</b>, <b>Delete Files After Import</b>, <b>Auto Clear Garbage Data</b>, export path and format.</li>
-  </ul>
-  <div class="media-row">
-    <figure class="media"><img src="assets/notion/cad-decimate-scene.png" alt="CAD scene before decimation" loading="lazy"></figure>
-  </div>
-  <div class="media-missing">New screenshot coming soon: the CAD Decimate panel.</div>
+  <div class="feature-head"><h2>CAD Decimate</h2></div>
+  <p class="tagline">Decimate huge scenes without crashing.</p>
+  <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-cad-decimate.png" alt="CAD Decimate panel" loading="lazy"></figure><figure class="media"><img src="assets/notion/cad-decimate-scene.png" alt="CAD scene" loading="lazy"><figcaption>Tested on 330 million triangles</figcaption></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › CAD Decimate</p><ul class='plain'><li><b>High</b>: Decimate modifier, best result, by % or target tris.</li><li><b>Medium / Low</b>: weld-based, much faster, no UVs.</li><li><b>Fast Mode</b>: faster but uses more memory.</li></ul><p>Works best with many separate objects.</p><p class="pref">Toggle in preferences: <b>CAD Decimate</b></p></details>
 </section>
 
 <section class="feature" id="auto-lod">
-  <div class="feature-head"><h2>Auto LOD</h2><span class="badge">Toolkit › LOD</span></div>
-  <p class="pref-name">Preference: <b>Auto LOD</b></p>
-  <p>Creates a chain of decimated LODs from the selected meshes in one click.</p>
-  <ul class="plain">
-    <li><b>Amount of LODs</b> (default 3) and <b>LOD Difference</b> (% reduction per level, default 45%).</li>
-    <li><b>Suffix</b> (default <code>_LOD</code>), numbered for each level.</li>
-    <li>Options: parent LODs to the source, keep X symmetry, transfer face/edge normals, add Weighted Normals, unlock normals on all LODs.</li>
-  </ul>
-  <div class="media-missing">New screenshot coming soon: the Generate LOD panel.</div>
+  <div class="feature-head"><h2>Auto LOD</h2></div>
+  <p class="tagline">LODs in one click.</p>
+  <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-lod.png" alt="Generate LOD panel" loading="lazy"></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › LOD</p><p>Amount, % reduction per LOD, suffix, parenting, X symmetry, normal transfer and weighted normals.</p><p class="pref">Toggle in preferences: <b>Auto LOD</b></p></details>
 </section>
 
 <section class="feature" id="polycount-list">
-  <div class="feature-head"><h2>Polycount List</h2><span class="badge">Toolkit › Polycount · Scene Properties</span></div>
-  <p class="pref-name">Preference: <b>Polycount List</b></p>
-  <p>A live list of all objects with their triangle count, sortable and filterable. It stays fast with tens of millions of triangles, and it can show how long each object's modifiers take to evaluate, which helps find slow modifiers.</p>
-  <ul class="plain">
-    <li><b>Auto Update</b> with an adjustable update rate. Turn it off and use Refresh for very large scenes.</li>
-    <li><b>Filter</b> by collection (with child collections), selected only, enabled collections only, and collection instances.</li>
-    <li>Display: total triangles, object type, rounded numbers, max list length, draw time.</li>
-  </ul>
-  <div class="media-row">
-    <figure class="media"><img src="assets/notion/polycount-list-084.png" alt="Polycount list" loading="lazy"><figcaption>Polycount List (v0.1.84 UI)</figcaption></figure>
-    <figure class="media"><img src="assets/notion/polycount-scene-props.png" alt="Polycount tab in Scene Properties" loading="lazy" width="90"><figcaption>Also in Scene Properties</figcaption></figure>
-  </div>
+  <div class="feature-head"><h2>Polycount List</h2></div>
+  <p class="tagline">Live triangle count per object.</p>
+  <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-polycount-list.png" alt="Polycount List" loading="lazy"></figure></div>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › Polycount</p><p>Also in Scene Properties. Turn off Auto Update for very large scenes.</p><p class="pref">Toggle in preferences: <b>Polycount List</b></p></details>
 </section>
 
 <section class="feature" id="quick-bake-name">
-  <div class="feature-head"><h2>Quick Bake Name</h2><span class="badge">Toolkit › Quick Bake Name</span></div>
-  <p class="pref-name">Preference: <b>Quick Bake Name</b></p>
-  <p>Names high- and low-poly pairs for baking in Substance Painter or Marmoset Toolbag.</p>
-  <ul class="plain">
-    <li>With <b>two objects</b> selected, the higher-poly one gets <code>_high</code> and the other <code>_low</code>.</li>
-    <li>With <b>more objects</b>, the active one gets <code>_low</code> and the rest <code>_high</code>, <code>_high.001</code>, <code>_high.002</code>… Bakers then treat them as one high-poly.</li>
-    <li>Buttons: <b>Quick Bake Name</b>, <b>Rename</b>, <b>Set _high</b>, <b>Set _low</b>.</li>
-    <li>Each high/low group is listed with select, <b>Show</b> and <b>Hide</b> buttons. <kbd>Ctrl</kbd>-click deselects.</li>
-  </ul>
-  <div class="media-missing">New screenshot coming soon: the Quick Bake Name panel.</div>
+  <div class="feature-head"><h2>Quick Bake Name</h2></div>
+  <p class="tagline">Name high / low pairs for baking.</p>
+  <figure class="media ui"><img src="assets/shots/quick-bake-name.png" alt="Quick Bake Name panel" loading="lazy"></figure>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › Object</p><p>Two objects: the denser one gets <code>_high</code>, the other <code>_low</code>. More objects: the active one is <code>_low</code>. Each group gets select, show and hide buttons.</p><p class="pref">Toggle in preferences: <b>Quick Bake Name</b></p></details>
 </section>
 
 <section class="feature" id="quick-export">
-  <div class="feature-head"><h2>Quick Export</h2><span class="badge key">Ctrl E</span><span class="badge">Object Mode</span></div>
-  <p class="pref-name">Preference: <b>Quick Export</b></p>
-  <p>Exports the selected meshes next to the saved <code>.blend</code> file, named after it. The default format is OBJ; FBX, glTF, USD and Alembic are also available.</p>
-  <p>If the active collection's name contains <b>high</b> or <b>low</b>, the file goes into a <code>Bake</code> folder as <code>&lt;blend name&gt;_high</code> or <code>_low</code>. This makes iterating on bakes quick: fix, <kbd>Ctrl</kbd> <kbd>E</kbd>, rebake.</p>
-  <div class="callout note">Save the <code>.blend</code> file first. Quick Export needs its folder.</div>
+  <div class="feature-head"><h2>Quick Export</h2><span class="badge key">Ctrl E</span></div>
+  <p class="tagline">Export the selection in one key.</p>
+  <details class="details"><summary>More info</summary><p>If the active collection is named <i>high</i> or <i>low</i>, it goes into a <code>Bake</code> folder as <code>_high</code> / <code>_low</code>. OBJ by default. Save the .blend first.</p><p class="pref">Toggle in preferences: <b>Quick Export</b></p></details>
 </section>
 
 <section class="feature" id="material-utils">
   <div class="feature-head"><h2>Material Utils</h2><span class="badge key">Alt M</span></div>
-  <p class="pref-name">Preference: <b>Material Utils</b></p>
-  <p><kbd>Alt</kbd> <kbd>M</kbd> opens a material list to assign materials quickly, in Object and Edit Mode. Choose <i>Compact List</i> or <i>Big Preview Icons</i> in the settings. Also adds:</p>
-  <ul class="plain">
-    <li><b>Remove All Object Materials</b> in the material context menu and in <b>Object › Clean Up</b>.</li>
-    <li>In the Material Properties (Object Mode): <b>Assign</b> the active material to the selected objects, <b>Select</b> / <b>Deselect</b> objects using it, and <b>Clear Unused</b> slots on the selected objects.</li>
-  </ul>
+  <p class="tagline">Quick material list.</p>
+  <div class="media-row"><figure class="media"><img src="assets/shots/menu-material-list.png" alt="Material list menu" loading="lazy"></figure><figure class="media"><img src="assets/shots/material-buttons.png" alt="Material buttons" loading="lazy"></figure></div>
+  <details class="details"><summary>More info</summary><p>Also adds <b>Remove All Object Materials</b> to <i>Object › Clean Up</i>. Compact list or big preview icons in the settings.</p><p class="pref">Toggle in preferences: <b>Material Utils</b></p></details>
 </section>
 
 <nav id="pager"></nav>

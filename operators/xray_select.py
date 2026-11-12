@@ -39,7 +39,8 @@ def _window_in_edit_mesh(window):
 
 
 def _gesture_running(window):
-    return any(op.bl_idname in SELECT_GESTURE_OPS for op in window.modal_operators)
+    # modal_operators can contain None entries (handlers without a Python-visible operator)
+    return any(op is not None and op.bl_idname in SELECT_GESTURE_OPS for op in window.modal_operators)
 
 
 def _force_xray(window):
