@@ -1,4 +1,4 @@
-import bpy.types, bmesh
+import bpy.types
 
 def update_float_value(self, context):
     wm = bpy.context.window_manager

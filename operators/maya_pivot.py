@@ -313,7 +313,8 @@ def unregister_maya_pivot():
     bpy.utils.unregister_class(MayaPivotGizmoGroup)
     bpy.utils.unregister_class(ResetButton)
     bpy.utils.unregister_class(GizmoMayaPivotTransform)
-    del bpy.types.WindowManager.show_3d_gizmo
+    if hasattr(bpy.types.WindowManager, "show_3d_gizmo"):
+        del bpy.types.WindowManager.show_3d_gizmo
 
 class GizmoMayaPivotTransform(bpy.types.Operator):
     bl_description = "Rotate Pivot"

@@ -156,7 +156,6 @@ class FastKnife(bpy.types.Operator):
             return
         if len(lonely_vert.link_faces) != 0:
             return
-        end = lonely_vert.co
         bm.verts.remove(lonely_vert)
         self.update_geom()
         hit, face = self.util.ray_cast_point(self.tree, bm, self.snapped_hit)

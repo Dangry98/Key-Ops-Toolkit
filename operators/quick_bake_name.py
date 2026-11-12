@@ -14,7 +14,6 @@ import bpy
 import random
 import string
 
-from bpy.types import Context
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.utilities import force_show_obj
 
@@ -257,11 +256,11 @@ class HideShowLowHigh(bpy.types.Operator):
         }.get(group, 'high and low')
 
         if action == 'SELECT':
-            return f"Select matching {group_label} objects.\n\nCtrl-click deselects them instead."
+            return f"Select {group_label} objects.\n\nCtrl-click - deselect"
         if action == 'SHOW':
-            return f"Reveal matching {group_label} objects and make them selectable."
+            return f"Reveal {group_label} objects and make them selectable."
         if action == 'HIDE':
-            return f"Hide matching {group_label} objects in the viewport."
+            return f"Hide {group_label} objects in the viewport."
 
         return "Select, show, or hide matching high/low objects."
 

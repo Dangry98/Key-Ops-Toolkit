@@ -2,8 +2,10 @@ import bpy.types
 from ..utils.pref_utils import clear_registered_keymaps
 from mathutils import Vector, Matrix
 from bpy.types import Menu
-from ..utils.utilities import force_show_obj, is_object_mesh
+from ..utils.utilities import force_show_obj
 from ..utils.pref_utils import get_icon
+from .fast_array import FastArray
+from .fast_bevel import FastBevel
 
 # TODO: Use geometry nodes so we can auto pick best boolean solver depending on manifold etc. Also we can boolean any object type like curves/text!
 
@@ -18,19 +20,6 @@ def register_add_modifier_pie_keymaps():
     kmi = km.keymap_items.new('wm.call_menu_pie', 'Q', 'PRESS', shift=True)
     kmi.properties.name = 'KEYOPS_MT_add_modifier_pie'
     registered_add_modifier_pie_keymaps.append((km, kmi))
-
-class Dummy_AddModifier(bpy.types.Operator):
-    bl_description = "Add a modifier"
-    bl_idname = "keyops.dummy_add_modifier"
-    bl_label = "Add Modifier"
-    bl_options = {'INTERNAL'}
-
-    def register():
-        bpy.utils.register_class(AddModifierPie)
-        bpy.utils.register_class(AddModifierModal)
-    def unregister():
-        bpy.utils.unregister_class(AddModifierPie)
-        bpy.utils.unregister_class(AddModifierModal)
 
 boolean_objects = set()
 start_active_obj_booleon_scroll = None
@@ -265,104 +254,116 @@ class AddBooleanModifier(bpy.types.Operator):
 
     # TODO All booelons should be geometry nodes, so we can support cutting holes and booleon any object type like curves/text!
     def execute(self, context):
-        boolean_type = self.type
         active = context.object
         cutters = [obj for obj in bpy.context.selected_objects if obj != active and obj.type == "MESH"]
         if len(cutters) < 1:
             self.report({'WARNING'}, "Select at least 2 Mesh Objects")
             return {'CANCELLED'}
-        
-        slice_booleon_diffrance_objs = []
 
-        if boolean_type == 'SLICE':
-            cutters.append(active)
+        solver, warning = resolve_boolean_solver(self.solver)
+        if warning:
+            self.report({'WARNING'}, warning)
 
-        def move_to_cutter_collection(objs):
-            cutter_collection = bpy.data.collections.get("Cutters")
-            if not cutter_collection:
-                cutter_collection = bpy.data.collections.new("Cutters")
-                cutter_collection.color_tag = "COLOR_01"
-                bpy.context.scene.collection.children.link(cutter_collection)
+        add_boolean_modifiers(context, active, cutters, self.type, solver, parent=self.parant)
 
-            for obj in objs:
-                if obj.display_type == 'WIRE':
-                    for coll in obj.users_collection:
-                        coll.objects.unlink(obj)
-                        cutter_collection.objects.link(obj)
-
-            layer_collection = get_layer_collection_for_collection(context, cutter_collection)
-            if cutter_collection.hide_viewport or (layer_collection and layer_collection.hide_viewport):
-                cutter_collection.hide_viewport = False
-                if layer_collection:
-                    layer_collection.hide_viewport = False
-                for obj in cutter_collection.objects:
-                    obj.hide_set(True)
-
-            for obj in objs:
-                obj.hide_set(False)
-
-        solver = self.solver
-
-        # veroning for past blender versions
-        if BLENDER_VERSION < (4, 5) and self.solver == 'MANIFOLD':
-            self.report({'WARNING'}, "Manifold solver is only available in Blender 4.5 and above, falling back to Fast solver")
-            solver = 'FAST'
-        # if 5.0 and up, fast was renamede to float
-        if BLENDER_VERSION >= (5, 0, 0) and self.solver == 'FAST':
-            solver = "FLOAT"
-                    
-        for obj in cutters:
-            if self.parant and obj != active:
-                context.view_layer.update()
-                obj.parent = active
-                # matris inverse to get the correct location of the object
-                obj.matrix_parent_inverse = active.matrix_world.inverted() 
-
-            if boolean_type == 'SLICE':
-                if obj != active:
-                    slice_booleon_diffrance_objs.append(obj)
-                    toggle_wire_solid_display(context, obj, value='WIRE')
-               
-            else:
-                if obj != active:
-                    mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = boolean_type
-                    mod.solver = solver
-                    mod.object = obj
-                    toggle_wire_solid_display(context, obj, value='WIRE')
-
-        if boolean_type == 'SLICE':
-            if slice_booleon_diffrance_objs:
-                duplicates = []
-                for i, obj in enumerate(slice_booleon_diffrance_objs):
-                    # origna object gets the intersect boolean modifier and the cutters get the difference boolean modifier
-                    duplicate = active.copy()
-                    duplicate.data = active.data.copy()
-                    obj_collections = active.users_collection[0]
-                    obj_collections.objects.link(duplicate)
-                    duplicates.append(duplicate)
-
-                for i, obj in enumerate(slice_booleon_diffrance_objs):
-                    mod = duplicates[i].modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = "INTERSECT"
-                    mod.solver = solver
-                    mod.object = obj
-                    
-                    mod = active.modifiers.new(type='BOOLEAN', name='Boolean')
-                    mod.operation = "DIFFERENCE"
-                    mod.solver = solver
-                    mod.object = obj
-
-
-        move_to_cutter_collection(cutters)
+        # Slice also passes the active object through (only wire objects get moved, but it is kept visible)
+        move_to_cutter_collection(context, cutters + [active] if self.type == 'SLICE' else cutters)
 
         for obj in context.selected_objects:
-            obj.select_set(False)   
+            obj.select_set(False)
 
-        if cutters:
-            cutters[0].select_set(True)
-            context.view_layer.objects.active =  cutters[0]
+        cutters[0].select_set(True)
+        context.view_layer.objects.active = cutters[0]
         return {'FINISHED'}
+
+
+# --- Shared boolean helpers -------------------------------------------------
+# Used by AddBooleanModifier and the Cutter tool (tools/cutter_tool.py), so
+# improvements to how booleans are set up land in both places.
+
+def resolve_boolean_solver(solver):
+    """Map a solver name to what this Blender version supports. Returns (solver, warning or None)."""
+    if BLENDER_VERSION < (4, 5) and solver == 'MANIFOLD':
+        return 'FAST', "Manifold solver is only available in Blender 4.5 and above, falling back to Fast solver"
+    if BLENDER_VERSION >= (5, 0, 0) and solver == 'FAST':
+        return 'FLOAT', None  # Fast was renamed to Float in 5.0
+    return solver, None
+
+
+def get_cutter_collection(context):
+    cutter_collection = bpy.data.collections.get("Cutters")
+    if not cutter_collection:
+        cutter_collection = bpy.data.collections.new("Cutters")
+        cutter_collection.color_tag = "COLOR_01"
+        context.scene.collection.children.link(cutter_collection)
+    return cutter_collection
+
+
+def move_to_cutter_collection(context, objs):
+    """Move wire display objects into the "Cutters" collection and make sure objs stay visible."""
+    cutter_collection = get_cutter_collection(context)
+
+    for obj in objs:
+        if obj.display_type == 'WIRE':
+            for coll in list(obj.users_collection):
+                if coll != cutter_collection:
+                    coll.objects.unlink(obj)
+            if cutter_collection not in obj.users_collection:
+                cutter_collection.objects.link(obj)
+
+    layer_collection = get_layer_collection_for_collection(context, cutter_collection)
+    if cutter_collection.hide_viewport or (layer_collection and layer_collection.hide_viewport):
+        cutter_collection.hide_viewport = False
+        if layer_collection:
+            layer_collection.hide_viewport = False
+        for obj in cutter_collection.objects:
+            obj.hide_set(True)
+
+    for obj in objs:
+        obj.hide_set(False)
+
+
+def add_boolean_modifiers(context, target, cutters, operation, solver, parent=False):
+    """Add boolean modifiers on target for every cutter.
+
+    operation: 'DIFFERENCE', 'UNION', 'INTERSECT' or 'SLICE'. Slice duplicates the target per
+    cutter (the duplicate gets INTERSECT, the target gets DIFFERENCE).
+    solver must already be resolved with resolve_boolean_solver.
+    Returns a list of (object, modifier) for every modifier created.
+    """
+    created = []
+    cutters = [obj for obj in cutters if obj != target]
+
+    for obj in cutters:
+        if parent:
+            context.view_layer.update()
+            obj.parent = target
+            obj.matrix_parent_inverse = target.matrix_world.inverted()
+        toggle_wire_solid_display(context, obj, value='WIRE')
+
+    def new_mod(owner, op, cutter):
+        mod = owner.modifiers.new(type='BOOLEAN', name='Boolean')
+        mod.operation = op
+        mod.solver = solver
+        mod.object = cutter
+        created.append((owner, mod))
+
+    if operation == 'SLICE':
+        # Duplicate first, so no duplicate inherits the DIFFERENCE modifiers added below
+        duplicates = []
+        for _obj in cutters:
+            duplicate = target.copy()
+            duplicate.data = target.data.copy()
+            target.users_collection[0].objects.link(duplicate)
+            duplicates.append(duplicate)
+        for duplicate, obj in zip(duplicates, cutters):
+            new_mod(duplicate, 'INTERSECT', obj)
+            new_mod(target, 'DIFFERENCE', obj)
+    else:
+        for obj in cutters:
+            new_mod(target, operation, obj)
+
+    return created
 
         
 class AddModifier(bpy.types.Operator):
@@ -729,26 +730,20 @@ class AddModifier(bpy.types.Operator):
         return {'FINISHED'} 
     
 def register_add_modifier_pie():
-    try:
-        bpy.utils.register_class(AddModifierModal)
-    except (RuntimeError, ValueError):
-        pass
-    try:
-        bpy.utils.register_class(AddModifierPie)
-    except (RuntimeError, ValueError):
-        pass
+    from .fast_solidify import register_fast_solidify
+    register_fast_solidify()
+    bpy.utils.register_class(FastBevel)
+    bpy.utils.register_class(FastArray)
+    bpy.utils.register_class(AddModifierPie)
     register_add_modifier_pie_keymaps()
 
 def unregister_add_modifier_pie():
     clear_registered_keymaps(registered_add_modifier_pie_keymaps)
-    try:
-        bpy.utils.unregister_class(AddModifierPie)
-    except (RuntimeError, ValueError):
-        pass
-    try:
-        bpy.utils.unregister_class(AddModifierModal)
-    except (RuntimeError, ValueError):
-        pass
+    bpy.utils.unregister_class(AddModifierPie)
+    bpy.utils.unregister_class(FastBevel)
+    bpy.utils.unregister_class(FastArray)
+    from .fast_solidify import unregister_fast_solidify
+    unregister_fast_solidify()
 
 def create_lattice_object(self, context):
     coll_name = "ML_Gizmo Objects" 
@@ -801,149 +796,6 @@ def get_bounding_box(verts):
     return min_x, max_x, min_y, max_y, min_z, max_z
 
 
-class AddModifierModal(bpy.types.Operator):
-    bl_idname = "keyops.add_modifier_modal"
-    bl_label = "Add Modifier Modal"
-    bl_options = {'REGISTER', 'UNDO', "BLOCKING"}
-
-    type: bpy.props.StringProperty(name="Type", description="", default="")  # type:ignore
-    thickness: bpy.props.FloatProperty(name="Thickness", description="", default=0.0)  # type:ignore
-    count: bpy.props.IntProperty(name="Count", description="", default=2, min=1)  # type:ignore
-    width: bpy.props.FloatProperty(name="Width", description="", default=0.01, min=0.0)  # type:ignore
-
-    _created_mods = []
-    _start_mouse_x = 0.0
-    _start_value = 0.0
-    _modifier_names = []
-
-    def _apply_value(self, context, value):
-        if not context.selected_objects:
-            return
-
-        target_type = self.type
-        if target_type == 'SOLIDIFY':
-            for obj in [o for o in context.selected_objects if o.type == 'MESH']:
-                mod = obj.modifiers.get('Solidify')
-                if mod is None:
-                    mod = obj.modifiers.new(type='SOLIDIFY', name='Solidify')
-                    self._created_mods.append((obj, mod))
-                mod.thickness = value
-                if mod.use_even_offset is False:
-                    mod.use_even_offset = True
-                if mod.use_quality_normals is False:
-                    mod.use_quality_normals = True
-
-        elif target_type == 'ARRAY':
-            for obj in [o for o in context.selected_objects if o.type == 'MESH']:
-                mod = obj.modifiers.get('Array')
-                if mod is None:
-                    mod = obj.modifiers.new(type='ARRAY', name='Array')
-                    self._created_mods.append((obj, mod))
-                mod.count = max(1, int(round(value)))
-                if mod.relative_offset_displace == 0:
-                    mod.relative_offset_displace = 1.0
-
-        elif target_type == 'BEVEL':
-            for obj in [o for o in context.selected_objects if o.type == 'MESH']:
-                mod = obj.modifiers.get('Bevel')
-                if mod is None:
-                    mod = obj.modifiers.new(type='BEVEL', name='Bevel')
-                    self._created_mods.append((obj, mod))
-                mod.width = max(0.0, value)
-                mod.segments = max(1, mod.segments)
-                mod.limit_method = 'ANGLE'
-
-    def modal(self, context, event):
-        if event.type == 'MOUSEMOVE':
-            delta = (event.mouse_x - self._start_mouse_x) * 0.01
-            if self.type == 'SOLIDIFY':
-                amount = self._start_value + (delta * 2.0 if not event.shift else delta * 0.5)
-                self.thickness = max(-10.0, amount)
-                self._apply_value(context, self.thickness)
-            elif self.type == 'ARRAY':
-                amount = max(1, int(round(self._start_value + (delta * 18.0 if not event.shift else delta * 6.0))))
-                self.count = amount
-                self._apply_value(context, float(amount))
-            elif self.type == 'BEVEL':
-                amount = self._start_value + (delta * 0.5 if not event.shift else delta * 0.15)
-                self.width = max(0.0, amount)
-                self._apply_value(context, self.width)
-
-        elif event.type == 'LEFTMOUSE':
-            return {'FINISHED'}
-
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            for obj, mod in self._created_mods:
-                if mod.name in obj.modifiers:
-                    obj.modifiers.remove(mod)
-            return {'CANCELLED'}
-
-        elif event.type == 'Q' and event.value == 'PRESS':
-            for obj in [o for o in context.selected_objects if o.type == 'MESH']:
-                mod = obj.modifiers.get(self.type.capitalize())
-                if mod is not None:
-                    obj.modifiers.move(obj.modifiers.find(mod.name), max(0, obj.modifiers.find(mod.name) - 1))
-            return {'RUNNING_MODAL'}
-
-        elif event.type == 'E' and event.value == 'PRESS':
-            for obj in [o for o in context.selected_objects if o.type == 'MESH']:
-                mod = obj.modifiers.get(self.type.capitalize())
-                if mod is not None:
-                    idx = obj.modifiers.find(mod.name)
-                    if idx < len(obj.modifiers) - 1:
-                        obj.modifiers.move(idx, idx + 1)
-            return {'RUNNING_MODAL'}
-
-        return {'RUNNING_MODAL'}
-
-    def invoke(self, context, event):
-        if context.space_data.type != 'VIEW_3D':
-            self.report({'WARNING'}, "Active space must be a View3d")
-            return {'CANCELLED'}
-
-        self._created_mods = []
-        self._start_mouse_x = event.mouse_x
-
-        selected_meshes = [o for o in context.selected_objects if o.type == 'MESH']
-        if not selected_meshes:
-            self.report({'WARNING'}, "Select at least one mesh object")
-            return {'CANCELLED'}
-
-        if self.type == 'SOLIDIFY':
-            self._start_value = 0.0
-            for obj in selected_meshes:
-                mod = obj.modifiers.get('Solidify')
-                if mod is None:
-                    mod = obj.modifiers.new(type='SOLIDIFY', name='Solidify')
-                    self._created_mods.append((obj, mod))
-                self._start_value = mod.thickness
-                self.thickness = mod.thickness
-        elif self.type == 'ARRAY':
-            self._start_value = 2
-            for obj in selected_meshes:
-                mod = obj.modifiers.get('Array')
-                if mod is None:
-                    mod = obj.modifiers.new(type='ARRAY', name='Array')
-                    self._created_mods.append((obj, mod))
-                self._start_value = mod.count
-                self.count = mod.count
-        elif self.type == 'BEVEL':
-            self._start_value = 0.01
-            for obj in selected_meshes:
-                mod = obj.modifiers.get('Bevel')
-                if mod is None:
-                    mod = obj.modifiers.new(type='BEVEL', name='Bevel')
-                    self._created_mods.append((obj, mod))
-                self._start_value = mod.width
-                self.width = mod.width
-
-        context.window_manager.modal_handler_add(self)
-        context.workspace.status_text_set(
-            "Drag to adjust | Left Mouse: Confirm | Right Mouse / Esc: Cancel | Q/E: Move modifier"
-        )
-        return {'RUNNING_MODAL'}
-
-
 class AddModifierPie(Menu):
     bl_idname = "KEYOPS_MT_add_modifier_pie"
     bl_label = "Add Modifier Pie"
@@ -952,17 +804,11 @@ class AddModifierPie(Menu):
         layout = self.layout
         pie = layout.menu_pie()
 
-        op = pie.operator("keyops.add_modifier_modal", text="Array", icon="MOD_ARRAY")
-        if op is not None:
-            op.type = "ARRAY"  # LEFT
+        pie.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")  # LEFT
 
-        op = pie.operator("keyops.add_modifier_modal", text="Solidify", icon="MOD_SOLIDIFY")
-        if op is not None:
-            op.type = "SOLIDIFY"  # RIGHT
+        pie.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")  # RIGHT
 
-        op = pie.operator("keyops.add_modifier_modal", text="Bevel", icon="MOD_BEVEL")
-        if op is not None:
-            op.type = "BEVEL"  # BOTTOM
+        pie.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")  # BOTTOM
 
         op = pie.operator("keyops.add_modifier", text="Weighted Normal", icon="MOD_NORMALEDIT")
         if op is not None:

@@ -7,11 +7,6 @@ from .. import __package__ as base_package
 # Runtime keymap display registry built from extension registration globals.
 registered_keymap_display_items = {}
 
-def get_is_addon_enabled(addon_name):
-    list_of_addons = bpy.context.preferences.addons.keys()
-    list_of_addons = [addon.split(".")[-1] for addon in list_of_addons]
-    return addon_name in list_of_addons
-
 def get_addon_name():
     return base_package
 
@@ -34,18 +29,6 @@ def get_keyops_prefs():
             return addon.preferences
 
     return KeyOpsPrefsMock()
-
-def get_addon_path(addon_name):
-    for addon in bpy.context.preferences.addons:
-        if str(addon_name) in addon.module:
-            return addon.module
-        
-def get_addon_preferences(addon_name):
-    name = get_addon_path(addon_name)
-    if not name:
-        return KeyOpsPrefsMock()
-    return bpy.context.preferences.addons.get(str(name), KeyOpsPrefsMock())
-
 
 def unregister_keymaps(keymaps):
     for km, kmi in keymaps:
@@ -106,6 +89,7 @@ def _iter_registered_keymap_sources():
     from ..operators import auto_delete as auto_delete_module
     from ..operators import double_click_select_island as double_click_select_island_module
     from ..operators import fast_merge as fast_merge_module
+    from ..operators import flatten as flatten_module
     from ..operators import legacy_shortcuts as legacy_shortcuts_module
     from ..operators import material_index as material_index_module
     from ..operators import maya_navigation as maya_navigation_module
@@ -117,6 +101,7 @@ def _iter_registered_keymap_sources():
     from ..operators import toolkit_panel as toolkit_panel_module
     from ..operators import uv_tools as uv_tools_module
     from ..operators import viewport_menu as viewport_menu_module
+    from ..tools import fast_loop_cut as fast_loop_cut_module
 
     sources = [
         (pies_module, (
@@ -129,6 +114,8 @@ def _iter_registered_keymap_sources():
         (auto_delete_module, ("registered_auto_delete_keymaps",)),
         (double_click_select_island_module, ("registered_double_click_select_island_keymaps",)),
         (fast_merge_module, ("registered_fast_merge_keymaps",)),
+        (fast_loop_cut_module, ("registered_fast_loop_cut_keymaps",)),
+        (flatten_module, ("registered_flatten_pie_keymaps",)),
         (legacy_shortcuts_module, ("registered_legacy_shortcuts_keymaps",)),
         (material_index_module, ("registered_material_index_keymaps",)),
         (maya_navigation_module, ("registered_maya_navigation_keymaps",)),

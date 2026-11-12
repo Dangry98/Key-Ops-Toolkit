@@ -1,6 +1,5 @@
-from typing import Set
 import bpy.types
-from bpy.types import Context, Operator
+from bpy.types import Operator
 from ..utils.pref_utils import clear_registered_keymaps
 import time
 
@@ -36,17 +35,6 @@ def register_modi_key_keymaps():
     add('keyops.modi_key_no_undo', 'TAB', prop_type='Toggle_Space')
     add('keyops.modi_key_no_undo', 'M', prop_type='Material_Tab')
     add('keyops.modi_key', 'D', prop_type='Duplicate')
-
-def sync_bpy_object_props(source, dest):
-    for p in source.bl_rna.properties:
-        if not p.is_readonly:
-            setattr(dest, p.identifier, getattr(source, p.identifier))
-
-def get_editable_bpy_object_props(bpy_object, props_to_ignore={}):
-    props = [getattr(bpy_object, p.identifier) for p in bpy_object.bl_rna.properties
-            if not p.is_readonly and p.identifier not in props_to_ignore]
-    return [p[:] if type(p).__name__ == "bpy_prop_array" else p for p in props]
-
 
 class ModiKey(Operator):
     bl_idname = "keyops.modi_key"

@@ -1,13 +1,13 @@
 schema_version = "1.0.0"
 
 id = "Key_Ops_Toolkit"
-version = "0.2.53"
+version = "0.2.7"
 name = "Key Ops: Toolkit"
 tagline = "Industri Standard Tools & Shortcuts to Speed Up Blender Workflow"
-maintainer = "MACHIN3, Dan-Gry"
+maintainer = "Dan-Gry"
 type = "add-on"
 
-website = "https://key-ops-toolkit.notion.site/Key-Ops-Toolkit-Documentation-8683460f070542669f0dab4a92734dc9"
+website = "https://dangry98.github.io/Key-Ops-Toolkit/"
 
 tags = ["Modeling", "Mesh", "Object", "UV", "3D View"]
 
@@ -19,3 +19,15 @@ license = [
 
 [permissions]
 files = "Export/Import .obj files and use of temp folder"
+
+[build]
+# Keep the docs site and dev files out of the extension zip
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/.github/",
+  "/.claude/",
+  "/.vscode/",
+  "/docs/",
+  "/*.zip",
+]

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Industry Standard · Key Ops: Toolkit</title>
+<meta name="description" content="Maya-style navigation, double-click island selection, instant delete, Maya pivot and retopology toggle for Blender.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="industry-standard.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Industry Standard</h1>
+<p class="lead">Navigation, selection and editing that work like Maya and other DCCs, so switching to Blender takes less relearning.</p>
+
+<section class="feature" id="alt-navigation">
+  <div class="feature-head"><h2>Alt Navigation</h2><span class="badge key">Alt + mouse</span></div>
+  <p class="pref-name">Preference: <b>Alt Navigation</b></p>
+  <p>Maya-style navigation in the 3D Viewport, the Image/UV Editor and 2D editors such as the Node Editor and Graph Editor.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>3D Viewport</th><th>Image &amp; 2D editors</th></tr>
+    <tr><td><kbd>Alt</kbd> + <kbd>LMB</kbd> drag</td><td>Orbit</td><td>(Pan with <i>Tablet</i>)</td></tr>
+    <tr><td><kbd>Alt</kbd> + <kbd>MMB</kbd> drag</td><td>Pan</td><td>Pan</td></tr>
+    <tr><td><kbd>Alt</kbd> + <kbd>RMB</kbd> drag</td><td>Zoom</td><td>Zoom</td></tr>
+  </table></div>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Tablet</b>: for pen users. Adds zoom on <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>LMB</kbd> and pan on <kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>LMB</kbd>.</li>
+    <li><b>Sculpt</b> (Blender 5.1+): in Sculpt Mode, <kbd>Alt</kbd> <kbd>LMB</kbd> masks when the mouse is over the model and navigates when it is not.</li>
+    <li><b>Zoom to Mouse</b> and <b>Drag Threshold</b> (mouse/tablet) are shortcuts to the matching Blender input preferences.</li>
+  </ul>
+  <div class="media-missing">Video coming soon: orbit, pan and zoom with Alt.</div>
+</section>
+
+<section class="feature" id="select-island">
+  <div class="feature-head"><h2>Double Click Select Island</h2><span class="badge key">Double-click LMB</span></div>
+  <p class="pref-name">Preference: <b>Select Island</b></p>
+  <p>Double-click to select a whole mesh island, like in Maya. Works in Edit Mode on meshes, in the UV Editor, and on curves.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><kbd>Double-click</kbd></td><td>Select the island under the mouse (vertex/face mode)<br>Select the edge loop (edge mode)</td></tr>
+    <tr><td><kbd>Shift</kbd> + <kbd>Double-click</kbd></td><td>Add the island or edge loop to the selection</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>Double-click</kbd></td><td>Deselect the island</td></tr>
+  </table></div>
+  <div class="media-row">
+    <figure class="media"><img src="assets/notion/select-island.gif" alt="Double-click selects a mesh island" loading="lazy"><figcaption>Vertex/face mode: select island</figcaption></figure>
+    <figure class="media"><img src="assets/notion/select-edge-loop.gif" alt="Double-click selects an edge loop" loading="lazy"><figcaption>Edge mode: select edge loop</figcaption></figure>
+  </div>
+</section>
+
+<section class="feature" id="auto-delete">
+  <div class="feature-head"><h2>Auto Delete</h2><span class="badge key">Delete</span></div>
+  <p class="pref-name">Preference: <b>Auto Delete</b></p>
+  <p>In Edit Mode, <kbd>Delete</kbd> removes vertices, edges or faces right away, based on the current selection mode. No menu pops up.</p>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Dissolve Edge</b>: in edge mode, dissolve edges instead of deleting them.</li>
+    <li><b>Confirm X</b>: turn the confirmation popup on or off for <kbd>X</kbd> in Object Mode.</li>
+  </ul>
+  <figure class="media"><img src="assets/notion/auto-delete.gif" alt="Instant delete in edit mode" loading="lazy" width="606"></figure>
+</section>
+
+<section class="feature" id="maya-pivot">
+  <div class="feature-head"><h2>Maya Pivot</h2><span class="badge key">D</span></div>
+  <p class="pref-name">Preference: <b>Maya Pivot</b></p>
+  <p>Edit an object's pivot (origin) in place, like holding <kbd>D</kbd> in Maya. Move and rotate the pivot with the gizmo, then let go to keep working.</p>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Behavior</b>: <i>Hold</i> (default) edits the pivot while <kbd>D</kbd> is held. <i>Toggle</i> switches pivot editing on and off with each press.</li>
+    <li><b>Show Gizmo</b>: show the pivot gizmo while editing.</li>
+    <li><b>In Edit Mode</b>: also allow pivot editing in Edit Mode. Needs <a href="preferences.html#experimental">Experimental</a>.</li>
+  </ul>
+  <figure class="media"><img src="assets/notion/maya-pivot.gif" alt="Moving the pivot with D" loading="lazy"></figure>
+</section>
+
+<section class="feature" id="toggle-retopology">
+  <div class="feature-head"><h2>Toggle Retopology</h2><span class="badge key">5</span><span class="badge">Edit Mode</span></div>
+  <p class="pref-name">Preference: <b>Retopology</b></p>
+  <p>One key switches into a retopology setup: the retopology overlay, face snapping, your retopology tool and a clearer theme. Press <kbd>5</kbd> again to restore your previous settings.</p>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Tool</b>: the tool to switch to. Use the search button to pick any edit-mode tool, for example PolyQuilt or the <a href="modeling-tools.html#merge-tool">Merge Tool</a>.</li>
+    <li><b>Theme</b>: <i>Maya</i>, <i>Blender Default</i> or <i>Custom Color</i> (color, face alpha and edge width).</li>
+    <li><b>Snapping</b>: which snap targets to turn on (vertex, face, face project, face nearest).</li>
+  </ul>
+  <div class="callout warn">The retopology theme changes Blender's theme colors. If preferences are saved while retopology is on (for example with auto-save preferences), those colors can stick. Toggling twice restores your settings. The previous theme is also backed up: use <b>Reset Theme to Backup</b> in the Toolkit panel in Edit Mode.</div>
+  <figure class="media"><img src="assets/notion/retopo-polyquilt.gif" alt="Toggle retopology with PolyQuilt" loading="lazy"><figcaption>The tool switched to here is PolyQuilt.</figcaption></figure>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

@@ -132,12 +132,6 @@ class OutlinerClick(bpy.types.Operator):
         return {'PASS_THROUGH'}
 
 
-class OutlinerOptions(bpy.types.Operator):
-    bl_idname = "keyops.outliner_options"
-    bl_label = "KeyOps: Outliner Options"
-    bl_description = ""
-    bl_options = {'INTERNAL'}
-
 def register_outliner_options():
     if BLENDER_VERSION < (5, 2, 0):
         bpy.utils.register_class(OutlinerClick)
