@@ -115,8 +115,5 @@ Full docs, with screenshots and every shortcut, are at **[dangry98.github.io/Key
 - [Preferences](https://dangry98.github.io/Key-Ops-Toolkit/preferences.html)
 - [Shortcut Cheat Sheet](https://dangry98.github.io/Key-Ops-Toolkit/shortcuts.html)
 
-## Credits & License
-
-Key Ops: Toolkit by [Dan-Gry](https://github.com/Dangry98), with code based on [MACHIN3tools](https://machin3.io/MACHIN3tools/).
 
 Licensed under the [GNU General Public License v3.0 or later](https://www.gnu.org/licenses/gpl-3.0.html).
