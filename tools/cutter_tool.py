@@ -43,8 +43,13 @@ OPERATION_COLORS = {
     'UNION': (0.35, 0.90, 0.45),
     'INTERSECT': (0.35, 0.65, 1.0),
     'SLICE': (1.0, 0.85, 0.30),
+    'ADD': (0.72, 0.72, 0.72),
 }
-OPERATION_KEYS = {'ONE': 'DIFFERENCE', 'TWO': 'UNION', 'THREE': 'INTERSECT', 'FOUR': 'SLICE'}
+# The booleans plus Add, which makes a new object from the shape instead of cutting
+OPERATION_ITEMS = BOOLEAN_OPERATION_ITEMS + (('ADD', 'Add', 'Add a new mesh object from the shape, no boolean'),)
+OPERATION_NAMES = {i[0]: i[1] for i in OPERATION_ITEMS}
+OPERATION_KEYS = {'ONE': 'DIFFERENCE', 'TWO': 'UNION', 'THREE': 'INTERSECT', 'FOUR': 'SLICE', 'FIVE': 'ADD'}
+ADD_OBJECT_NAMES = {'BOX': "Box", 'CIRCLE': "Cylinder", 'NGON': "Prism"}
 SHAPE_KEYS = {'B': 'BOX', 'C': 'CIRCLE', 'N': 'NGON'}
 # Operator settings mirrored from the tool, so the D popup and shortcuts edit one place
 SETTINGS = ("operation", "shape", "align", "solver", "segments", "snap_increment", "live", "apply")
@@ -80,6 +85,11 @@ def _tool_props(context):
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
     return None
+
+
+def operation_icon(operation):
+    """Toolkit icon id for an operation (the boolean icons, a cube for Add)."""
+    return get_icon("mesh_cube" if operation == 'ADD' else operation.lower())
 
 
 def _is_cut_target(obj, cutter_collection):
@@ -177,12 +187,13 @@ def build_prism(points, z0, z1):
 # --- Operator ---------------------------------------------------------------
 
 class Cutter(bpy.types.Operator):
-    """Draw a shape and boolean it into the selected objects, or the object under the cursor"""
+    """Draw a shape and boolean it into the selected objects, or the object under the cursor.
+Add mode makes a new object from the shape instead"""
     bl_idname = OP_IDNAME
     bl_label = "Cutter Tool"
     bl_options = {'REGISTER', 'UNDO'}
 
-    operation: EnumProperty(name="Operation", items=BOOLEAN_OPERATION_ITEMS, default='DIFFERENCE')  # type: ignore
+    operation: EnumProperty(name="Operation", items=OPERATION_ITEMS, default='DIFFERENCE')  # type: ignore
     shape: EnumProperty(name="Shape", items=SHAPE_ITEMS, default='BOX')  # type: ignore
     align: EnumProperty(name="Align", items=ALIGN_ITEMS, default='EDGE')  # type: ignore
     solver: EnumProperty(name="Solver", items=SOLVER_ITEMS, default='FAST')  # type: ignore
@@ -191,7 +202,7 @@ class Cutter(bpy.types.Operator):
     live: BoolProperty(name="Live", description="Create the cutter and boolean while drawing. Slower on heavy meshes, off by default", default=False)  # type: ignore
     apply: BoolProperty(name="Apply", description="Apply the boolean and delete the cutter when done", default=False)  # type: ignore
     parent: BoolProperty(name="Parent Boolean", description="Parent the cutter to the object it cuts", default=False, options={'SKIP_SAVE'})  # type: ignore
-    depth_amount: FloatProperty(name="Depth", description="How far the cutter goes in, away from the view", default=0.5, min=MIN_DEPTH, soft_max=100.0, subtype='DISTANCE', options={'SKIP_SAVE'})  # type: ignore
+    depth_amount: FloatProperty(name="Depth", description="How far the cutter goes in, away from the view. In Add mode, how far the new object comes out of the surface", default=0.5, min=MIN_DEPTH, soft_max=100.0, subtype='DISTANCE', options={'SKIP_SAVE'})  # type: ignore
 
     # The finished cut, stored so the redo panel can rebuild it in execute()
     plane_matrix: FloatVectorProperty(size=16, options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
@@ -206,22 +217,26 @@ class Cutter(bpy.types.Operator):
         """Redo panel, laid out like the Add Boolean operator's."""
         layout = self.layout
         row = layout.row()
-        row.label(icon_value=get_icon(self.operation.lower()))
+        row.label(icon_value=operation_icon(self.operation))
         row.prop(self, "operation", text="")
-        layout.label(text="Boolean Solver")
-        layout.row().prop(self, "solver", expand=True)
-        layout.prop(self, "parent")
+        is_add = self.operation == 'ADD'
+        if not is_add:
+            layout.label(text="Boolean Solver")
+            layout.row().prop(self, "solver", expand=True)
+            layout.prop(self, "parent")
         layout.separator()
         layout.prop(self, "depth_amount")
         if self.shape == 'CIRCLE':
             layout.prop(self, "segments")
-        layout.prop(self, "apply")
+        if not is_add:
+            layout.prop(self, "apply")
 
     def execute(self, context):
         """Build the cut from the stored outline. Runs when confirming the modal and on redo."""
         names = [n for n in self.target_names.split(TARGET_SEPARATOR) if n]
         self.targets = [o for o in (bpy.data.objects.get(n) for n in names) if o is not None and o.type == 'MESH']
-        if not self.targets or not self.outline:
+        is_add = self.operation == 'ADD'
+        if not self.outline or (not self.targets and not is_add):
             return {'CANCELLED'}
 
         v = list(self.plane_matrix)
@@ -230,7 +245,7 @@ class Cutter(bpy.types.Operator):
         if not self._fixed_profile:
             return {'CANCELLED'}
         self.phase = 'EXTRUDE'
-        self.depth = -self.depth_amount
+        self.depth = self.depth_amount if is_add else -self.depth_amount
         self.cutter = None
         self.created = []
 
@@ -239,7 +254,7 @@ class Cutter(bpy.types.Operator):
 
         for obj in context.selected_objects:
             obj.select_set(False)
-        if self.apply:
+        if self.apply and not is_add:
             self._apply(context)
         if self.cutter is not None:
             self.cutter.select_set(True)
@@ -297,7 +312,7 @@ class Cutter(bpy.types.Operator):
 
         selected = [o for o in context.selected_objects if _is_cut_target(o, cutter_collection)]
         self.targets = selected or ([hit[3]] if hit else [])
-        if not self.targets:
+        if not self.targets and self.operation != 'ADD':
             return self._click_select(context, event)
 
         view_rot = self.rv3d.view_rotation
@@ -314,6 +329,17 @@ class Cutter(bpy.types.Operator):
                 if edge_dir is not None:
                     x_axis = edge_dir
             self.plane = _plane_matrix(loc, normal, x_axis, view_up)
+        elif self.operation == 'ADD':
+            # Nothing under the cursor: draw on the floor through the 3D cursor, like Add Object.
+            # Looking along the floor, a view aligned plane through the 3D cursor instead.
+            cursor = context.scene.cursor.location
+            floor = Vector((0.0, 0.0, 1.0)) if direction.z < 0.0 else Vector((0.0, 0.0, -1.0))
+            point = intersect_line_plane(origin, origin + direction, cursor, floor) if abs(direction.z) > 0.1 else None
+            if point is not None and (point - origin).dot(direction) > 0.0:
+                self.plane = _plane_matrix(point, floor, Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)))
+            else:
+                closest = intersect_line_plane(origin, origin + direction, cursor, -direction) or cursor
+                self.plane = _plane_matrix(closest, -direction, view_right, view_up)
         else:
             # Nothing under the cursor: view aligned plane through the targets
             center = sum((o.matrix_world.translation for o in self.targets), Vector()) / len(self.targets)
@@ -339,7 +365,31 @@ class Cutter(bpy.types.Operator):
         self._batches = None
         self._dirty = True
 
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(self._draw_callback, (), 'WINDOW', 'POST_VIEW')
+        # The handle lives in the closure too: if the operator is freed without _cleanup
+        # (file load, Blender ending the modal) the callback removes itself instead of
+        # raising ReferenceError on every redraw. Addon reloads are covered by
+        # unregister_cutter_tool(), which removes every handle in _draw_handles.
+        handle = []
+
+        def remove():
+            if handle:
+                h = handle.pop()
+                _draw_handles.discard(h)
+                bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+
+        def draw():
+            # repr first: a freed struct reprs as "<bpy_struct, Cutter invalid>" without
+            # raising, so the debugger isn't paused. The except is the fallback.
+            if repr(self).endswith(" invalid>"):
+                return remove()
+            try:
+                self._draw_callback()
+            except ReferenceError:
+                remove()
+
+        handle.append(bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_VIEW'))
+        self._handle = handle[0]
+        _draw_handles.add(self._handle)
         context.window_manager.modal_handler_add(self)
         self._update_status(context)
         return {'RUNNING_MODAL'}
@@ -460,6 +510,8 @@ class Cutter(bpy.types.Operator):
         until it gets extruded. Negative depth is away from the camera (the plane normal faces it)."""
         if not profile or self.phase != 'EXTRUDE' or abs(self.depth) < 1e-6:
             return None
+        if self.operation == 'ADD':
+            return tuple(sorted((0.0, self.depth)))  # sits on the surface and comes out of it
         # Push the surface side slightly out of the material to avoid coplanar faces
         surface = -math.copysign(self._surface_margin(profile), self.depth)
         return tuple(sorted((self.depth, surface)))
@@ -475,7 +527,7 @@ class Cutter(bpy.types.Operator):
         mesh.clear_geometry()
         matrix = self._cutter_matrix(center)
 
-        if self.shape == 'CIRCLE':
+        if self.shape == 'CIRCLE' and self.operation != 'ADD':
             # Non destructive: a side profile spun by a Screw modifier, so segments stay editable.
             # Ellipses use the object's Y scale.
             rx = max(abs(p.x - center.x) for p in profile)
@@ -495,6 +547,13 @@ class Cutter(bpy.types.Operator):
         self.cutter.matrix_world = matrix
 
     def _create_cutter(self, context):
+        if self.operation == 'ADD':
+            # A plain new object in the active collection, real geometry (no Screw) like Add Object
+            name = ADD_OBJECT_NAMES[self.shape]
+            self.cutter = bpy.data.objects.new(name, bpy.data.meshes.new(name))
+            context.collection.objects.link(self.cutter)
+            self.created = []
+            return
         mesh = bpy.data.meshes.new("Cutter")
         self.cutter = bpy.data.objects.new("Cutter", mesh)
         get_cutter_collection(context).objects.link(self.cutter)
@@ -534,7 +593,7 @@ class Cutter(bpy.types.Operator):
             return
         profile = self.profile()
         z = self.z_range(profile) if profile else None
-        if z is None:
+        if z is None or (not self.targets and self.operation != 'ADD'):
             return
         if self.cutter is None:
             self._create_cutter(context)
@@ -553,7 +612,9 @@ class Cutter(bpy.types.Operator):
 
         self.plane_matrix = [v for row in self.plane for v in row]
         self._store_outline(profile)
-        self.depth_amount = max(-self.depth, MIN_DEPTH)
+        if not self.targets and self.operation != 'ADD':
+            return {'CANCELLED'}  # switched from Add to a boolean with nothing to cut
+        self.depth_amount = max(abs(self.depth), MIN_DEPTH)
         self.target_names = TARGET_SEPARATOR.join(o.name for o in self.targets)
         return self.execute(context)
 
@@ -578,7 +639,9 @@ class Cutter(bpy.types.Operator):
 
     def _cleanup(self, context):
         if getattr(self, "_handle", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            if self._handle in _draw_handles:
+                _draw_handles.discard(self._handle)
+                bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self._handle = None
         self._batches = None
         context.workspace.status_text_set(None)
@@ -604,6 +667,11 @@ class Cutter(bpy.types.Operator):
                 self.start = self.points[0].copy()
         if not values:
             return False
+        if 'operation' in values and self.phase == 'EXTRUDE' \
+                and (values['operation'] == 'ADD') != (self.operation == 'ADD'):
+            # Add comes out of the surface, cuts go in: mirror the depth so the mouse keeps working
+            self.depth_ref += 2.0 * self.depth
+            self.depth = -self.depth
         for name, value in values.items():
             setattr(self, name, value)
         if self.cutter is not None and values.keys() & {'operation', 'shape', 'solver'}:
@@ -630,7 +698,7 @@ class Cutter(bpy.types.Operator):
         if not profile:
             return self._cancel(context)
         # Start flat, the mouse extrudes it from here (depth = mouse_depth - depth_ref)
-        self.depth = -MIN_DEPTH
+        self.depth = MIN_DEPTH if self.operation == 'ADD' else -MIN_DEPTH
         self.phase = 'EXTRUDE'
         self._setup_depth_input()
         mouse_depth = self._mouse_depth(mouse)
@@ -640,6 +708,14 @@ class Cutter(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
+        try:
+            return self._modal(context, event)
+        except Exception:
+            # Blender ends the operator when modal raises; don't leave the overlay behind
+            self._cancel(context)
+            raise
+
+    def _modal(self, context, event):
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         changed = self._sync_from_tool(context)
 
@@ -674,7 +750,7 @@ class Cutter(bpy.types.Operator):
         elif event.type == 'L' and key_press:
             changed |= self._set_setting(context, "live", not self.live)
 
-        elif event.type == 'A' and key_press:
+        elif event.type == 'A' and key_press and self.operation != 'ADD':
             changed |= self._set_setting(context, "apply", not self.apply)
 
         elif event.type == 'D' and key_press:
@@ -695,7 +771,10 @@ class Cutter(bpy.types.Operator):
                     depth = d - self.depth_ref
                     if event.ctrl:
                         depth = self._snap(depth)
-                    depth = min(depth, -MIN_DEPTH)  # only ever away from the camera, never toward it
+                    if self.operation == 'ADD':
+                        depth = max(depth, MIN_DEPTH)  # Add only comes out of the surface
+                    else:
+                        depth = min(depth, -MIN_DEPTH)  # only ever away from the camera, never toward it
                     if depth != self.depth:
                         self.depth = depth
                         changed = True
@@ -757,12 +836,14 @@ class Cutter(bpy.types.Operator):
         items.append((('EVENT_CTRL',), "Snap"))
         if self.shape == 'CIRCLE':
             items.append((('MOUSE_MMB_SCROLL',), f"Segments: {self.segments}"))
-        operation = dict((i[0], i[1]) for i in BOOLEAN_OPERATION_ITEMS)[self.operation]
         items += [
-            (('EVENT_ONEKEY', 'EVENT_FOURKEY'), operation),
+            (('EVENT_ONEKEY', 'EVENT_FIVEKEY'), OPERATION_NAMES[self.operation]),
             (('EVENT_B', 'EVENT_C', 'EVENT_N'), self.shape.title()),
             (('EVENT_L',), f"Live: {'On' if self.live else 'Off'}"),
-            (('EVENT_A',), f"Apply: {'On' if self.apply else 'Off'}"),
+        ]
+        if self.operation != 'ADD':
+            items.append((('EVENT_A',), f"Apply: {'On' if self.apply else 'Off'}"))
+        items += [
             (('EVENT_D',), "Options"),
             (('MOUSE_RMB',), "Cancel"),
         ]
@@ -913,31 +994,35 @@ def draw_operation_buttons(layout, props, scale=1.0):
     """One row of boolean operation icons (the toolkit's own, same as the Toolkit panel)."""
     row = layout.row(align=True)
     row.scale_x = row.scale_y = scale
-    for identifier, _name, _desc in BOOLEAN_OPERATION_ITEMS:
-        op = row.operator(CutterSetOperation.bl_idname, text="", icon_value=get_icon(identifier.lower()),
+    for identifier, _name, _desc in OPERATION_ITEMS:
+        if identifier == 'ADD':
+            row.separator(factor=0.5)
+        op = row.operator(CutterSetOperation.bl_idname, text="", icon_value=operation_icon(identifier),
                           depress=props.operation == identifier)
         op.operation = identifier
     return row
 
 
 class KEYOPS_MT_cutter_operation(bpy.types.Menu):
-    """Boolean operation dropdown for the tool header, with the toolkit's boolean icons"""
+    """Boolean operation (or Add) dropdown for the tool header, with the toolkit's boolean icons"""
     bl_label = "Operation"
 
     def draw(self, context):
         props = _tool_props(context)
-        for identifier, name, _desc in BOOLEAN_OPERATION_ITEMS:
-            op = self.layout.operator(CutterSetOperation.bl_idname, text=name, icon_value=get_icon(identifier.lower()),
+        for identifier, name, _desc in OPERATION_ITEMS:
+            if identifier == 'ADD':
+                self.layout.separator()
+            op = self.layout.operator(CutterSetOperation.bl_idname, text=name, icon_value=operation_icon(identifier),
                                       depress=props is not None and props.operation == identifier)
             op.operation = identifier
 
 
 def draw_operation_dropdown(layout, props):
     """Looks like an enum field: current boolean's icon and name, opens the menu above."""
-    name = dict((i[0], i[1]) for i in BOOLEAN_OPERATION_ITEMS)[props.operation]
     row = layout.row()
     row.ui_units_x = 6.5  # fits "Difference" with its icon and the dropdown arrow, header buttons clip otherwise
-    row.menu(KEYOPS_MT_cutter_operation.__name__, text=name, icon_value=get_icon(props.operation.lower()))
+    row.menu(KEYOPS_MT_cutter_operation.__name__, text=OPERATION_NAMES[props.operation],
+             icon_value=operation_icon(props.operation))
 
 
 class CutterSetOperation(bpy.types.Operator):
@@ -946,14 +1031,16 @@ class CutterSetOperation(bpy.types.Operator):
     bl_label = "Cutter Operation"
     bl_options = {'INTERNAL'}
 
-    operation: EnumProperty(name="Operation", items=BOOLEAN_OPERATION_ITEMS)  # type: ignore
+    operation: EnumProperty(name="Operation", items=OPERATION_ITEMS)  # type: ignore
 
     @classmethod
     def description(cls, context, properties):
-        names = dict((i[0], i[1]) for i in BOOLEAN_OPERATION_ITEMS)
         keys = {v: k for k, v in OPERATION_KEYS.items()}
-        number = {'ONE': "1", 'TWO': "2", 'THREE': "3", 'FOUR': "4"}
-        return f"{names[properties.operation]}  ({number[keys[properties.operation]]} while cutting)"
+        number = {'ONE': "1", 'TWO': "2", 'THREE': "3", 'FOUR': "4", 'FIVE': "5"}
+        name = OPERATION_NAMES[properties.operation]
+        if properties.operation == 'ADD':
+            name = "Add a new object instead of cutting"
+        return f"{name}  ({number[keys[properties.operation]]} while cutting)"
 
     def execute(self, context):
         props = _tool_props(context)
@@ -966,7 +1053,7 @@ class CutterSetOperation(bpy.types.Operator):
 def draw_cutter_options(layout, props):
     """Tool settings with their modal shortcuts, used by the D popup."""
     col = layout.column(align=True)
-    col.label(text="Operation    1 - 4")
+    col.label(text="Operation    1 - 5")
     draw_operation_buttons(col, props, scale=1.4)
 
     col = layout.column(align=True)
@@ -978,14 +1065,17 @@ def draw_cutter_options(layout, props):
     if props.shape == 'CIRCLE':
         col.prop(props, "segments", text="Segments    Wheel")
 
+    is_add = props.operation == 'ADD'
     col = layout.column(align=True)
-    col.prop(props, "solver", text="Solver")
+    if not is_add:
+        col.prop(props, "solver", text="Solver")
     col.prop(props, "align", text="Align")
     col.prop(props, "snap_increment", text="Snap  Ctrl")
 
     row = layout.row()
     row.prop(props, "live", text="Live  L")
-    row.prop(props, "apply", text="Apply  A")
+    if not is_add:
+        row.prop(props, "apply", text="Apply  A")
 
 
 class CutterToolOptions(bpy.types.Operator):
@@ -1019,7 +1109,8 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
     bl_label = "Cutter Tool"
     bl_description = (
         "Draw a shape and boolean it into the selected objects, or the object under the cursor.\n"
-        "Draw the shape, then set the depth with the mouse. Uses a light overlay, the boolean is only added when you confirm"
+        "Draw the shape, then set the depth with the mouse. Uses a light overlay, the boolean is only added when you confirm.\n"
+        "Add mode (5) makes a new object from the shape instead"
     )
     bl_icon = os.path.join(ICON_DIR, "ops.object.cutter_tool") 
     bl_keymap = (
@@ -1035,14 +1126,20 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
         layout.prop(props, "shape", expand=True, icon_only=True)
         if props.shape == 'CIRCLE':
             layout.prop(props, "segments")
+        is_add = props.operation == 'ADD'
         layout.prop(props, "align", text="")
-        layout.prop(props, "solver", text="")
+        if not is_add:
+            layout.prop(props, "solver", text="")
         layout.prop(props, "snap_increment")
         layout.prop(props, "live")
-        layout.prop(props, "apply")
+        if not is_add:
+            layout.prop(props, "apply")
 
 
 classes = (Cutter, CutterSetOperation, KEYOPS_MT_cutter_operation, CutterToolOptions)
+
+# Draw handles of running Cutter operators, so a reload mid-cut can't leave one behind
+_draw_handles = set()
 
 
 def register_cutter_tool():
@@ -1060,6 +1157,13 @@ def register_cutter_tool():
 
 
 def unregister_cutter_tool():
+    for h in list(_draw_handles):
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+        except ValueError:
+            pass
+    _draw_handles.clear()
+
     try:
         if hasattr(WorkSpaceCutter, "_bl_tool"):
             bpy.utils.unregister_tool(WorkSpaceCutter)

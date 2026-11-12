@@ -241,3 +241,65 @@ footer.site-footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid 
 .hero .ver { font-size: clamp(1.9rem, 6.8vw, 3.5rem); font-weight: 700; margin-top: 10px; line-height: 1.1; background: linear-gradient(90deg, #f24b60, #d6587f); -webkit-background-clip: text; background-clip: text; color: transparent; }
 :root[data-theme="light"] .hero .sub { color: var(--text); }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .hero .sub { color: var(--text); } }
+
+/* ---------- feature layout: short text -> visuals -> details ---------- */
+.feature .tagline { font-size: 1.05rem; margin: 6px 0 4px; }
+.feature .details { margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 14.5px; color: var(--muted); }
+.feature .details > .label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+.feature .details p, .feature .details li { color: var(--text); }
+.feature .details table { margin-top: 6px; }
+.feature .details .pref { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.feature .details .pref b { color: var(--text); }
+.media.ui img { width: auto; max-width: 100%; background: transparent; }
+.media.strip img { border-radius: 6px; image-rendering: auto; }
+.media-row.panel-shots { grid-template-columns: repeat(auto-fit, minmax(200px, 280px)); justify-content: start; }
+.shots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: start; }
+
+/* lighter, quieter details text */
+.feature .details p, .feature .details li { color: var(--muted); font-style: italic; }
+.feature .details b { font-weight: 500; color: var(--text); font-style: normal; }
+.feature .details td { color: var(--muted); }
+.feature .details td:first-child { color: var(--text); }
+.feature .details .callout { font-style: italic; }
+.media figcaption { font-style: italic; }
+.feature .tagline b { font-weight: 600; }
+
+/* ---------- glanceable layout ---------- */
+.feature { padding: 20px 22px; }
+.feature-head h2 { font-size: 1.3rem; }
+.feature .tagline { font-size: 1rem; line-height: 1.55; margin: 4px 0 2px; color: var(--text); }
+.feature .details { margin-top: 14px; padding-top: 0; border-top: 0; }
+.feature details.details > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 99px; user-select: none;
+}
+.feature details.details > summary::-webkit-details-marker { display: none; }
+.feature details.details > summary::before { content: "+"; font-size: 14px; line-height: 1; }
+.feature details.details[open] > summary::before { content: "–"; }
+.feature details.details > summary:hover { color: var(--text); border-color: var(--accent); }
+.feature details.details[open] { padding: 0 0 2px; }
+.feature details.details[open] > summary { margin-bottom: 8px; }
+.feature details.details ul.plain { margin: 6px 0; }
+.lead { font-size: 1.05rem; margin-bottom: 22px; }
+
+/* keep screenshots compact; click to view full size */
+.feature .media img { max-height: 420px; width: auto; object-fit: contain; }
+.feature .media.strip img, .feature .media.ui img { max-height: none; }
+.media-row.panel-shots img { max-height: 380px; }
+.feature .media video { width: 100%; max-height: 440px; object-fit: contain; }
+.media-row.panel-shots { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); }
+
+/* media rows: flex instead of grid so rows size to the capped images */
+.media-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.media-row > .media { flex: 1 1 240px; min-width: 0; margin: 14px 0 4px; }
+.media-row.panel-shots > .media { flex: 0 1 auto; }
+.media-row > .media img { max-width: 100%; }
+.media-row.panel-shots { display: block; }
+.media-row.panel-shots > .media { display: inline-block; vertical-align: top; margin: 14px 14px 4px 0; max-width: 100%; }
+.feature .details .where { font-style: normal; font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+.feature .feature-head { margin-bottom: 0; }
+.feature .tagline { color: var(--muted); }
+.media-row.tool-shots { align-items: center; gap: 18px; }
+.media-row.tool-shots > .media { flex: 0 1 auto; margin: 12px 0 4px; }
+.media-row.tool-shots > .media:first-child img { max-height: 150px; }

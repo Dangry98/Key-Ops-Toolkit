@@ -560,7 +560,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_uv_pies: BoolProperty(name="UV Pies", description="UV pie menus on Q and Space in the UV editor for fast unwrap and island actions.", default=False, update=enable_deco("uv_pies")) # type: ignore
     enable_utility_pie: BoolProperty(name="Utility Pie", description="Utility pie menu on U in object and edit mode for common mesh and UV actions.", default=False, update=enable_deco("utility_pie")) # type: ignore
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=True, update=enable_deco("add_objects_pie")) # type: ignore
-    enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
+    enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=True, update=enable_deco("add_modifier_pie")) # type: ignore
     enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", description="Restore useful legacy-inspired modeling and UV shortcuts from older Blender versions.", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
     enable_legacy_collection_shortcuts: BoolProperty(name="Collection Number Keys", description="Restore object-mode collection hide/unhide shortcuts on numbers 1-0, including Shift and Alt variants. Blender 5.0+ only.", default=False, update=update_legacy_collection_shortcuts) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore

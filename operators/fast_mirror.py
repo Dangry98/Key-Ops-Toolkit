@@ -6,7 +6,6 @@ from bpy_extras import view3d_utils
 from mathutils import Vector, Matrix
 from ..utils.utilities import get_blender_key_icon
 
-MIRROR_MODIFIER_NAME = "KeyOps Mirror"
 AXES = "XYZ"
 AXIS_COLORS = {
     'X': (1.0, 0.21, 0.33),
@@ -17,7 +16,7 @@ AXIS_COLORS = {
 DEFAULT_MODE = 'MODIFIER_NO_BISECT'
 
 MODE_ITEMS = [
-    ('MODIFIER_NO_BISECT', "Mirror", "Add or update the KeyOps Mirror modifier with clipping, without bisect", 'MOD_MIRROR', 0),
+    ('MODIFIER_NO_BISECT', "Mirror", "Add or update a Mirror modifier with clipping, without bisect", 'MOD_MIRROR', 0),
     ('NEW_MODIFIER', "New Mirror", "Always add a new Mirror modifier with bisect and clipping", 'ADD', 1),
     ('BISECT_ONLY', "Bisect", "Cut the mesh in half on the axis plane (applied, no modifier)", 'SNAP_FACE_CENTER', 2),
     ('BISECT', "Bisect + Mirror", "Cut the mesh in half on the axis plane, then add a Mirror modifier with clipping", 'MESH_PLANE', 3),
@@ -336,11 +335,12 @@ def move_before_weighted_normal(obj, mod):
 
 def get_or_create_mirror_modifier(obj, new_modifier, mirror_object):
     if not new_modifier:
-        for mod in obj.modifiers:
-            if mod.type == 'MIRROR' and mod.name == MIRROR_MODIFIER_NAME and mod.mirror_object == mirror_object:
+        # Reuse the most recent Mirror modifier that uses the same mirror object.
+        for mod in list(obj.modifiers)[::-1]:
+            if mod.type == 'MIRROR' and mod.mirror_object == mirror_object:
                 return mod
 
-    mod = obj.modifiers.new("Mirror" if new_modifier else MIRROR_MODIFIER_NAME, 'MIRROR')
+    mod = obj.modifiers.new("Mirror", 'MIRROR')
     for i in range(3):
         mod.use_axis[i] = False
     mod.use_clip = True
@@ -1039,7 +1039,7 @@ class FastMirrorOptionsPanel(bpy.types.Panel):
 
 
 def _block_shapes_data(length=0.1, half=0.05):
-    """Triangles, outline lines and stem of the block gizmo, pointing along +Z."""
+    """Triangles and outline lines of the block gizmo, pointing along +Z (stem is built per draw)."""
     corners = [
         (half if i & 1 else -half, half if i & 2 else -half, length + (half if i & 4 else -half))
         for i in range(8)
@@ -1052,22 +1052,70 @@ def _block_shapes_data(length=0.1, half=0.05):
 
     edges = [(a, b) for a in range(8) for b in range(a + 1, 8) if bin(a ^ b).count("1") == 1]
     lines = [corners[i] for edge in edges for i in edge]
-    lines += [(0.0, 0.0, 0.0), (0.0, 0.0, length - half)]
     return tris, lines
 
 
+BLOCK_LENGTH = 0.075
+BLOCK_HALF = 0.0458
+STEM_DARKEN = 0.65
+STEM_ALPHA = 0.8
+
+
+# Set by the gizmo group each frame; the first block gizmo drawn clears it after drawing all stems.
+stems_pending = False
+
+
+def _bind_polyline_shader(context):
+    """Anti-aliased line shader, bound and ready for a color uniform."""
+    region = context.region
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+    gpu.state.blend_set('ALPHA')
+    shader.bind()
+    shader.uniform_float("viewportSize", (region.width, region.height))
+    shader.uniform_float("lineWidth", LINE_WIDTH * context.preferences.system.ui_scale)
+    return shader
+
+
 class FastMirrorBlockGizmo(bpy.types.Gizmo):
-    """Block on a stem. The outline is drawn as smooth lines so the edges are anti-aliased."""
+    """Block with a stem running back to the object origin. Outline drawn as smooth lines so edges are anti-aliased."""
     bl_idname = "KEYOPS_GT_fast_mirror_block"
 
     def setup(self):
-        tris, lines = _block_shapes_data()
+        tris, lines = _block_shapes_data(BLOCK_LENGTH, BLOCK_HALF)
         self.fill_shape = self.new_custom_shape('TRIS', tris)
-        self.line_shape = self.new_custom_shape('LINES', lines)
+        # Outline + stem are drawn with the polyline shader (anti-aliased), not as a custom shape.
+        self.outline_local = [Vector(v) for v in lines]
+        # World-space point the stem connects to, set by the gizmo group in draw_prepare.
+        self.stem_target = None
+
+    def _color(self):
+        if self.is_highlight:
+            return self.color_highlight, self.alpha_highlight
+        return self.color, self.alpha
 
     def draw(self, context):
+        global stems_pending
+        shader = _bind_polyline_shader(context)
+
+        # The first block drawn each frame draws every stem, so all blocks always cover all stems.
+        if stems_pending:
+            stems_pending = False
+            for gizmo, _axis_index, _keep_negative in active_arrows:
+                if gizmo.stem_target is None:
+                    continue
+                # Stem goes from the object origin to the base of the block, darker and fainter than the block.
+                rgb, alpha = gizmo._color()
+                stem = [gizmo.stem_target.copy(), gizmo.matrix_world @ Vector((0.0, 0.0, BLOCK_LENGTH - BLOCK_HALF))]
+                shader.uniform_float("color", (rgb[0] * STEM_DARKEN, rgb[1] * STEM_DARKEN, rgb[2] * STEM_DARKEN, alpha * STEM_ALPHA))
+                batch_for_shader(shader, 'LINES', {"pos": stem}).draw(shader)
+
         self.draw_custom_shape(self.fill_shape)
-        self.draw_custom_shape(self.line_shape)
+
+        shader = _bind_polyline_shader(context)
+        rgb, alpha = self._color()
+        matrix = self.matrix_world
+        shader.uniform_float("color", (*rgb, alpha))
+        batch_for_shader(shader, 'LINES', {"pos": [matrix @ v for v in self.outline_local]}).draw(shader)
 
     def draw_select(self, context, select_id):
         self.draw_custom_shape(self.fill_shape, select_id=select_id)
@@ -1209,7 +1257,7 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
             return face_world
 
         base_screen_distance = (face_2d - center_2d).length
-        outward_target = base_screen_distance + 42.0
+        outward_target = base_screen_distance + 31.5
         # Keep inward mode farther out so close zoom does not pull gizmos too deep into the object.
         inward_target = min(max(base_screen_distance * 0.35, 20.0), 250.0)
         target_screen_distance = (outward_target * (1.0 - zoom_blend)) + (inward_target * zoom_blend)
@@ -1304,6 +1352,10 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
                 zoom_blend,
             )
             gizmo.matrix_basis = Matrix.Translation(position) @ direction.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+            gizmo.stem_target = matrix_world @ center
+
+        global stems_pending
+        stems_pending = True
 
 
 def remove_draw_handlers():

@@ -140,7 +140,7 @@ class UtilityPie(Menu):
       
         pie.operator("uv.unwrap", text="Unfold and Pack", icon= "UV_FACESEL") #TOP
 
-        pie.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Correct Face Attributesg", toggle=True) #RIGHT TOP
+        pie.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Correct Face Attributes", toggle=True) #RIGHT TOP
         
         if bpy.context.mode == "OBJECT":
             pie.operator("keyops.make_single_user" , text="Make Single User") #LEFT BOTTOM
