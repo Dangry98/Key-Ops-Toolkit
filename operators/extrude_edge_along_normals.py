@@ -281,8 +281,7 @@ def unregister_extrude_edge_along_normals():
             pass
 
     for cls in reversed(classes):
-        if cls.is_registered:
-            bpy.utils.unregister_class(cls)
+        bpy.utils.unregister_class(cls)
 
 
 def register():

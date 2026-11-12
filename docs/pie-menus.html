@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pie Menus · Key Ops: Toolkit</title>
+<meta name="description" content="Add objects, add modifier, cursor, flatten, workspace and UV pie menus for Blender.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="pie-menus.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Pie Menus</h1>
+<p class="lead">Quick pies for the things you do all the time. Tap the key and click an item, or hold the key, flick toward the item and release.</p>
+<div class="callout note">Pies feel faster with <b>No Lag Pie Menu Settings</b> in the <a href="preferences.html#rebind-tab">Rebind</a> tab. It removes Blender's pie animation delay.</div>
+
+<section class="feature" id="add-objects-pie">
+  <div class="feature-head"><h2>Add Objects Pie</h2><span class="badge key">Shift Alt A</span><span class="badge">Object &amp; Edit Mode</span></div>
+  <p class="pref-name">Preference: <b>Add Objects Pie</b></p>
+  <p>Add primitives with sizes that fit the view. With <b>Relative Scale</b>, a new object is scaled to the current zoom level, so it is never too big or too small.</p>
+  <p>Items: Plane, Cube, Cylinder, UV Sphere, Quad Sphere, Circle, Mod Cylinder (a cylinder built with modifiers) and a configurable top-right slot.</p>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Shortcut</b>: the pie is on <kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>A</kbd> by default. One click in the settings (or in the <a href="preferences.html#rebind-tab">Rebind</a> tab) moves it to <kbd>Shift</kbd> <kbd>A</kbd> and back.</li>
+    <li><b>Relative Scale</b>, <b>Screen Size</b>, <b>Min Size</b>: control the view-relative size. <b>Size</b> is used when Relative Scale is off.</li>
+    <li><b>Top Right Option</b>: <i>Other</i> (Blender's full Add menu), <i>Empty</i>, <i>Monkey</i> or <i>.blend</i>. <i>.blend</i> appends objects by name from a file of your choice; separate several names with commas.</li>
+  </ul>
+  <figure class="media"><img src="assets/notion/add-object-pie.gif" alt="Add Objects Pie adding primitives at view-relative size" loading="lazy"></figure>
+</section>
+
+<section class="feature" id="add-modifier-pie">
+  <div class="feature-head"><h2>Add Modifier Pie</h2><span class="badge key">Shift Q</span><span class="badge off">Off by default</span></div>
+  <p class="pref-name">Preference: <b>Add Modifier Pie</b></p>
+  <p>Common modifiers in one pie. Array, Solidify and Bevel open the interactive <a href="modeling-tools.html#fast-array">Fast Array</a>, <a href="modeling-tools.html#fast-solidify">Fast Solidify</a> and <a href="modeling-tools.html#fast-bevel">Fast Bevel</a> tools.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Direction</th><th>Item</th></tr>
+    <tr><td>Left · Right · Bottom</td><td>Fast Array · Fast Solidify · Fast Bevel</td></tr>
+    <tr><td>Top</td><td>Weighted Normal</td></tr>
+    <tr><td>Top left · Top right</td><td>Lattice · Weld</td></tr>
+    <tr><td>Bottom left · Bottom right</td><td>Triangulate · Shrinkwrap</td></tr>
+  </table></div>
+  <div class="media-missing">New screenshot coming soon. The old one no longer matches the current pie.</div>
+</section>
+
+<section class="feature" id="cursor-pie">
+  <div class="feature-head"><h2>Cursor Pie</h2><span class="badge key">Shift S</span></div>
+  <p class="pref-name">Preference: <b>Cursor Pie</b></p>
+  <p>Replaces Blender's snap pie with a more useful layout, including setting the origin.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Direction</th><th>Item</th></tr>
+    <tr><td>Left · Right</td><td>Origin to 3D Cursor · Origin to Selection (works in Edit Mode too)</td></tr>
+    <tr><td>Bottom · Top</td><td>Cursor to Selection · Selection to Cursor</td></tr>
+    <tr><td>Top left · Top right</td><td>Selection to Grid · Cursor to Grid</td></tr>
+    <tr><td>Bottom left · Bottom right</td><td>Cursor to World Origin · Cursor to Active</td></tr>
+  </table></div>
+  <figure class="media"><img src="assets/notion/cursor-pie.png" alt="Cursor pie" loading="lazy" width="516"></figure>
+</section>
+
+<section class="feature" id="flatten-pie">
+  <div class="feature-head"><h2>Flatten Pie</h2><span class="badge key">Alt 3</span><span class="badge">Edit Mode</span><span class="badge">New</span></div>
+  <p class="pref-name">Preference: <b>Flatten Pie</b></p>
+  <p>Flattens the selection as seen from the current view: <b>Left</b>, <b>Right</b>, <b>Top</b> or <b>Bottom</b>. Vertices line up on the outermost selected point in that direction. For example, <i>Left</i> lines everything up with the leftmost vertex.</p>
+  <div class="media-missing">Video coming soon: flattening a selection from the view.</div>
+</section>
+
+<section class="feature" id="workspace-pie">
+  <div class="feature-head"><h2>Workspace Pie</h2><span class="badge key">Shift \</span><span class="badge off">Off by default</span></div>
+  <p class="pref-name">Preference: <b>Workspace Pie</b></p>
+  <p>Switch workspaces: Layout, Modeling, Shading, UV Editing, Scripting, Texture Paint, Geometry Nodes and Sculpting. The key is <kbd>\</kbd>, which is the <kbd>§</kbd> key on Nordic keyboards. Change it in the <a href="preferences.html#keymaps-tab">Keymaps</a> tab.</p>
+  <figure class="media"><img src="assets/notion/workspace-pie.png" alt="Workspace pie" loading="lazy" width="435"></figure>
+</section>
+
+<section class="feature" id="view-camera-pie">
+  <div class="feature-head"><h2>View Camera Pie</h2><span class="badge key">Space</span><span class="badge">Rebind tab</span></div>
+  <p>Moves Blender's View pie (normally on <kbd>`</kbd>) to <kbd>Space</kbd>, and Play Animation to <kbd>Shift</kbd> <kbd>Space</kbd>. Turn it on in the <a href="preferences.html#rebind-tab">Rebind</a> tab and reset it there. This changes your Blender keymap, not just the add-on's.</p>
+  <figure class="media"><img src="assets/notion/view-camera-pie.png" alt="View camera pie" loading="lazy" width="416"></figure>
+</section>
+
+<section class="feature" id="utility-pie">
+  <div class="feature-head"><h2>Utility Pie</h2><span class="badge key">U</span><span class="badge exp">Experimental · WIP</span></div>
+  <p class="pref-name">Preference: <b>Utility Pie</b>. Visible only when <a href="preferences.html#experimental">Experimental</a> is on.</p>
+  <p>Mesh and UV helpers in Object and Edit Mode: Live Unwrap, the UV Mapping menu, Seam by Angle, Unfold and Pack, Correct Face Attributes, Make Single User and Auto Merge.</p>
+  <figure class="media"><img src="assets/notion/utility-pie.png" alt="Utility pie (older version)" loading="lazy" width="568"><figcaption>Older version, so some items have changed.</figcaption></figure>
+</section>
+
+<section class="feature" id="uv-pies">
+  <div class="feature-head"><h2>UV Pies</h2><span class="badge key">Space · Q</span><span class="badge">UV Editor</span><span class="badge exp">Experimental · WIP</span></div>
+  <p class="pref-name">Preference: <b>UV Pies</b>. Visible only when <a href="preferences.html#experimental">Experimental</a> is on.</p>
+  <ul class="plain">
+    <li><b>Space</b>: Straighten Quads, Isolate Island, Quick Pack, Unwrap in Place, Unwrap and Pack, Unwrap Selected, Straighten after Edge, View Selected.</li>
+    <li><b>Q</b>: Select Overlapping, Orient Island to Edge, Stack Similar Islands, Sharp Edges from UV Islands, Seams from Islands, Mirror Selected Seams, Select Similar Islands.</li>
+  </ul>
+  <div class="media-row">
+    <figure class="media"><img src="assets/notion/uv-space-pie.png" alt="UV Space pie (older version)" loading="lazy"><figcaption>Space pie (older version)</figcaption></figure>
+    <figure class="media"><img src="assets/notion/uv-q-pie.png" alt="UV Q pie (older version)" loading="lazy"><figcaption>Q pie (older version)</figcaption></figure>
+  </div>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extras · Key Ops: Toolkit</title>
+<meta name="description" content="Fast merge and connect, modifier panel shortcuts, attribute operations, viewport menu, outliner options, legacy shortcuts and LoopTools menu.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="extras.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Extras</h1>
+<p class="lead">Smaller shortcuts and UI additions that remove friction from everyday work.</p>
+
+<section class="feature" id="fast-merge">
+  <div class="feature-head"><h2>Fast Merge &amp; Connect</h2><span class="badge key">1 · Alt 1 · Shift 1</span><span class="badge">Edit Mode</span></div>
+  <p class="pref-name">Preference: <b>Merge/Connect</b></p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><kbd>1</kbd></td><td>Fast Merge. With one vertex selected, merges it to the vertex nearest the mouse. With more selected, merges at the active vertex (or the nearest one, depending on <i>Options</i>). Hold to repeat.</td></tr>
+    <tr><td><kbd>Alt</kbd> <kbd>1</kbd></td><td>Merge at center</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>1</kbd></td><td>Connect. Vertex mode with 2+ vertices: join them. Vertex mode with 0–1: knife tool. Edge or face mode: connect (works across several objects in edge mode).</td></tr>
+  </table></div>
+  <h3>Settings</h3>
+  <ul class="plain">
+    <li><b>Options</b>: merge to the nearest vertex when there is no active vertex (default), always merge to the nearest, or the legacy behavior.</li>
+    <li><b>Limit</b>: a safety net against merging a whole mesh by accident. Ask to confirm when there is no active vertex (default), don't merge when everything is selected, cap by vertex count, or no limit.</li>
+  </ul>
+  <div class="media-row">
+    <figure class="media"><img src="assets/notion/fast-merge.gif" alt="Merge to nearest vertex" loading="lazy"><figcaption><kbd>1</kbd>: merge to the nearest vertex</figcaption></figure>
+    <figure class="media"><img src="assets/notion/merge-center.gif" alt="Merge center" loading="lazy"><figcaption><kbd>Alt</kbd> <kbd>1</kbd>: merge center</figcaption></figure>
+  </div>
+</section>
+
+<section class="feature" id="modifier-key">
+  <div class="feature-head"><h2>Modifier Key</h2><span class="badge">Properties Editor</span></div>
+  <p class="pref-name">Preference: <b>Modifier Key</b></p>
+  <p>Keyboard control of the modifier stack. Hover the Modifier tab in the Properties Editor and press:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><kbd>Q</kbd> / <kbd>Shift</kbd> <kbd>Q</kbd></td><td>Move modifier up / to top</td></tr>
+    <tr><td><kbd>E</kbd> / <kbd>Shift</kbd> <kbd>E</kbd></td><td>Move modifier down / to bottom</td></tr>
+    <tr><td><kbd>W</kbd> / <kbd>Shift</kbd> <kbd>W</kbd></td><td>Select previous / first modifier</td></tr>
+    <tr><td><kbd>S</kbd> / <kbd>Shift</kbd> <kbd>S</kbd></td><td>Select next / last modifier</td></tr>
+    <tr><td><kbd>1</kbd></td><td>Toggle render</td></tr>
+    <tr><td><kbd>2</kbd> · <kbd>Alt</kbd> <kbd>2</kbd></td><td>Toggle viewport · on all selected objects</td></tr>
+    <tr><td><kbd>3</kbd> · <kbd>4</kbd></td><td>Toggle edit mode · cage</td></tr>
+    <tr><td><kbd>A</kbd></td><td>Apply modifier</td></tr>
+    <tr><td><kbd>D</kbd></td><td>Duplicate modifier</td></tr>
+    <tr><td><kbd>X</kbd> · <kbd>Alt</kbd> <kbd>X</kbd></td><td>Delete modifier · delete modifiers with the same name on all selected objects</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Switch between the Modifier and Data tabs</td></tr>
+    <tr><td><kbd>M</kbd></td><td>Go to the Material tab</td></tr>
+  </table></div>
+</section>
+
+<section class="feature" id="attribute-operations">
+  <div class="feature-head"><h2>Attribute Operations</h2><span class="badge">Mesh Data › Attributes</span></div>
+  <p class="pref-name">Preference: <b>Attributes Operations</b></p>
+  <p>Adds <b>Assign</b>, <b>Remove</b> and <b>Select</b> buttons to the Attributes panel in Edit Mode, so attributes work like vertex groups. Quick buttons create new vertex, edge and face groups. Supports Boolean, Float and Color attributes.</p>
+  <figure class="media"><img src="assets/notion/attribute-ops.png" alt="Attribute operations in the attributes panel" loading="lazy" width="655"></figure>
+</section>
+
+<section class="feature" id="viewport-menu">
+  <div class="feature-head"><h2>Viewport Menu</h2><span class="badge key">Alt V</span></div>
+  <p class="pref-name">Preference: <b>Viewport Menu</b></p>
+  <p>A quick menu for the overlays you toggle most: wireframe, face orientation, object outline and all overlays. It also has a studio-light picker and <b>Toggle Silhouette</b>, which switches to flat, black silhouettes to check shape readability.</p>
+  <div class="media-missing">Screenshot coming soon: the Alt V viewport menu.</div>
+</section>
+
+<section class="feature" id="outliner-options">
+  <div class="feature-head"><h2>Outliner Options</h2><span class="badge">Outliner › Filter</span></div>
+  <p class="pref-name">Preference: <b>Outliner Options</b> · <span class="badge">Blender 4.2–5.1 only</span></p>
+  <p>Extra selection options in the Outliner filter popover:</p>
+  <ul class="plain">
+    <li><b>Auto Focus</b>: scroll the Outliner to objects you select in the viewport. Can be slow with very many objects.</li>
+    <li><b>Collapse Unselected Collections</b>: keep only the collections with selected objects open.</li>
+    <li><b>Select Children</b>: clicking an object in the Outliner selects its children too.</li>
+  </ul>
+</section>
+
+<section class="feature" id="legacy-shortcuts">
+  <div class="feature-head"><h2>Legacy Shortcuts</h2></div>
+  <p class="pref-name">Preference: <b>Legacy Shortcuts</b></p>
+  <p>Brings back useful shortcuts from Blender 2.79.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>Where</th><th>Action</th></tr>
+    <tr><td><kbd>Alt</kbd> <kbd>P</kbd></td><td>Edit Mode</td><td>Poke faces</td></tr>
+    <tr><td><kbd>&lt;</kbd> / <kbd>Shift</kbd> <kbd>&lt;</kbd></td><td>Edit Mode, UV Editor</td><td>Grow / shrink selection</td></tr>
+    <tr><td><kbd>Ctrl</kbd> <kbd>A</kbd></td><td>UV Editor</td><td>Average island scale</td></tr>
+    <tr><td><kbd>Ctrl</kbd> <kbd>P</kbd></td><td>UV Editor</td><td>Pack islands</td></tr>
+    <tr><td><kbd>Ctrl</kbd> <kbd>C</kbd> / <kbd>Ctrl</kbd> <kbd>V</kbd></td><td>UV Editor</td><td>Copy / paste UVs</td></tr>
+  </table></div>
+  <h3>Collection Number Keys <span class="badge">Blender 5.0+</span></h3>
+  <p>An extra setting that restores the Object Mode number keys for collections: <kbd>1</kbd>–<kbd>0</kbd> show only collection 1–10, <kbd>Shift</kbd> adds to what is visible, and <kbd>Alt</kbd> targets collections 11–20.</p>
+</section>
+
+<section class="feature" id="looptools-menu">
+  <div class="feature-head"><h2>LoopTools Menu</h2><span class="badge">Blender 5.3+</span></div>
+  <p class="pref-name">Preference: <b>LoopTools Menu</b></p>
+  <p>Adds the classic LoopTools submenu to the Edit Mode context menu. It is off by default when the LoopTools add-on is already installed, to avoid a duplicate entry. See the <a href="https://docs.blender.org/manual/en/latest/addons/mesh/looptools.html" target="_blank" rel="noopener">LoopTools manual</a> for the tools themselves.</p>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

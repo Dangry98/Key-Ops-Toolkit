@@ -6,7 +6,6 @@ from ..operators.quick_bake_name import draw_quick_bake_name
 from ..operators.toggle_retopology import draw_retopology_panel
 from ..operators.cad_decimate import draw_cad_decimate_panel
 from ..operators.toolkit_panel import draw_edit_mode_panel, draw_modifier_panel
-import functools
 from ..utils.pref_utils import get_keyops_prefs
 BLENDER_VERSION = bpy.app.version
 
@@ -16,7 +15,7 @@ startup = True
 def set_default_panels():
     prefs = get_keyops_prefs()
     wm = bpy.context.window_manager
-    if prefs.enable_toolkit_panel:
+    if prefs.enable_toolkit_panel or prefs.enable_quick_bake_name or prefs.enable_toggle_retopology:
         wm.toolkit_panel_mode |= {'OBJECT'}
 
     if prefs.enable_toolkit_panel:
@@ -28,7 +27,7 @@ def get_toolkit_panel_items(scene, context):
     prefs = get_keyops_prefs()
     
     items = []
-    if prefs.enable_toolkit_panel:
+    if prefs.enable_toolkit_panel or prefs.enable_quick_bake_name or prefs.enable_toggle_retopology:
         items.append(('OBJECT', "", "Show Object panel", get_icon("mesh_cube"), 1))
     if prefs.enable_toolkit_panel:
         items.append(('MODIFIERS', "", "Show Modifiers panel", get_icon("modifier"), 2))
@@ -73,8 +72,17 @@ def draw_object_panel(self, context):
     row.operator("object.smart_apply_scale", text="Freeze Scale", icon = "FREEZE")
     row = col.row(align=True)
     row.scale_y = 1.4
-    row.operator("keyops.toolkit_panel", text="Snap to Floor", icon = "VIEW_PERSPECTIVE").type = "snap_to_floor"
+    row.operator("keyops.snap_to_floor", text="Snap to Floor", icon = "VIEW_PERSPECTIVE")
     row.operator("keyops.toolkit_panel", text="Clear Normals", icon="X").type = "clear_custom_normals"
+
+    row = col.row(align=True)
+    row.scale_y = 1.4
+    row.operator("keyops.fast_mirror", text="Fast Mirror", icon="MOD_MIRROR")
+    row.operator("keyops.select_similar", text="Select Similar", icon="POINTCLOUD_POINT")
+
+    row = col.row(align=True)
+    row.scale_y = 1.4
+    row.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
 
     row = col.row(align=True)
     row.label(text="Duplicate Linked")
@@ -205,7 +213,6 @@ class NewToolkitPanel(bpy.types.Panel):
 
     def draw(self, context):
         global show_object_panel
-        scene = context.scene
         wm = context.window_manager
         layout = self.layout
         # layout.prop_tabs_enum(scene, "toolkit_panel_mode", icon_only=False)

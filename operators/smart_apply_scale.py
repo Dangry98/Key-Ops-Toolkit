@@ -322,18 +322,24 @@ class SmartApplyScale(bpy.types.Operator):
         if warningMessage:
             self.report({'WARNING'}, warningMessage + "Some issues are possible ")
 
-        old_version = BLENDER_VERSION < (5, 0, 0)
+        def old_apply_scale(auto_fix_normals=False):
+            if auto_fix_normals:
+                objs_with_neg_scale = [obj for obj in objects if obj.type == "MESH" and (obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0)]
+                for obj in objs_with_neg_scale:
+                    obj.data.flip_normals()
 
-        if self.auto_fix_normals and old_version:
             bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-            objs_with_neg_scale = [obj for obj in objects if obj.type == "MESH" and (obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0)]
-            for obj in objs_with_neg_scale:
-                s = obj.scale
-                obj.data.flip_normals()
+
+        if BLENDER_VERSION < (5, 0, 0):
+            old_apply_scale(self.auto_fix_normals)
         else:
-            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True, corrective_flip_normals=self.auto_fix_normals)
+            try:
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True, corrective_flip_normals=self.auto_fix_normals)
+            except:
+                old_apply_scale(self.auto_fix_normals)
 
         objectsSelectSet(clones, True)
+
         if self.deselect:
             objectsSelectSet(clones + notEven + warningObjects, False)
 

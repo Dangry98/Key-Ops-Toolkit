@@ -59,21 +59,47 @@ def is_orthographic_view(context):
     region_3d = getattr(space_data, "region_3d", None)
     return region_3d is not None and region_3d.view_perspective == 'ORTHO'
 
-def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_relative_float, scale_property, align_to_view=False):
+def get_cylinder_dimensions(context, radius, height, use_relative_scale, scale_relative_float, scale_property):
+    if use_relative_scale:
+        relative_scale = calculate_scale(
+            context,
+            scale_property,
+            use_relative_scale,
+            scale_relative_float,
+            custom_scale_factor=1.0,
+        )
+        return max(radius * relative_scale, 0.0001), max(height * relative_scale, 0.0001)
+    return max(radius, 0.0001), max(height, 0.0001)
+
+
+def format_length_value(context, value):
+    unit_settings = context.scene.unit_settings
+    return bpy.utils.units.to_string(
+        unit_settings.system,
+        'LENGTH',
+        value,
+        precision=4,
+        split_unit=False,
+        compatible_unit=False,
+    )
+
+
+def AddModCylinder(context, segment_amount, radius, height, align_to_view=False):
     if bpy.context.mode == 'EDIT_MESH':
         bpy.ops.object.mode_set(mode='OBJECT')
 
     bpy.ops.object.select_all(action='DESELECT')
-    scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=0.5)
-    if use_relative_scale==False:
-            scale = scale*0.5
+
+    radius = max(radius, 0.0001)
+    height = max(height, 0.0001)
+    half_height = height * 0.5
 
     bm = bmesh.new()
 
-    v1 = bm.verts.new((0 * scale, 0 * scale, -1 * scale))
-    v2 = bm.verts.new((1 * scale, 0 * scale, -1 * scale))
-    v3 = bm.verts.new((1 * scale, 0 * scale, 1 * scale))
-    v4 = bm.verts.new((0 * scale, 0 * scale, 1 * scale))
+    v1 = bm.verts.new((0, 0, -half_height))
+    v2 = bm.verts.new((radius, 0, -half_height))
+    v3 = bm.verts.new((radius, 0, half_height))
+    v4 = bm.verts.new((0, 0, half_height))
 
     # Create edges
     bm.edges.new((v1, v2))
@@ -106,7 +132,7 @@ def AddModCylinder(context, segment_amount, scale, use_relative_scale, scale_rel
     screw_modifier.use_normal_calculate = True
     screw_modifier.use_normal_flip = True
     screw_modifier.use_merge_vertices = True
-    screw_modifier.merge_threshold = scale * 0.1
+    screw_modifier.merge_threshold = min(radius, height) * 0.1
 
 
 def AddQuadSphere(context, scale, use_relative_scale, scale_relative_float, scale_property, sub_amount, use_modifiers):
@@ -176,11 +202,10 @@ def AddMonkey(context, scale, use_relative_scale, scale_relative_float, scale_pr
         scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0)
         bpy.ops.mesh.primitive_monkey_add(size=scale)
 
-def AddCylinder(context, segment_amount, scale, use_relative_scale, scale_relative_float, scale_property):
-        scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=0.5)
-        if use_relative_scale==False:
-            scale = scale*0.5
-        bpy.ops.mesh.primitive_cylinder_add(radius=scale, depth=scale*2, vertices=segment_amount)
+def AddCylinder(context, segment_amount, radius, height):
+        radius = max(radius, 0.0001)
+        height = max(height, 0.0001)
+        bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=height, vertices=segment_amount)
 
 def AddEmpty(context, scale, use_relative_scale, scale_relative_float, scale_property):
     scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0)
@@ -228,6 +253,8 @@ class AddMesh(bpy.types.Operator):
     scale_property: bpy.props.FloatProperty(name="Size", default=prefs.add_object_pie_default_scale, min=0.1, max=10.0,description="Absolute scale of the mesh", unit='LENGTH') #type:ignore
     use_relative_scale: bpy.props.BoolProperty(name="Relative Scale", default=prefs.add_object_pie_use_relative) #type:ignore
     scale_relative_float: bpy.props.FloatProperty(name="Scale", default=prefs.add_object_pie_relative_scale, min=1.0, max=25.0, description="Relative scale of the mesh") #type:ignore
+    cylinder_radius: bpy.props.FloatProperty(name="Radius", default=0.5, min=0.0001, max=1000.0, description="Radius of the cylinder", unit='LENGTH') #type:ignore
+    cylinder_height: bpy.props.FloatProperty(name="Height", default=1.0, min=0.0001, max=1000.0, description="Height of the cylinder", unit='LENGTH') #type:ignore
     segment_amount: bpy.props.IntProperty(name="Segments", default=32, min=3, max=256, description="Amount of segments the cylinder has") #type:ignore
     if bpy.app.version >= (5, 3, 0):
         sub_amount: bpy.props.IntProperty(name="Subdive Amount", default=4, min=2, max=200) #type:ignore
@@ -243,6 +270,21 @@ class AddMesh(bpy.types.Operator):
         if self.mesh_type == "MODCYLINDER":
             layout.label(text="Modifier Cylinder", icon="MOD_SCREW")
             layout.prop(self, "segment_amount")
+            layout.prop(self, "cylinder_radius")
+            layout.prop(self, "cylinder_height")
+            layout.prop(self, "use_relative_scale")
+            if self.use_relative_scale:
+                layout.prop(self, "scale_relative_float")
+                radius, height = get_cylinder_dimensions(
+                    context,
+                    self.cylinder_radius,
+                    self.cylinder_height,
+                    self.use_relative_scale,
+                    self.scale_relative_float,
+                    self.scale_property,
+                )
+                layout.label(text=f"Final Radius: {format_length_value(context, radius)}")
+                layout.label(text=f"Final Height: {format_length_value(context, height)}")
 
         elif self.mesh_type == "QUADSPHERE":
             quad_icon = "MESH_QUADSPHERE" if bpy.app.version >= (5, 3, 0) else "MESH_UVSPHERE"
@@ -266,22 +308,43 @@ class AddMesh(bpy.types.Operator):
         elif self.mesh_type == "CYLINDER":
             layout.label(text="Cylinder", icon="MESH_CYLINDER")
             layout.prop(self, "segment_amount")
+            layout.prop(self, "cylinder_radius")
+            layout.prop(self, "cylinder_height")
+            layout.prop(self, "use_relative_scale")
+            if self.use_relative_scale:
+                layout.prop(self, "scale_relative_float")
+                radius, height = get_cylinder_dimensions(
+                    context,
+                    self.cylinder_radius,
+                    self.cylinder_height,
+                    self.use_relative_scale,
+                    self.scale_relative_float,
+                    self.scale_property,
+                )
+                layout.label(text=f"Final Radius: {format_length_value(context, radius)}")
+                layout.label(text=f"Final Height: {format_length_value(context, height)}")
         elif self.mesh_type == "EMPTY":
             layout.label(text="EMPTY", icon="EMPTY_ARROWS")
         elif self.mesh_type == "BLEND":
             layout.label(text=".blend", icon="BLENDER")
         elif self.mesh_type == "CUSTOM":
             layout.label(text="Custom", icon="FILE_SCRIPT")
-        if not self.mesh_type == "BLEND":      
+        if self.mesh_type not in {"BLEND", "MODCYLINDER", "CYLINDER"}:
             draw_scale_prop(self, layout)
 
         if is_orthographic_view(context) and self.mesh_type == "MODCYLINDER":
             layout.prop(self, "align_to_view")
 
     def execute(self, context):
+        radius = None
+        height = None
+
+        if self.mesh_type in {"MODCYLINDER", "CYLINDER"}:
+            radius, height = get_cylinder_dimensions(context, self.cylinder_radius, self.cylinder_height, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+      
         if self.mesh_type == "MODCYLINDER":
             align_to_view = self.align_to_view and is_orthographic_view(context)
-            AddModCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property, align_to_view)
+            AddModCylinder(context, self.segment_amount, radius, height, align_to_view)
         elif self.mesh_type == "QUADSPHERE":
             AddQuadSphere(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property, self.sub_amount, self.use_modifiers)
         elif self.mesh_type == "CUBE":
@@ -295,7 +358,7 @@ class AddMesh(bpy.types.Operator):
         elif self.mesh_type == "MONKEY":
             AddMonkey(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         elif self.mesh_type == "CYLINDER":
-            AddCylinder(context, self.segment_amount, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+            AddCylinder(context, self.segment_amount, radius, height)
         elif self.mesh_type == "EMPTY":
             if context.mode == 'EDIT_MESH':
                 bpy.ops.object.editmode_toggle()

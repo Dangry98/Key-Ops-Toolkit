@@ -1,8 +1,11 @@
 import bpy
 from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
 from .utils.pref_utils import get_addon_name, draw_keymap, get_registered_keymap_display_items
+from .utils.utilities import is_addon_enabled
 from .operators.maya_navigation import update_tablet_navigation, update_sculpt_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
+
+DOCS_URL = "https://dangry98.github.io/Key-Ops-Toolkit/"
 
 current_available_tabs = []
 do_once_over705 = False
@@ -35,6 +38,13 @@ def prefs_tabs_update(self, context):
 class KeyOpsPreferences(bpy.types.AddonPreferences):
     tabs: bpy.props.EnumProperty(name="Tabs", items=prefs_tabs_update, default=None) # type: ignore
     bl_idname = get_addon_name()
+
+    # Disable by default only when LoopTools is currently enabled to avoid duplicate menu entries.
+    looptools_menu_default = not is_addon_enabled(
+        "looptools",
+        "mesh_looptools",
+        "bl_ext.blender_org.looptools",
+    )
  
     def draw(self, context):
         global current_available_tabs
@@ -117,45 +127,52 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             b = draw_func_type
 
         if not self.tabs == "SETTINGS":
-            maya_data = [("", "enable_maya_navigation", False, False, 0),
-                        ("Left Dbl Click - Selects Mesh Island ", "enable_double_click_select_island", False, "https://key-ops-toolkit.notion.site/Maya-f9a3b12b0da24e82b6fe9f9ed01fdae3", 0),
-                        ("⌦ - Edit Mode Instant Delete", "enable_auto_delete", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#1d850b06529c4ed2acdcb5d6f9aa1adc", 0),
-                        ("D - Pivot in Object Mode", "enable_maya_pivot", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#861885b3779c41cea910606072362507", 0),]
+            maya_data = [("Alt + LMB/MMB/RMB to orbit, pan & zoom", "enable_maya_navigation", False, DOCS_URL + "industry-standard.html#alt-navigation", 0),
+                        ("Left Dbl Click - Selects Mesh Island ", "enable_double_click_select_island", False, DOCS_URL + "industry-standard.html#select-island", 0),
+                        ("⌦ - Edit Mode Instant Delete", "enable_auto_delete", True, DOCS_URL + "industry-standard.html#auto-delete", 0),
+                        ("D - Pivot in Object Mode", "enable_maya_pivot", True, DOCS_URL + "industry-standard.html#maya-pivot", 0),]
             draw_section(b, "Industry Standard", maya_data)
 
             Game_Art_Toolkit = [
-                                ("Decimate millions of tris", "enable_cad_decimate", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#108ee1e458744896aeec69d85a74e437", 0),
-                                ("Tool to create LODs for meshes", "enable_auto_lod", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#f512e65060d14450a310e4e4d8ed8aea", 0),
-                                ("Add bake names for low & highpoly", "enable_quick_bake_name", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e5af43e833e14c3f8ba48d422a09f2dd", 0),
-                                ("List of objects and there poly count", "enable_polycount_list", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#9663042f6cfe448e88195ccc29aef9ef", 0),
-                                ("New Object & Edit Mode operations", "enable_toolkit_panel", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#c333e08fe40348f29129f05ea749b07d", 0),
-                                ("Toggle Overlay, Tools and Settings", "enable_toggle_retopology", True, "https://www.notion.so/key-ops-toolkit/Industri-Standard-f9a3b12b0da24e82b6fe9f9ed01fdae3?pvs=4#d6f58b151f544bcfb4635bd34a822495", 0),
+                                ("Decimate millions of tris", "enable_cad_decimate", True, DOCS_URL + "toolkit.html#cad-decimate", 0),
+                                ("Tool to create LODs for meshes", "enable_auto_lod", True, DOCS_URL + "toolkit.html#auto-lod", 0),
+                                ("Add bake names for low & highpoly", "enable_quick_bake_name", True, DOCS_URL + "toolkit.html#quick-bake-name", 0),
+                                ("List of objects and there poly count", "enable_polycount_list", True, DOCS_URL + "toolkit.html#polycount-list", 0),
+                                ("New Object & Edit Mode operations", "enable_toolkit_panel", True, DOCS_URL + "toolkit.html#toolkit-panel", 0),
+                                ("Toggle Overlay, Tools and Settings", "enable_toggle_retopology", True, DOCS_URL + "industry-standard.html#toggle-retopology", 0),
 
                              ]
             draw_section(b, "Toolkit", Game_Art_Toolkit)
             
-            Tools = [("Maya like Target Weld Tool", "enable_merge_tool", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#de4f361b488740f8b06e76d7f16532ab", 0),]
+            Tools = [("Maya like Target Weld Tool", "enable_merge_tool", True, DOCS_URL + "modeling-tools.html#merge-tool", 0),
+                     ("Loop cut on hover, click to cut", "enable_fast_loop_cut", True, DOCS_URL + "modeling-tools.html#fast-loop-cut", 0),
+                     ("Draw shapes to boolean cut objects", "enable_cutter_tool", True, DOCS_URL + "modeling-tools.html#cutter", 0),]
             draw_section(b, "Tools", Tools)
 
-            pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#778f4f17fb27436fa8eb83e89f19d2ae", 0),
-                        ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#84cef3262de2491c8e7fa7644c472f27", 1),
-                        ("Faster way to Add Common Modifers", "enable_add_modifier_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#ed8407c4f8944eeab6fe5be1444c4da2", 0),
-                        ("Switch Workspace Faster", "enable_workspace_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#2ac346b432b14864922c785ce6a0c89d", 0),
-                        ("Better Shift S Pie Menu", "enable_cursor_pie", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#6c9d3f0da9a14256aefff33f73817a9f", 0),
-                        ("WIP. UV Pies", "enable_uv_pies", True, "https://www.notion.so/key-ops-toolkit/Pie-Menu-e3eb5b5c1d85423da9f5bad8867791d7?pvs=4#37ab2bddffe242e58cde51b2c7896e1b", 1),]
+            pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, DOCS_URL + "pie-menus.html#add-objects-pie", 0),
+                        ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, DOCS_URL + "pie-menus.html#utility-pie", 1),
+                        ("Faster way to Add Common Modifers", "enable_add_modifier_pie", True, DOCS_URL + "pie-menus.html#add-modifier-pie", 0),
+                        ("Switch Workspace Faster", "enable_workspace_pie", True, DOCS_URL + "pie-menus.html#workspace-pie", 0),
+                        ("Better Shift S Pie Menu", "enable_cursor_pie", True, DOCS_URL + "pie-menus.html#cursor-pie", 0),
+                        ("Flatten selection from view direction", "enable_flatten_pie", True, DOCS_URL + "pie-menus.html#flatten-pie", 0),
+                        ("WIP. UV Pies", "enable_uv_pies", True, DOCS_URL + "pie-menus.html#uv-pies", 1),]
             draw_section(b, "Pie Menu", pie_data)
 
-            Extra_data = [("From 2.79x, click to learn more", "enable_legacy_shortcuts", False, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#00fbdb6e03e247ef87c75f51e295e616", 0),
-                        ("1 & Shift 1 - Quick Merge/Connect ", "enable_fast_merge", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#de4f361b488740f8b06e76d7f16532ab", 0),
-                        ("Add shortcuts to the modifier panel", "enable_modi_key", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#9549bb450f0942e9a0287c05fc4a4164", 0),
-                        ("Attribute Operations: select/assign", "enable_atri_op", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
-                        ("Quick access to Viewport Overlays", "enable_viewport_menu", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
-                        ("Adds extra options in the outliner", "enable_outliner_options", True, "https://www.notion.so/key-ops-toolkit/Extra-de3a011e64b2403a94eeb2d6bc2f12df?pvs=4#7f69e4bcf6834fa1aabc1b2b11eb3b1f", 0),
-                        ("CTRL E to export out meshes", "enable_quick_export", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#e45daeb724a648c09af8e0d719e6fbbc", 0),
-                        ("Extra UV Tools", "enable_uv_tools", True, "https://www.notion.so/key-ops-toolkit/UV-faa2eddaa1cd440088a31f25aa23a2d8?pvs=4#53765f9f6be84ee1b0c1be85acf898b7", 0),
-                        ("Extra Matieral Utils and UI", "enable_material_index", True, "https://www.notion.so/key-ops-toolkit/Game-Art-Toolkit-4b6f85e7504c4cf1bf7ece9a095d929c?pvs=4#d0ae8f40d3784ae0b63be11184911700", 0),
+            Extra_data = [("1 & Shift 1 - Quick Merge/Connect ", "enable_fast_merge", True, DOCS_URL + "extras.html#fast-merge", 0),
+                        ("Add shortcuts to the modifier panel", "enable_modi_key", True, DOCS_URL + "extras.html#modifier-key", 0),
+                        ("Attribute Operations: select/assign", "enable_atri_op", True, DOCS_URL + "extras.html#attribute-operations", 0),
+                        ("Quick access to Viewport Overlays", "enable_viewport_menu", True, DOCS_URL + "extras.html#viewport-menu", 0),
+                        ("Adds extra options in the outliner", "enable_outliner_options", True, DOCS_URL + "extras.html#outliner-options", 0),
+                        ("CTRL E to export out meshes", "enable_quick_export", True, DOCS_URL + "toolkit.html#quick-export", 0),
+                        ("Extra UV Tools", "enable_uv_tools", True, DOCS_URL + "uv.html#uv-tools", 0),
+                        ("Extra Matieral Utils and UI", "enable_material_index", True, DOCS_URL + "toolkit.html#material-utils", 0),
                         ]
-            draw_section (b, "Extra", Extra_data)   
+            draw_section (b, "Extra", Extra_data)
+
+            Legacy_data = [("From 2.79x, click to learn more", "enable_legacy_shortcuts", False, DOCS_URL + "extras.html#legacy-shortcuts", 0),]
+            if bpy.app.version >= (5, 3, 0):
+                Legacy_data.append(("Classic Loop Tools Menu", "enable_looptools_menu", True, "https://docs.blender.org/manual/en/latest/addons/mesh/looptools.html", 0))
+            draw_section(b, "Legacy", Legacy_data)
 
 
         #draw settings, should only draw in extensions tab if over 705, otherwise it should draw in settings tab
@@ -314,6 +331,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             #     row = column.row()
             #     row.label(text="Toolkit Panel")
             #     row.prop(self, "max_layout", text="3ds Max Inspired Layout")
+            if self.enable_legacy_shortcuts and bpy.app.version >= (5, 0, 0):
+                collection_box = b.box()
+                row = collection_box.row(align=True)
+                row.label(text="Legacy Shortcuts")
+                row.scale_x = 2.5
+                row.prop(self, "enable_legacy_collection_shortcuts", text="Legacy Hide/Show Collection shortcuts")
 
             if self.enable_material_index:
                 bb = b.box()
@@ -336,6 +359,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 row = column.row()
                 row.active = False
                 # row.prop(self, "material_utilities_panel")
+            
+
             
             bb = b.box()
             bb
@@ -478,6 +503,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                         "UV_U_PIE",
                         "UV_SPACE_PIE",
                         "UTILITY_PIE",
+                        "FLATTEN_PIE",
                         "UV_PIES"]
 
         for name in keysdict:
@@ -506,6 +532,21 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             extension_register_unregister(extension, is_set_to_enalbe)
         return update_enable
 
+    def update_legacy_collection_shortcuts(self, context):
+        if bpy.app.version < (5, 0, 0):
+            self.enable_legacy_collection_shortcuts = False
+            return
+        if not self.enable_legacy_shortcuts:
+            self.enable_legacy_collection_shortcuts = False
+            return
+
+        if self.enable_legacy_collection_shortcuts:
+            from .operators.legacy_shortcuts import register_legacy_collection_shortcuts
+            register_legacy_collection_shortcuts()
+        else:
+            from .operators.legacy_shortcuts import unregister_legacy_collection_shortcuts
+            unregister_legacy_collection_shortcuts()
+
     default_retopology_custom_tool = "builtin.select_box"
 
     toggle_retopology_default = True
@@ -521,10 +562,14 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=True, update=enable_deco("add_objects_pie")) # type: ignore
     enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=False, update=enable_deco("add_modifier_pie")) # type: ignore
     enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", description="Restore useful legacy-inspired modeling and UV shortcuts from older Blender versions.", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
+    enable_legacy_collection_shortcuts: BoolProperty(name="Collection Number Keys", description="Restore object-mode collection hide/unhide shortcuts on numbers 1-0, including Shift and Alt variants. Blender 5.0+ only.", default=False, update=update_legacy_collection_shortcuts) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore
     enable_cursor_pie: BoolProperty(name="Cursor Pie", description="A better cursor and origin snapping pie menu on Shift+S.", default=True, update=enable_deco("cursor_pie")) # type: ignore
+    enable_flatten_pie: BoolProperty(name="Flatten Pie", description="Alt+3 pie in edit mode that flattens the selection left, right, top or bottom from the current view, onto the outer most selected point.", default=True, update=enable_deco("flatten_pie")) # type: ignore
     enable_fast_merge: BoolProperty(name="Merge/Connect", description="Fast merge and connect shortcuts in edit mode with smart nearest or active vertex behavior. Use with 1 and Shift 1.", default=True, update=enable_deco("fast_merge")) # type: ignore
     enable_merge_tool: BoolProperty(name="Merge Tool", description="Maya like target weld merge tool for vertices and edges.", default=True, update=enable_deco("merge_tool")) # type: ignore
+    enable_fast_loop_cut: BoolProperty(name="Fast Loop Cut", description="Loop cut tool that previews the loop where you hover and cuts it on click, no slide step.", default=True, update=enable_deco("fast_loop_cut")) # type: ignore
+    enable_cutter_tool: BoolProperty(name="Cutter Tool", description="Object mode tool to draw a box, circle or ngon and boolean it into objects. Uses a light overlay while drawing, not a live boolean.", default=True, update=enable_deco("cutter_tool")) # type: ignore
     enable_modi_key: BoolProperty(name="Modifier Key", description="New Keyboard shortcuts in the modifiers tab for reordering, toggling, applying, modifier status, and deleting modifiers etc.", default=True, update=enable_deco("modi_key")) # type: ignore
     enable_cad_decimate: BoolProperty(name="CAD Decimate", description="CAD decimation operators and UI for export, decimate, and import workflows on heavy meshes.", default=True, update=enable_deco("cad_decimate"))     # type: ignore
     enable_auto_lod: BoolProperty(name="Auto LOD", description="Automatic LOD generation tools that create decimated LOD chains from selected meshes.", default=True, update=enable_deco("auto_lod")) # type: ignore
@@ -537,6 +582,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_material_index: BoolProperty(name="Material Utils", description="Material utils operations.", default=True, update=enable_deco("material_index")) # type: ignore
     enable_outliner_options: BoolProperty(name="Outliner Options", description="Extra outliner options like auto focus.", default=True, update=enable_deco("outliner_options")) # type: ignore
     enable_viewport_menu: BoolProperty(name="Viewport Menu", description="Alt+V viewport overlay menu with quick toggles and silhouette mode.", default=True, update=enable_deco("viewport_menu")) # type: ignore
+    enable_looptools_menu: BoolProperty(name="LoopTools Menu", description="Add LoopTools to the edit mode context menu. Blender 5.3+ only.", default=looptools_menu_default, update=enable_deco("looptools_menu")) # type: ignore
 
     #prefs settings variables
     maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update= update_tablet_navigation) # type: ignore 

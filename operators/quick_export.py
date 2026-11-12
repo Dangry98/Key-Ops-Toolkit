@@ -1,6 +1,5 @@
 import bpy
 import os
-from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 
 """""

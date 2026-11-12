@@ -276,27 +276,13 @@ def draw_menu(self, context):
 
 
 def register_offset_extrude_edge():
-    try:
-        bpy.utils.register_class(OffsetExtrudeEdge)
-    except (RuntimeError, ValueError):
-        pass
-
-    try:
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(draw_menu)
-    except (RuntimeError, ValueError):
-        pass
+    bpy.utils.register_class(OffsetExtrudeEdge)
+    bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(draw_menu)
 
 
 def unregister_offset_extrude_edge():
-    try:
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_menu)
-    except (RuntimeError, ValueError):
-        pass
-
-    try:
-        bpy.utils.unregister_class(OffsetExtrudeEdge)
-    except (RuntimeError, ValueError):
-        pass
+    bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_menu)
+    bpy.utils.unregister_class(OffsetExtrudeEdge)
 
 
 

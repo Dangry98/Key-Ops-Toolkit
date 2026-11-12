@@ -1,11 +1,49 @@
 import bpy, bmesh
 import inspect
 import numpy as np # type: ignore
-from mathutils import Matrix, Vector
+from mathutils import Vector
 from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 
 BLENDER_VERSION = bpy.app.version
 BLENDER_VERSION_MAJOR_POINT_MINOR = float(bpy.app.version_string[0:4].strip("."))
+
+
+def _addon_name_matches(module_name, addon_names):
+    if not module_name or not addon_names:
+        return False
+
+    module_name = str(module_name).strip().lower()
+    if not module_name:
+        return False
+
+    module_tail = module_name.split(".")[-1]
+    module_short = module_tail.split("_")[-1]
+
+    for addon_name in addon_names:
+        name = str(addon_name).strip().lower()
+        if not name:
+            continue
+
+        name_tail = name.split(".")[-1]
+        if (
+            module_name == name
+            or module_name.endswith(f".{name}")
+            or module_tail == name
+            or module_tail == name_tail
+            or module_short == name
+            or module_short == name_tail
+        ):
+            return True
+
+    return False
+
+
+def is_addon_enabled(*addon_names):
+    addons = getattr(getattr(bpy.context, "preferences", None), "addons", None)
+    if addons is None:
+        return False
+
+    return any(_addon_name_matches(module_name, addon_names) for module_name in addons.keys())
 
 
 def get_blender_key_icon(key_name):
@@ -260,12 +298,6 @@ def get_AABB_bounding_box_coords(objs):
         ]
 
     return coords
-
-MESH_OBJECT_TYPES = ["MESH", "CURVE", "FONT"]
-
-def is_object_mesh(obj):
-    return obj.type in MESH_OBJECT_TYPES
-
 
 def select_loop():
     if BLENDER_VERSION >= (5, 1, 0):

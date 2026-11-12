@@ -2,11 +2,7 @@ import bpy.types, bmesh
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 
-material_list = []
-material_list_index = 0
-material_list_item_name = []
 active_index = 0
-assign_index = 0
 registered_material_index_keymaps = []
 
 def register_material_index_keymaps():

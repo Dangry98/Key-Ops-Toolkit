@@ -1,0 +1,6 @@
+<svg viewBox="95 43 360 128" role="img" aria-label="Key Ops" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="k" gradientUnits="userSpaceOnUse" x1="127" y1="0" x2="270" y2="0"><stop offset="0" stop-color="#f24b60"/><stop offset="1" stop-color="#d6587f"/></linearGradient></defs>
+    <path d="M100.5 62 Q100.5 48 114.5 48 H168 C178 48 184.5 50 184.5 56 M184.5 138 C184.5 144 178 146 168 146 H114.5 Q100.5 146 100.5 132 V62" fill="none" stroke="#d2d2d2" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text y="129" font-family="Inter, 'SF Pro Display', 'Segoe UI', sans-serif" font-size="86.3" font-weight="400" fill="url(#k)"><tspan x="120">K</tspan><tspan dx="-3">e</tspan><tspan dx="0.7">y</tspan></text>
+    <text x="291" y="136" font-family="Inter, 'SF Pro Display', 'Segoe UI', sans-serif" font-size="86.7" font-weight="400" fill="#d7d7d7">Ops</text>
+  </svg>

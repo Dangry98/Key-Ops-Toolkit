@@ -4,7 +4,6 @@ from ..utils.pref_utils import clear_registered_keymaps
 import bmesh
 import math
 from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR, select_loop, select_ring
-from mathutils import Vector
 from ..utils.pref_utils import get_icon
 from .add_modifier import AddModifier
 from .smart_apply_scale import SmartApplyScale
@@ -14,7 +13,7 @@ from .extrude_edge_along_normals import register_extrude_edge_along_normals, unr
 from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
 from .set_flow import register_set_flow, unregister_set_flow
 from .fast_mirror import register_fast_mirror, unregister_fast_mirror
-from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group, get_all_bouding_box_node_group
+from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group
 
 BLENDER_VERSION = bpy.app.version
 registered_toolkit_panel_keymaps = []
@@ -28,8 +27,7 @@ def register_toolkit_panel_keymaps():
     kmi.properties.type = 'Instant_Apply_Modifiers'
     registered_toolkit_panel_keymaps.append((km, kmi))
 
-    kmi = km.keymap_items.new('keyops.toolkit_panel', 'THREE', 'PRESS', alt=True)
-    kmi.properties.type = 'snap_to_floor'
+    kmi = km.keymap_items.new('keyops.snap_to_floor', 'THREE', 'PRESS', alt=True)
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('keyops.toolkit_panel', 'D', 'PRESS', alt=True, shift=True)
@@ -55,9 +53,6 @@ def register_toolkit_panel_keymaps():
     kmi = km.keymap_items.new('keyops.fast_mirror', 'X', 'PRESS', alt=True)
     registered_toolkit_panel_keymaps.append((km, kmi))
 
-    kmi = km.keymap_items.new('keyops.fast_mirror_cancel', 'ESC', 'PRESS')
-    registered_toolkit_panel_keymaps.append((km, kmi))
-
     kmi = km.keymap_items.new('keyops.fast_mirror_options', 'D', 'PRESS')
     registered_toolkit_panel_keymaps.append((km, kmi))
 
@@ -67,9 +62,6 @@ def register_toolkit_panel_keymaps():
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('keyops.fast_mirror', 'X', 'PRESS', alt=True)
-    registered_toolkit_panel_keymaps.append((km, kmi))
-
-    kmi = km.keymap_items.new('keyops.fast_mirror_cancel', 'ESC', 'PRESS')
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('keyops.fast_mirror_options', 'D', 'PRESS')
@@ -219,7 +211,6 @@ class ToolkitPanel(bpy.types.Operator):
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
                                               ("LOOSE", "Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
                                         default="LOOSE") # type: ignore
-    addon_id: bpy.props.StringProperty(default="", options={'SKIP_SAVE', 'HIDDEN'}) # type: ignore
     def invoke(self, context, event):
         global ev 
         ev = []
@@ -230,10 +221,7 @@ class ToolkitPanel(bpy.types.Operator):
         if event.alt:
             ev.append("Alt")
 
-        if self.type == "operation_missing":
-            return context.window_manager.invoke_props_dialog(self, confirm_text="Install")
-        else:
-            return self.execute(context)
+        return self.execute(context)
     
     @classmethod
     def description(cls, context, properties):
@@ -296,19 +284,7 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "clear_custom_normals":
             layout.label(text="Clear Normals", icon="X")
 
-        elif self.type == "operation_missing":
-            layout = self.layout
-            if not bpy.context.preferences.system.use_online_access:
-                row = layout.row()
-                row = row.row(align=True)
-                row.label(text="Online Access is required")
-                row = row.row(align=True)
-                row.prop(bpy.context.preferences.system, "use_online_access", text="Enable Online Access", toggle=True, icon="INTERNET")
-            row = layout.row()
-            row.label(text=f"{self.addon_id} is missing! Please install to use!", icon="INFO")
-
     def execute(self, context):
-        prefs = get_keyops_prefs()
 
         def add_UV_offset_modifier(obj):
             if obj.modifiers.get("Offset UV") is None:
@@ -567,10 +543,6 @@ class ToolkitPanel(bpy.types.Operator):
                             if modifier.type == 'BEVEL':
                                 if modifier.width < bevel_offset:
                                     modifier.segments = bpy.context.scene.bevel_segment_amount
-
-        elif self.type == "operation_missing":
-            bpy.context.preferences.system.use_online_access = True
-            bpy.ops.extensions.package_install(repo_index=0, pkg_id=self.addon_id)
 
         elif self.type == "bevel_segment_amount_by_%":
             new_selected_meshes = bpy.context.selected_objects
@@ -1040,89 +1012,20 @@ class ToolkitPanel(bpy.types.Operator):
        
         elif self.type == "duplicate_linked_modifiers":
             make_duplicate_linked(self, context)
-            return {'FINISHED'}
+
         elif self.type == "duplicate_linked_modifiers_and_move":
             make_duplicate_linked(self, context)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
-            
-            return {'FINISHED'}
 
-        elif self.type == "snap_to_floor":
-            # import time
-            # exec_time = time.time()
-            global ev
-            if "Alt" in ev:
-                self.individual = True
-
-            ev = []
-
-            if not bpy.context.selected_objects:
-                self.report({'WARNING'}, "No Objects Selected")
-                return {'CANCELLED'}
-
-            #bpy.context.evaluated_depsgraph_get()
-            depsgraph = bpy.context.evaluated_depsgraph_get()
-
-            if not self.individual:
-                all_bounds = []
-                new_selected_objects = [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE']]
-
-                active = context.active_object
-                empty = [o for o in context.selected_objects if o.type in ['EMPTY', 'LATTICE']]
-                from ..utils.utilities import get_AABB_bounding_box_coords
-                all_bounds = get_AABB_bounding_box_coords(new_selected_objects)
-
-
-                for obj in empty:
-                    all_bounds.append(obj.location)
-                
-                if not all_bounds: return {"CANCELLED"}
-
-                z_min = min(v[2] for v in all_bounds)
-                
-                # only do for objs that roots
-                roots = [o for o in context.selected_objects if o.parent is None]
-                for obj in roots:
-                    obj.matrix_world.translation -= Vector((0, 0, z_min))
-
-                # bpy.ops.transform.translate(value=(0, 0, -z_min), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(False, False, True), mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False)
-
-            else:
-                selection = bpy.context.selected_objects
-
-                def move_individual_to_floor(selection):
-                    for obj in selection:
-                        if obj.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE', 'FONT', 'META']:
-                            m = obj.evaluated_get(depsgraph)
-                            me = m.to_mesh()
-                            
-                            if me.vertices:
-                                # Calculate the minimum Z value in world coordinates directly
-                                minz = float('inf')
-                                for v in me.vertices:
-                                    z = (obj.matrix_world @ v.co).z
-                                    if z < minz:
-                                        minz = z
-                                
-                                obj.matrix_world.translation.z -= minz
-                            m.to_mesh_clear()
-                        
-                        elif obj.type == 'EMPTY':
-                            obj.matrix_world.translation.z -= obj.location.z
-                            
-                move_individual_to_floor(selection)
-                #if any objects has a child,do opertion again to fix offset
-                selection = [child for obj in selection for child in obj.children]
-                #remove anytihng thats not in selection
-                if selection:
-                    selection = [obj for obj in selection if obj in bpy.context.selected_objects]
-                    move_individual_to_floor(selection)
-            # print(f"Total Time: {time.time() - exec_time:.4f} seconds")
         return {'FINISHED'}
 
 def register_toolkit_panel():
+    from .snap_to_floor import register_snap_to_floor
+    from .parent_used_objects import register_parent_used_objects
     register_set_flow()
     register_fast_mirror()
+    register_snap_to_floor()
+    register_parent_used_objects()
     bpy.utils.register_class(ToolkitPanel)
     # bpy.utils.register_class(NewToolkitPanel)
     # bpy.utils.register_class(ObjectModePanel)
@@ -1143,9 +1046,13 @@ def register_toolkit_panel():
     bpy.context.window_manager.live_booleans = True
 
 def unregister_toolkit_panel():
+    from .snap_to_floor import unregister_snap_to_floor
+    from .parent_used_objects import unregister_parent_used_objects
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     unregister_fast_mirror()
     unregister_set_flow()
+    unregister_snap_to_floor()
+    unregister_parent_used_objects()
     bpy.utils.unregister_class(ToolkitPanel)
     # bpy.utils.unregister_class(ObjectModePanel)
     # bpy.utils.unregister_class(ModifierPanel)
@@ -1162,19 +1069,17 @@ def unregister_toolkit_panel():
     del bpy.types.Scene.vertex_color
     # del bpy.types.Scene.RGB_Enum
     del bpy.types.WindowManager.live_booleans
-    try:
+    if ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered:
         bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-    except:
-        pass
 
 def toggle_realtime_booleans(self, context):
+    # Update callbacks fire on every assignment, not only when the value changes.
+    is_registered = ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered
     if not bpy.context.window_manager.live_booleans:
-        bpy.utils.register_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-    else:
-        try:
-            bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-        except:
-            pass
+        if not is_registered:
+            bpy.utils.register_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
+    elif is_registered:
+        bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
         
 def update_vertex_color(self, context):
     bpy.ops.keyops.toolkit_panel(type="set_vertex_color")  
@@ -1326,7 +1231,6 @@ def menu_extrude(self, context):
 def draw_modifier_panel(self, context, draw_header=False):
         layout = self.layout
         prefs = get_keyops_prefs()
-        wm = bpy.context.window_manager
         
         box = layout.box()
         col = box.column(align=True)
@@ -1776,15 +1680,12 @@ class ObjectModePanel(bpy.types.Panel):
         row.operator("keyops.toolkit_panel", text="Instant Apply All Modifiers",  icon_value=get_icon("mesh")).type = "Instant_Apply_Modifiers"
         row = col.row(align=True)
         row.scale_y = 1.15
-        row.operator("keyops.toolkit_panel", text="Snap to Grid Floor", icon = "VIEW_PERSPECTIVE").type = "snap_to_floor"
+        row.operator("keyops.snap_to_floor", text="Snap to Grid Floor", icon = "VIEW_PERSPECTIVE")
         row = col.row(align=True)
         row.scale_y = 1.15
         row.operator("object.smart_apply_scale", text="Smart Apply Scale", icon = "FREEZE")
         row = col.row(align=True)
         row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
-        row = col.row(align=True)
-        row.operator("keyops.fast_mirror_options", text="Fast Mirror Options", icon="MOD_MIRROR")
-        row.operator("keyops.select_similar", text="Select Similar", icon="SELECT_SIMILAR").type = "select_similar"
 
         box = layout.box()
         box.label(text="High/Low Collections")

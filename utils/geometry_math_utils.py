@@ -18,7 +18,6 @@
 
 from bpy_extras import view3d_utils
 import numpy as np
-import mathutils
 
 class GeometryMath:
 
@@ -28,18 +27,6 @@ class GeometryMath:
         self.rv3d = context.region_data
         self.matrix = object.matrix_world
         self.matrix_inv = self.matrix.inverted()
-
-    def get_view_plane(self):
-        zero = self.get_viewport_point_object_space(0, 0)
-        top_left = self.get_viewport_point_object_space(0, self.context.area.height)
-        bottom_right = self.get_viewport_point_object_space(self.context.area.width, 0)
-
-        normal = mathutils.geometry.normal(zero, top_left, bottom_right)
-        return zero, normal
-
-    def project_point_on_view(self, point):
-        point2d = self.location_3d_to_region_2d_object_space(point)
-        return self.get_viewport_point_object_space(point2d.x, point2d.y)
 
     def ray_cast_BVH(self, tree, bm, x, y):
         ray_origin_obj, ray_direction_obj = self.get_view_object_space(x, y)
@@ -63,10 +50,6 @@ class GeometryMath:
 
         return ray_origin_obj, ray_direction_obj
 
-    def get_viewport_point_world_space(self, x, y):
-        view_origin, view_vector = self.get_view_world_space(x, y)
-        return view_origin + view_vector
-
     def get_viewport_point_object_space(self, x, y):
         view_origin, view_vector = self.get_view_object_space(x, y)
         return view_origin + view_vector
@@ -89,24 +72,6 @@ class GeometryMath:
             return float("inf")
 
          return (pxv1 - pxv2).length
-
-    def is_point_on_edge(self, point, v1, v2, dist):
-        l1 = (point - v1).length
-        if l1 == 0:
-            return False;
-        l2 = (point - v2).length
-        if l2 == 0:
-            return False;
-        #print((v1 - v2).length - (l1 + l2))
-        return abs((v1 - v2).length - (l1 + l2)) < dist
-
-    def is_point_on_edge2(self, point, edge, dist):
-        v1, v2 = [v.co for v in edge.verts]
-        d1 = (point - v1).length
-        d2 = (point - v2).length
-        projected = self.vertex_project(point, v1, v2)
-        h = (point - projected).length
-        return h < dist
 
     def get_split_ratio(self, projected, edge):
         v1, v2 = [v.co for v in edge.verts]

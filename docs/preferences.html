@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preferences · Key Ops: Toolkit</title>
+<meta name="description" content="Key Ops: Toolkit preferences: enabling features, settings, keymaps and the Rebind tab.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="preferences.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Preferences</h1>
+<p class="lead">Open <b>Edit › Preferences › Add-ons › Key Ops: Toolkit</b>, or click <b>Prefs</b> in the Toolkit sidebar panel.</p>
+
+<section class="feature" id="extensions-tab">
+  <div class="feature-head"><h2>Extensions / Settings</h2></div>
+  <p>The left column lists every feature, grouped as on this site: <a href="industry-standard.html">Industry Standard</a>, <a href="toolkit.html">Toolkit</a>, <a href="modeling-tools.html">Tools</a>, <a href="pie-menus.html">Pie Menu</a>, <a href="extras.html">Extra</a> and <a href="extras.html#legacy-shortcuts">Legacy</a>. Click a toggle to enable or disable a feature immediately; no restart needed. Click the description next to it to open its page here.</p>
+  <p>The right column shows <b>Settings</b> for the features that are enabled. On a narrow preferences window, Settings moves to its own tab.</p>
+  <div class="media-missing">Screenshot coming soon: the Extensions / Settings tab.</div>
+</section>
+
+<section class="feature" id="keymaps-tab">
+  <div class="feature-head"><h2>Keymaps</h2></div>
+  <p>Every shortcut the add-on registers, split into <b>Operations</b> and <b>Pie Menus</b>. Change, disable or reset them here, like in Blender's own keymap editor. Only shortcuts of enabled features are listed.</p>
+  <p>All defaults are on the <a href="shortcuts.html">Shortcut Cheat Sheet</a>.</p>
+</section>
+
+<section class="feature" id="rebind-tab">
+  <div class="feature-head"><h2>Rebind</h2></div>
+  <div class="callout warn">These buttons change Blender's own keymap and preferences, not just the add-on's, so they stay after the add-on is disabled. Each one has a matching button to undo it.</div>
+  <div class="table-wrap"><table>
+    <tr><th>Option</th><th>What it does</th></tr>
+    <tr><td>Context Menu: Right-click</td><td>Moves the Object, Edit Mesh, Curve, Lattice and Vertex Paint context menus to right-click</td></tr>
+    <tr><td>Context Menu: W</td><td>Adds the context menus on <kbd>W</kbd></td></tr>
+    <tr><td>Add Menu</td><td>Moves the <a href="pie-menus.html#add-objects-pie">Add Objects Pie</a> to <kbd>Shift</kbd> <kbd>A</kbd> (Blender's Add menu moves to <kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>A</kbd>), or resets it</td></tr>
+    <tr><td>View Camera Pie</td><td>Puts the View pie on <kbd>Space</kbd> and Play Animation on <kbd>Shift</kbd> <kbd>Space</kbd>, or resets it</td></tr>
+    <tr><td>Pie Menu Animation Timeout</td><td><b>No Lag Pie Menu Settings</b> sets Blender's pie animation timeout to 0 so pies open instantly. <b>Reset to Default</b> restores it.</td></tr>
+  </table></div>
+  <figure class="media"><img src="assets/notion/rebind-tab-old.png" alt="Rebind tab (older version)" loading="lazy" width="514"><figcaption>Older version of the tab (then called Remap).</figcaption></figure>
+</section>
+
+<section class="feature" id="experimental">
+  <div class="feature-head"><h2>Experimental</h2><span class="badge exp">Use with care</span></div>
+  <p><b>Enable Experimental</b> at the bottom of Settings shows work-in-progress features: the <a href="pie-menus.html#utility-pie">Utility Pie</a>, the <a href="pie-menus.html#uv-pies">UV Pies</a>, and Maya Pivot in Edit Mode. They may change or break between versions.</p>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

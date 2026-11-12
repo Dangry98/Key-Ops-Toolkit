@@ -50,7 +50,7 @@ def update_auto_delete_confirm_delete(self, context):
 class AutoDelete(bpy.types.Operator):
     bl_idname = "keyops.auto_delete"
     bl_label = "KeyOps: Auto Delete"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'INTERNAL', 'UNDO'}
 
     object_mode: bpy.props.BoolProperty(
         name="Object Mode",

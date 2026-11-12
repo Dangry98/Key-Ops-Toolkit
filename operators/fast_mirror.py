@@ -178,10 +178,8 @@ def apply_temporary_mode_override(context):
 
 
 def build_fast_mirror_status_text(wm):
-    base_mode = get_mode_label(wm.keyops_fast_mirror_mode)
-    shortcuts = [f"Click: {base_mode}"]
-    shortcuts += [f"{label}: {get_mode_label(mode)}" for _keys, label, mode in MODIFIER_MODES]
-    shortcuts += ["D: Options", "Alt X: Toggle Gizmo"]
+    shortcuts = [f"{label}: {get_mode_label(mode)}" for _keys, label, mode in MODIFIER_MODES]
+    shortcuts += ["D: Options Menu"]
     return "Fast Mirror | " + " | ".join(shortcuts)
 
 
@@ -293,6 +291,39 @@ def get_target_objects(context):
     return objs
 
 
+def get_preview_mesh_object(context):
+    """Return a mesh object to anchor gizmo/preview drawing."""
+    active = context.active_object
+    if active is not None and active.type == 'MESH':
+        return active
+
+    targets = get_target_objects(context)
+    return targets[0] if targets else None
+
+
+def get_mirror_origin_object(context, targets=None):
+    """Return the object used as mirror origin in object mode, if any."""
+    if context.mode != 'OBJECT':
+        return None
+
+    active = context.active_object
+    if active is None:
+        return None
+
+    if targets is None:
+        targets = get_target_objects(context)
+
+    # Non-mesh active object (Empty, Curve, etc.) can be the origin for mesh targets.
+    if active.type != 'MESH' and targets:
+        return active
+
+    # Multiple selected meshes: active mesh acts as origin for the other selected meshes.
+    if active.type == 'MESH' and len(targets) > 1 and active in targets:
+        return active
+
+    return None
+
+
 def move_before_weighted_normal(obj, mod):
     modifiers = obj.modifiers
     names = [m.name for m in modifiers]
@@ -356,9 +387,19 @@ def edit_mesh_geometry(obj, is_edit_mode, operation):
         me.update()
 
 
-def bisect_mesh(obj, axis_index, keep_negative, is_edit_mode):
-    plane_no = Vector((0.0, 0.0, 0.0))
-    plane_no[axis_index] = 1.0
+def world_plane_to_object_space(obj, plane_co_world, plane_no_world):
+    matrix_inv = obj.matrix_world.inverted_safe()
+    plane_co_local = matrix_inv @ plane_co_world
+    plane_no_local = (matrix_inv.transposed().to_3x3() @ plane_no_world).normalized()
+    return plane_co_local, plane_no_local
+
+
+def bisect_mesh(obj, axis_index, keep_negative, is_edit_mode, plane_co=None, plane_no=None):
+    if plane_co is None:
+        plane_co = Vector((0.0, 0.0, 0.0))
+    if plane_no is None:
+        plane_no = Vector((0.0, 0.0, 0.0))
+        plane_no[axis_index] = 1.0
 
     def operation(bm):
         geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
@@ -366,7 +407,7 @@ def bisect_mesh(obj, axis_index, keep_negative, is_edit_mode):
             bm,
             geom=geom,
             dist=0.00001,
-            plane_co=(0.0, 0.0, 0.0),
+            plane_co=plane_co,
             plane_no=plane_no,
             clear_inner=not keep_negative,
             clear_outer=keep_negative,
@@ -567,26 +608,6 @@ def _box_with_axis_range(bb_min, bb_max, axis_index, a, b):
     return lo, hi
 
 
-def get_view_facing_tint(obj, axis_index, keep_negative, rv3d):
-    """Return a 0..1 factor based on whether the selected side faces the current view."""
-    center = Vector((sum(corner[i] for corner in obj.bound_box) / 8.0 for i in range(3)))
-    normal = Vector((0.0, 0.0, 0.0))
-    normal[axis_index] = 1.0 if keep_negative else -1.0
-    normal = obj.matrix_world.to_3x3() @ normal
-
-    view_matrix = rv3d.view_matrix.inverted()
-    camera_loc = view_matrix.translation
-    view_dir = (center - camera_loc)
-    if view_dir.length_squared > 0.0:
-        view_dir.normalize()
-    else:
-        view_dir = Vector((0.0, 0.0, 1.0))
-
-    facing = normal.dot(view_dir)
-    facing = max(0.0, min(1.0, (facing * 0.5 + 0.5)))
-    return 1.0 - (0.0 + facing * 0.9)
-
-
 def draw_fast_mirror_visuals():
     global last_hovered_arrow, last_modal_hovered_arrow
 
@@ -606,15 +627,28 @@ def draw_fast_mirror_visuals():
             if hovered is not None:
                 last_hovered_arrow = hovered
 
-    obj = context.active_object
-    if hovered is None or obj is None or obj.type != 'MESH':
+    preview_obj = get_preview_mesh_object(context)
+    if hovered is None or preview_obj is None:
         return
+
+    origin_obj = get_mirror_origin_object(context)
+    draw_obj = origin_obj if origin_obj is not None else preview_obj
 
     preview_mode = getattr(wm, "keyops_fast_mirror_preview_mode", wm.keyops_fast_mirror_mode)
     axis_index, keep_negative = hovered
-    corners = [Vector(corner) for corner in obj.bound_box]
-    bb_min = Vector((min(c[i] for c in corners) for i in range(3)))
-    bb_max = Vector((max(c[i] for c in corners) for i in range(3)))
+    corners = [Vector(corner) for corner in preview_obj.bound_box]
+    source_bb_min = Vector((min(c[i] for c in corners) for i in range(3)))
+    source_bb_max = Vector((max(c[i] for c in corners) for i in range(3)))
+
+    # Keep preview size from the mesh target, but center it on the mirror origin object.
+    if origin_obj is not None and origin_obj != preview_obj:
+        half = (source_bb_max - source_bb_min) * 0.5
+        bb_min = -half
+        bb_max = half
+    else:
+        bb_min = source_bb_min
+        bb_max = source_bb_max
+
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     line_shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
     rv3d = context.region_data
@@ -623,7 +657,7 @@ def draw_fast_mirror_visuals():
     gpu.state.depth_test_set('NONE')
     gpu.state.face_culling_set('NONE')
     gpu.matrix.push()
-    gpu.matrix.multiply_matrix(obj.matrix_world)
+    gpu.matrix.multiply_matrix(draw_obj.matrix_world)
 
     # Keep block/cube preview neutral: red only when the active preview mode performs a cut.
     preview_box_color = RED if preview_mode in CUTTING_MODES else GREY
@@ -645,10 +679,12 @@ def draw_fast_mirror_visuals():
 
     color = MODE_COLORS.get(preview_mode, AXIS_COLORS[AXES[axis_index]])
     if rv3d is not None:
-        center = Vector((sum(corner[i] for corner in obj.bound_box) / 8.0 for i in range(3)))
+        center = Vector((sum(corner[i] for corner in preview_obj.bound_box) / 8.0 for i in range(3)))
+        if origin_obj is not None and origin_obj != preview_obj:
+            center = Vector((0.0, 0.0, 0.0))
         normal = Vector((0.0, 0.0, 0.0))
         normal[axis_index] = 1.0 if keep_negative else -1.0
-        normal = obj.matrix_world.to_3x3() @ normal
+        normal = draw_obj.matrix_world.to_3x3() @ normal
 
         view_matrix = rv3d.view_matrix.inverted()
         camera_loc = view_matrix.translation
@@ -729,18 +765,16 @@ class FastMirrorApply(bpy.types.Operator):
 
         is_edit_mode = context.mode == 'EDIT_MESH'
         axis_index = AXES.index(self.axis)
-        active = context.active_object
         preset = MODE_PRESETS[self.mode]
+        mirror_object = get_mirror_origin_object(context, objs)
 
         if preset['kind'] == 'MODIFIER':
             new_modifier = preset['new']
-            mirror_object = None
             targets = objs
 
-            # Multiple selected objects: mirror them across the active object
-            if not is_edit_mode and len(objs) > 1 and active in objs:
-                mirror_object = active
-                targets = [obj for obj in objs if obj != active]
+            # If the mirror origin is also a mesh target, skip self-mirroring.
+            if mirror_object is not None and mirror_object in objs:
+                targets = [obj for obj in objs if obj != mirror_object]
 
             for obj in targets:
                 mod = get_or_create_mirror_modifier(obj, new_modifier, mirror_object)
@@ -751,17 +785,38 @@ class FastMirrorApply(bpy.types.Operator):
             flip_objects(objs, axis_index, is_edit_mode)
             return {'FINISHED'}
 
+        targets = objs
+        plane_co_world = None
+        plane_no_world = None
+        use_shared_pivot = (
+            preset['kind'] == 'BISECT'
+            and context.mode == 'OBJECT'
+            and mirror_object is not None
+            and len(objs) > 1
+        )
+
+        if use_shared_pivot:
+            targets = [obj for obj in objs if obj != mirror_object]
+            plane_co_world = mirror_object.matrix_world.translation.copy()
+            plane_no_world = Vector((0.0, 0.0, 0.0))
+            plane_no_world[axis_index] = 1.0
+            plane_no_world = (mirror_object.matrix_world.to_3x3() @ plane_no_world).normalized()
+
         processed = set()
-        for obj in objs:
+        for obj in targets:
             pointer = obj.data.as_pointer()
             if pointer in processed:
                 continue
             processed.add(pointer)
 
             if preset['kind'] == 'BISECT':
-                bisect_mesh(obj, axis_index, self.keep_negative, is_edit_mode)
+                if use_shared_pivot:
+                    plane_co_local, plane_no_local = world_plane_to_object_space(obj, plane_co_world, plane_no_world)
+                    bisect_mesh(obj, axis_index, self.keep_negative, is_edit_mode, plane_co=plane_co_local, plane_no=plane_no_local)
+                else:
+                    bisect_mesh(obj, axis_index, self.keep_negative, is_edit_mode)
                 if preset['modifier']:
-                    mod = get_or_create_mirror_modifier(obj, False, None)
+                    mod = get_or_create_mirror_modifier(obj, False, mirror_object if use_shared_pivot else None)
                     set_modifier_axis(mod, axis_index, False, False, toggle=False)
             elif preset['kind'] == 'SYMMETRIZE':
                 symmetrize_mesh(obj, axis_index, self.keep_negative, is_edit_mode)
@@ -772,7 +827,7 @@ class FastMirrorApply(bpy.types.Operator):
 class FastMirror(bpy.types.Operator):
     bl_idname = "keyops.fast_mirror"
     bl_label = "Fast Mirror"
-    bl_description = "Toggle the Mirror gizmo. Click a block to mirror on that axis and keep the side it is on. Click = selected mode, Ctrl = Bisect, Shift = New Modifier, Alt = Symmetrize, Ctrl+Shift = Flip. D opens the options"
+    bl_description = "Fast interactive Mirror Tool."
     bl_options = {'REGISTER'}
 
     def execute(self, context):
@@ -921,10 +976,13 @@ def draw_fast_mirror_options(layout, wm, compact=False):
     col = layout.column(align=True)
     col.label(text="Mode")
     col.prop(wm, "keyops_fast_mirror_mode", expand=True)
-
+    col = layout.column(align=True)
+    col.label(text="Shortcuts:")
     col = layout.column(align=True)
     for _keys, label, mode in MODIFIER_MODES:
         row = col.row(align=True)
+        row.scale_x = 1.25
+        row.active = False
         for key_name in label.split('+'):
             icon_name = get_blender_key_icon(key_name.strip())
             if icon_name:
@@ -932,21 +990,6 @@ def draw_fast_mirror_options(layout, wm, compact=False):
             else:
                 row.label(text=key_name.strip())
         row.label(text=f"  {get_mode_label(mode)}")
-
-    row = col.row(align=True)
-    row.label(icon='EVENT_D', text="Options")
-    row.label(icon='EVENT_ALT', text="")
-    row.label(icon='EVENT_X', text="Toggle Gizmo")
-
-
-def draw_fast_mirror_panel(layout, context):
-    wm = context.window_manager
-    box = layout.box()
-    box.label(text="Mirror", icon='MOD_MIRROR')
-    row = box.row(align=True)
-    row.scale_y = 1.3
-    row.operator("keyops.fast_mirror", text="Mirror Gizmo (Alt X)", icon='MOD_MIRROR', depress=wm.keyops_fast_mirror_gizmo)
-    draw_fast_mirror_options(box.column(), wm)
 
 
 def draw_fast_mirror_tool_header(layout, wm):
@@ -991,7 +1034,7 @@ class FastMirrorOptionsPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.ui_units_x = 8
+        layout.ui_units_x = 9
         draw_fast_mirror_options(layout, context.window_manager)
 
 
@@ -1039,11 +1082,9 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
         return (
             context.window_manager.keyops_fast_mirror_gizmo
-            and obj is not None
-            and obj.type == 'MESH'
+            and bool(get_target_objects(context))
             and context.mode in {'OBJECT', 'EDIT_MESH'}
         )
 
@@ -1053,6 +1094,146 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
         factor = 0.55 if keep_negative else 1.0
         gizmo.color = (color[0] * factor, color[1] * factor, color[2] * factor)
         gizmo.alpha = 0.9
+
+    @staticmethod
+    def _solve_world_distance_for_screen_target(region, rv3d, center_world, direction_world, start_distance, target_screen_distance):
+        center_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, center_world)
+        if center_2d is None:
+            return start_distance
+
+        def screen_distance(world_distance):
+            point = center_world + direction_world * world_distance
+            point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, point)
+            if point_2d is None:
+                return None
+            return (point_2d - center_2d).length
+
+        low = 0.0
+        high = max(start_distance, 0.01)
+
+        high_distance = screen_distance(high)
+        for _ in range(14):
+            if high_distance is None or high_distance >= target_screen_distance:
+                break
+            high *= 1.8
+            high_distance = screen_distance(high)
+
+        if high_distance is None:
+            return low
+
+        for _ in range(18):
+            mid = (low + high) * 0.5
+            mid_distance = screen_distance(mid)
+            if mid_distance is None:
+                high = mid
+                continue
+            if mid_distance < target_screen_distance:
+                low = mid
+            else:
+                high = mid
+
+        return (low + high) * 0.5
+
+    @staticmethod
+    def _max_distance_to_viewport_edge(center_2d, direction_2d, region, padding=20.0):
+        if direction_2d.length_squared <= 1e-12:
+            return None
+
+        direction = direction_2d.normalized()
+        max_distances = []
+
+        min_x, max_x = padding, max(padding, region.width - padding)
+        min_y, max_y = padding, max(padding, region.height - padding)
+
+        if direction.x > 1e-8:
+            max_distances.append((max_x - center_2d.x) / direction.x)
+        elif direction.x < -1e-8:
+            max_distances.append((min_x - center_2d.x) / direction.x)
+
+        if direction.y > 1e-8:
+            max_distances.append((max_y - center_2d.y) / direction.y)
+        elif direction.y < -1e-8:
+            max_distances.append((min_y - center_2d.y) / direction.y)
+
+        max_distances = [distance for distance in max_distances if distance > 0.0]
+        if not max_distances:
+            return None
+        return min(max_distances)
+
+    @staticmethod
+    def _smoothstep01(value):
+        value = max(0.0, min(1.0, value))
+        return value * value * value * (value * (value * 6.0 - 15.0) + 10.0)
+
+    @staticmethod
+    def _compute_object_screen_radius(region, rv3d, matrix_world, center_local, corners_local):
+        center_world = matrix_world @ center_local
+        center_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, center_world)
+        if center_2d is None:
+            return None
+
+        radius = 0.0
+        any_projected = False
+        for corner_local in corners_local:
+            corner_world = matrix_world @ corner_local
+            corner_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, corner_world)
+            if corner_2d is None:
+                continue
+            any_projected = True
+            radius = max(radius, (corner_2d - center_2d).length)
+
+        return radius if any_projected else None
+
+    def _compute_gizmo_position(self, context, matrix_world, center, axis_index, keep_negative, placement_extent, zoom_blend):
+        region = context.region
+        rv3d = context.region_data
+
+        local_pos = center.copy()
+        local_pos[axis_index] = center[axis_index] + ((-placement_extent) if keep_negative else placement_extent)
+
+        if region is None or rv3d is None:
+            return matrix_world @ local_pos
+
+        center_world = matrix_world @ center
+        face_world = matrix_world @ local_pos
+
+        # Use direct center->face direction for placement to avoid extra rotation compensation.
+        direction_world = face_world - center_world
+        if direction_world.length_squared <= 1e-12:
+            return face_world
+        direction_world.normalize()
+
+        center_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, center_world)
+        face_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, face_world)
+        if center_2d is None or face_2d is None:
+            return face_world
+
+        base_screen_distance = (face_2d - center_2d).length
+        outward_target = base_screen_distance + 42.0
+        # Keep inward mode farther out so close zoom does not pull gizmos too deep into the object.
+        inward_target = min(max(base_screen_distance * 0.35, 20.0), 250.0)
+        target_screen_distance = (outward_target * (1.0 - zoom_blend)) + (inward_target * zoom_blend)
+
+        to_face_2d = face_2d - center_2d
+        max_viewport_distance = self._max_distance_to_viewport_edge(center_2d, to_face_2d, region, padding=20.0)
+
+        # Keep a minimum separation, but never exceed the viewport cap.
+        min_separation_px = 25.0
+        if max_viewport_distance is not None:
+            target_screen_distance = min(max(target_screen_distance, min_separation_px), max_viewport_distance)
+        else:
+            target_screen_distance = max(target_screen_distance, min_separation_px)
+
+        start_distance = max(0.0, (face_world - center_world).dot(direction_world))
+        solved_world_distance = self._solve_world_distance_for_screen_target(
+            region,
+            rv3d,
+            center_world,
+            direction_world,
+            start_distance,
+            target_screen_distance,
+        )
+        return center_world + direction_world * solved_world_distance
 
     def setup(self, context):
         self.arrows = []
@@ -1075,35 +1256,53 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
                 self.arrows.append((gizmo, axis_index, keep_negative))
 
     def draw_prepare(self, context):
-        obj = context.active_object
-        if obj is None:
+        preview_obj = get_preview_mesh_object(context)
+        if preview_obj is None:
             return
 
-        corners = [Vector(corner) for corner in obj.bound_box]
+        origin_obj = get_mirror_origin_object(context)
+        draw_obj = origin_obj if origin_obj is not None else preview_obj
+
+        corners = [Vector(corner) for corner in preview_obj.bound_box]
         bb_min = Vector((min(c[i] for c in corners) for i in range(3)))
         bb_max = Vector((max(c[i] for c in corners) for i in range(3)))
-        center = (bb_min + bb_max) * 0.5
-        min_offset = max((bb_max - bb_min).length * 0.1, 0.05)
+        center = Vector((0.0, 0.0, 0.0))
+        extents = bb_max - bb_min
+        half_extent = max(extents.x, extents.y, extents.z) * 0.5
+        placement_extent = max(half_extent, 0.05)
 
-        matrix_world = obj.matrix_world
+        matrix_world = draw_obj.matrix_world
         rotation = matrix_world.to_quaternion()
         active_arrows.clear()
         active_arrows.extend(self.arrows)
 
+        region = context.region
+        rv3d = context.region_data
+        zoom_blend = 0.0
+        if region is not None and rv3d is not None:
+            object_screen_radius = self._compute_object_screen_radius(region, rv3d, matrix_world, center, corners)
+            if object_screen_radius is not None:
+                zoom_start_px = 220.0
+                zoom_range_px = 320.0
+                zoom_t = (object_screen_radius - zoom_start_px) / zoom_range_px
+                zoom_blend = self._smoothstep01(zoom_t)
+
         for gizmo, axis_index, keep_negative in self.arrows:
             self._apply_axis_color(gizmo, AXES[axis_index], keep_negative)
-
-            local_pos = center.copy()
-            if keep_negative:
-                local_pos[axis_index] = min(bb_min[axis_index], -min_offset)
-            else:
-                local_pos[axis_index] = max(bb_max[axis_index], min_offset)
 
             direction = Vector((0.0, 0.0, 0.0))
             direction[axis_index] = -1.0 if keep_negative else 1.0
             direction = rotation @ direction
 
-            position = matrix_world @ local_pos
+            position = self._compute_gizmo_position(
+                context,
+                matrix_world,
+                center,
+                axis_index,
+                keep_negative,
+                placement_extent,
+                zoom_blend,
+            )
             gizmo.matrix_basis = Matrix.Translation(position) @ direction.to_track_quat('Z', 'Y').to_matrix().to_4x4()
 
 
@@ -1157,10 +1356,7 @@ def unregister_fast_mirror():
     unpatch_toolbar()
 
     for cls in reversed(registered_fast_mirror_classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except RuntimeError:
-            pass
+        bpy.utils.unregister_class(cls)
     registered_fast_mirror_classes.clear()
 
     wm_type = bpy.types.WindowManager

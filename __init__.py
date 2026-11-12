@@ -17,14 +17,18 @@
 
 from .addon_preferences import KeyOpsPreferences
 from .operators.rebind import Rebind
+from .operators.xray_select import register_xray_select, unregister_xray_select
 from .ui.toolkit_paneL_ui import NewToolkitPanel
 
-default_classes = [KeyOpsPreferences,Rebind, NewToolkitPanel]
+default_classes = [KeyOpsPreferences, Rebind, NewToolkitPanel]
 debug = True
 
 import bpy
 
 def extension_register_unregister(extension, register):
+    from .utils.pref_utils import get_keyops_prefs
+    prefs = get_keyops_prefs()
+
     if extension == "auto_delete":
         if register:
             from .operators.auto_delete import register_auto_delete
@@ -98,11 +102,15 @@ def extension_register_unregister(extension, register):
             unregister_add_modifier_pie()
     elif extension == "legacy_shortcuts":
         if register:
-            from .operators.legacy_shortcuts import register_legacy_shortcuts_keymaps
+            from .operators.legacy_shortcuts import register_legacy_shortcuts_keymaps, register_legacy_collection_shortcuts
             register_legacy_shortcuts_keymaps()
+            if bpy.app.version >= (5, 0, 0) and prefs.enable_legacy_collection_shortcuts:
+                register_legacy_collection_shortcuts()
         else:
-            from .operators.legacy_shortcuts import unregister_legacy_shortcuts
+            from .operators.legacy_shortcuts import unregister_legacy_shortcuts, unregister_legacy_collection_shortcuts
             unregister_legacy_shortcuts()
+            if bpy.app.version >= (5, 0, 0) and prefs.enable_legacy_collection_shortcuts:
+                unregister_legacy_collection_shortcuts()
     elif extension == "cursor_pie":
         if register:
             from .operators.origin_to_selection import register_cursor_pie
@@ -124,6 +132,20 @@ def extension_register_unregister(extension, register):
         else:
             from .tools.merge_tool import unregister_merge_tool
             unregister_merge_tool()
+    elif extension == "fast_loop_cut":
+        if register:
+            from .tools.fast_loop_cut import register_fast_loop_cut
+            register_fast_loop_cut()
+        else:
+            from .tools.fast_loop_cut import unregister_fast_loop_cut
+            unregister_fast_loop_cut()
+    elif extension == "cutter_tool":
+        if register:
+            from .tools.cutter_tool import register_cutter_tool
+            register_cutter_tool()
+        else:
+            from .tools.cutter_tool import unregister_cutter_tool
+            unregister_cutter_tool()
     elif extension == "modi_key":
         if register:
             from .operators.modi_key import register_modi_key
@@ -209,6 +231,23 @@ def extension_register_unregister(extension, register):
         else:
             from .menu.pies import unregister_workspace_pie
             unregister_workspace_pie()
+    elif extension == "flatten_pie":
+        if register:
+            from .operators.flatten import register_flatten_pie
+            register_flatten_pie()
+        else:
+            from .operators.flatten import unregister_flatten_pie
+            unregister_flatten_pie()
+    elif extension == "looptools_menu":
+        if bpy.app.version < (5, 3, 0):
+            return
+
+        if register:
+            from .operators.looptools_menu import register_looptools_menu
+            register_looptools_menu()
+        else:
+            from .operators.looptools_menu import unregister_looptools_menu
+            unregister_looptools_menu()
 
 
 def apply_enabled_extensions(prefs, should_register):
@@ -235,7 +274,9 @@ def register():
     # Register default classes
     for cls in default_classes:
         bpy.utils.register_class(cls)
-    
+
+    register_xray_select()
+
     from .utils.pref_utils import get_keyops_prefs
     prefs = get_keyops_prefs()
 
@@ -256,5 +297,7 @@ def unregister():
 
     unregister_icons()
 
-    for cls in default_classes:
+    unregister_xray_select()
+
+    for cls in reversed(default_classes):
         bpy.utils.unregister_class(cls)

@@ -5,7 +5,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 from ..utils import mesh_utils as MeshUtils
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import select_loop, select_ring
+from ..utils.utilities import select_ring
 from .fast_knife import FastKnife
 
 has_clicked_once = None

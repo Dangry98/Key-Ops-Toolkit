@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UV · Key Ops: Toolkit</title>
+<meta name="description" content="UV tools for Blender: Smart UV Sync, Maya-like UV cut, unwrap in place, quick pack and more.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="uv.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>UV</h1>
+<p class="lead">Faster UV editing: smarter sync selection and a Maya-style cut.</p>
+
+<section class="feature" id="uv-tools">
+  <div class="feature-head"><h2>UV Tools</h2></div>
+  <p class="pref-name">Preference: <b>UV Tools</b></p>
+  <p>Enables the UV shortcuts below. The extra UV operators (Unwrap in Place, Quick Pack, Unwrap Selected, Isolate Island, Orient Island to Edge, Sharp from UV Islands, Seam by Angle) are available from the <a href="pie-menus.html#uv-pies">UV Pies</a> and <a href="pie-menus.html#utility-pie">Utility Pie</a> (experimental), and Sharp from UV Islands is also in the Toolkit <a href="toolkit.html#toolkit-panel">Modifiers</a> section.</p>
+</section>
+
+<section class="feature" id="smart-uv-sync">
+  <div class="feature-head"><h2>Smart UV Sync</h2><span class="badge key">RMB</span><span class="badge">UV Editor</span></div>
+  <p>Right-click in the UV Editor toggles UV Sync Selection and keeps your selection and selection mode. Blender's own toggle loses or changes them.</p>
+  <div class="media-row">
+    <figure class="media"><img src="assets/notion/uv-sync-off.gif" alt="Default sync toggle" loading="lazy"><figcaption>Before: Blender's default</figcaption></figure>
+    <figure class="media"><img src="assets/notion/uv-sync-on.gif" alt="Smart UV Sync" loading="lazy"><figcaption>After: Smart UV Sync</figcaption></figure>
+  </div>
+</section>
+
+<section class="feature" id="uv-cut">
+  <div class="feature-head"><h2>UV Cut</h2><span class="badge key">X · Shift X</span><span class="badge">UV Editor</span></div>
+  <p>Maya-style UV cut: marks the selected UV edges as seams and splits them.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><kbd>X</kbd></td><td>Cut, then pick the island under the mouse and move it</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>X</kbd></td><td>Cut only</td></tr>
+  </table></div>
+  <div class="callout note">UV Cut needs UV Sync Selection off. If sync is on, it switches sync off and changes to edge mode. Select the edges and press the key again.</div>
+</section>
+
+<section class="feature" id="remove-seam">
+  <div class="feature-head"><h2>Remove Seam</h2><span class="badge key">Alt 2</span><span class="badge">Edit Mode</span></div>
+  <p>Clears seams and sharp edges from the selected edges in one key.</p>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

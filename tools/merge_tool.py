@@ -462,14 +462,31 @@ class WorkSpaceMergeTool(bpy.types.WorkSpaceTool):
         row = layout.row()
         row.prop(tool_props, "preserve_uvs")
 
+def remove_stale_tool(tool_cls):
+    """Remove a tool with tool_cls.bl_idname left in the toolbar by an earlier load.
+
+    bpy.utils.unregister_tool only removes the exact ToolDef stored on the class
+    that registered it, so a leftover from a previous (reloaded) module can't be
+    removed through the current class. Borrow the stale ToolDef and let Blender
+    remove it (including its keymap).
+    """
+    from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+    panel = ToolSelectPanelHelper._tool_class_from_space_type(tool_cls.bl_space_type)
+    if panel is None:
+        return
+    for item in ToolSelectPanelHelper._tools_flatten(panel._tools.get(tool_cls.bl_context_mode, [])):
+        if item is not None and getattr(item, "idname", None) == tool_cls.bl_idname and item is not getattr(tool_cls, "_bl_tool", None):
+            tool_cls._bl_tool = item
+            bpy.utils.unregister_tool(tool_cls)
+            return
+
+
 def register_merge_tool():
-    try:
-        bpy.utils.register_class(MergeTool)
-    except (RuntimeError, ValueError):
-        pass
+    bpy.utils.register_class(MergeTool)
 
     try:
         if not hasattr(WorkSpaceMergeTool, "_bl_tool"):
+            remove_stale_tool(WorkSpaceMergeTool)
             bpy.utils.register_tool(WorkSpaceMergeTool, after={"builtin.spin"}, separator=False, group=False)
     except Exception as e:
         print(f"Failed to register WorkSpaceMergeTool: {e}")
@@ -477,12 +494,9 @@ def register_merge_tool():
 
 def unregister_merge_tool():
     try:
-        bpy.utils.unregister_class(MergeTool)
-    except (RuntimeError, ValueError):
-        pass
-
-    try:
         if hasattr(WorkSpaceMergeTool, "_bl_tool"):
             bpy.utils.unregister_tool(WorkSpaceMergeTool)
     except Exception as e:
         print(f"Failed to unregister WorkSpaceMergeTool: {e}")
+
+    bpy.utils.unregister_class(MergeTool)

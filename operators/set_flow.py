@@ -47,14 +47,8 @@ class SetFlow(bpy.types.Operator):
 
 
 def register_set_flow():
-    try:
-        bpy.utils.register_class(SetFlow)
-    except ValueError:
-        pass
+    bpy.utils.register_class(SetFlow)
 
 
 def unregister_set_flow():
-    try:
-        bpy.utils.unregister_class(SetFlow)
-    except (RuntimeError, ValueError):
-        pass
+    bpy.utils.unregister_class(SetFlow)

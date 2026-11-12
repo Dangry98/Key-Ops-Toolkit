@@ -133,17 +133,7 @@ def is_current_running_modal_transform_none_live_booleans(dummy1, dummy2):
 
             was_transforming = is_transforming
 
-def restore_boolean_modifiers():
-    """Restore Boolean modifier object references after undo/redo."""
-    global booleon_cutter_info_dict
-    for cutting_object, links in booleon_cutter_info_dict.items():
-        for link in links:
-            if link['modifier'].object is None:
-                link['modifier'].object = cutting_object
-
 def delete_temp_objs_on_redo_undo(dummy1, dummy2): # need to do this since the bpy.opps.transform.translate() creates a undo step where the temp objects still exist
-    import time
-    exec_time = time.time()
     global obj_to_delete
     all_objects = bpy.data.objects
 
@@ -231,7 +221,5 @@ class ENTERING_TRANSFORM_OT_None_Live_Booleans(bpy.types.Operator):
 
 @persistent
 def unregister_none_live_booleans(dummy, dummy2):
-    try:
+    if ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered:
         bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-    except:
-        pass
