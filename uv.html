@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UV · Key Ops: Toolkit</title>
+<meta name="description" content="UV tools for Blender: Smart UV Sync, Maya-like UV cut and more.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="uv.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>UV</h1>
+<p class="lead">Faster UV editing.</p>
+
+<section class="feature" id="smart-uv-sync">
+  <div class="feature-head"><h2>Smart UV Sync</h2><span class="badge key">RMB</span><span class="badge">UV Editor</span></div>
+  <p class="tagline">Right-click toggles UV Sync and keeps your selection.</p>
+  <div class="media-row"><figure class="media"><img src="assets/notion/uv-sync-off.gif" alt="Default sync toggle" loading="lazy"><figcaption>Blender default</figcaption></figure><figure class="media"><img src="assets/notion/uv-sync-on.gif" alt="Smart UV Sync" loading="lazy"><figcaption>Smart UV Sync</figcaption></figure></div>
+  <details class="details"><summary>Details</summary><p class="pref">Toggle in preferences: <b>UV Tools</b></p></details>
+</section>
+
+<section class="feature" id="uv-cut">
+  <div class="feature-head"><h2>UV Cut</h2><span class="badge key">X · Shift X</span><span class="badge">UV Editor</span></div>
+  <p class="tagline">Maya-style cut: <kbd>X</kbd> cuts and moves the island, <kbd>Shift</kbd> <kbd>X</kbd> just cuts.</p>
+  <details class="details"><summary>Details</summary><p>Needs UV Sync off. If it's on, the first press turns it off.</p><p class="pref">Toggle in preferences: <b>UV Tools</b></p></details>
+</section>
+
+<section class="feature" id="remove-seam">
+  <div class="feature-head"><h2>Remove Seam</h2><span class="badge key">Alt 2</span><span class="badge">Edit Mode</span></div>
+  <p class="tagline">Clear seams and sharp edges on the selection.</p>
+  <details class="details"><summary>Details</summary><p class="pref">Toggle in preferences: <b>UV Tools</b></p></details>
+</section>
+
+<section class="feature" id="uv-tools">
+  <div class="feature-head"><h2>More UV Tools</h2><span class="badge">UV Pies</span></div>
+  <p class="tagline">Unwrap in Place, Quick Pack, Isolate Island, Orient to Edge and more live in the UV Pies.</p>
+  <details class="details"><summary>Details</summary><p>See <a href='pie-menus.html#uv-pies'>UV Pies</a>. Sharp from UV Islands is also in the Toolkit <a href='toolkit.html#toolkit-panel'>Modifiers</a> section.</p></details>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>

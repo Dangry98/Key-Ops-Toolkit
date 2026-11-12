@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extras · Key Ops: Toolkit</title>
+<meta name="description" content="Fast merge and connect, modifier shortcuts, attribute operations, viewport menu, legacy shortcuts and LoopTools menu.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="extras.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Extras</h1>
+<p class="lead">Small shortcuts that remove everyday friction.</p>
+
+<section class="feature" id="fast-merge">
+  <div class="feature-head"><h2>Fast Merge &amp; Connect</h2><span class="badge key">1 · Alt 1 · Shift 1</span><span class="badge">Edit Mode</span></div>
+  <p class="tagline"><kbd>1</kbd> merges to the nearest or active vertex, <kbd>Alt</kbd> <kbd>1</kbd> at center, <kbd>Shift</kbd> <kbd>1</kbd> connects.</p>
+  <div class="media-row"><figure class="media"><img src="assets/notion/fast-merge.gif" alt="Merge to nearest" loading="lazy"><figcaption>1</figcaption></figure><figure class="media"><img src="assets/notion/merge-center.gif" alt="Merge center" loading="lazy"><figcaption>Alt 1</figcaption></figure><figure class="media"><img src="assets/notion/connect-multi-object.gif" alt="Connect across objects" loading="lazy"><figcaption>Shift 1 across objects</figcaption></figure></div>
+  <details class="details"><summary>Details</summary><ul class='plain'><li><b>Shift 1</b>: join verts, knife with 0–1 verts, connect in edge / face mode.</li><li><b>Limit</b> guards against merging a whole mesh by accident.</li></ul><p class="pref">Toggle in preferences: <b>Merge/Connect</b></p></details>
+</section>
+
+<section class="feature" id="modifier-key">
+  <div class="feature-head"><h2>Modifier Key</h2><span class="badge">Properties Editor</span></div>
+  <p class="tagline">Keyboard control of the modifier stack. Hover the Modifier tab and press a key.</p>
+  <details class="details"><summary>Details</summary><div class="table-wrap"><table><tr><th>Key</th><th>Action</th></tr><tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Move up / down (<kbd>Shift</kbd> to top / bottom)</td></tr><tr><td><kbd>W</kbd> / <kbd>S</kbd></td><td>Select previous / next</td></tr><tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>Toggle render / viewport / edit / cage</td></tr><tr><td><kbd>A</kbd> · <kbd>D</kbd> · <kbd>X</kbd></td><td>Apply · duplicate · delete</td></tr><tr><td><kbd>Tab</kbd> · <kbd>M</kbd></td><td>Data tab · Material tab</td></tr></table></div><p class="pref">Toggle in preferences: <b>Modifier Key</b></p></details>
+</section>
+
+<section class="feature" id="attribute-operations">
+  <div class="feature-head"><h2>Attribute Operations</h2><span class="badge">Mesh Data › Attributes</span></div>
+  <p class="tagline">Assign, remove and select attributes in Edit Mode, like vertex groups.</p>
+  <figure class="media"><img src="assets/notion/attribute-ops.png" alt="Attribute operations" loading="lazy" width="655"></figure>
+  <details class="details"><summary>Details</summary><p class="pref">Toggle in preferences: <b>Atributes Operations</b></p></details>
+</section>
+
+<section class="feature" id="viewport-menu">
+  <div class="feature-head"><h2>Viewport Menu</h2><span class="badge key">Alt V</span></div>
+  <p class="tagline">Quick overlay toggles, studio light and a silhouette view.</p>
+  <figure class="media ui"><img src="assets/shots/menu-viewport.png" alt="Viewport menu" loading="lazy"></figure>
+  <details class="details"><summary>Details</summary><p class="pref">Toggle in preferences: <b>Viewport Menu</b></p></details>
+</section>
+
+<section class="feature" id="outliner-options">
+  <div class="feature-head"><h2>Outliner Options</h2><span class="badge">Blender 4.2–5.1</span></div>
+  <p class="tagline">Auto focus, collapse unselected collections and select children, in the Outliner filter.</p>
+  <details class="details"><summary>Details</summary><p class="pref">Toggle in preferences: <b>Outliner Options</b></p></details>
+</section>
+
+<section class="feature" id="legacy-shortcuts">
+  <div class="feature-head"><h2>Legacy Shortcuts</h2></div>
+  <p class="tagline">Handy shortcuts from Blender 2.79.</p>
+  <details class="details"><summary>Details</summary><div class="table-wrap"><table><tr><th>Key</th><th>Where</th><th>Action</th></tr><tr><td><kbd>Alt</kbd> <kbd>P</kbd></td><td>Edit Mode</td><td>Poke faces</td></tr><tr><td><kbd><</kbd> / <kbd>Shift</kbd> <kbd><</kbd></td><td>Edit Mode, UV</td><td>Grow / shrink</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>A</kbd> · <kbd>Ctrl</kbd> <kbd>P</kbd></td><td>UV Editor</td><td>Average scale · pack</td></tr><tr><td><kbd>Ctrl</kbd> <kbd>C</kbd> / <kbd>V</kbd></td><td>UV Editor</td><td>Copy / paste UVs</td></tr><tr><td><kbd>1</kbd>–<kbd>0</kbd></td><td>Object Mode (5.0+, optional)</td><td>Collection visibility</td></tr></table></div><p class="pref">Toggle in preferences: <b>Legacy Shortcuts</b></p></details>
+</section>
+
+<section class="feature" id="looptools-menu">
+  <div class="feature-head"><h2>LoopTools Menu</h2><span class="badge key">Right-click</span><span class="badge">Blender 5.3+</span></div>
+  <p class="tagline">Puts LoopTools back at the top of the Edit Mode right-click menu.</p>
+  <figure class="media ui"><img src="assets/shots/menu-looptools.png" alt="LoopTools in the right-click menu" loading="lazy"></figure>
+  <details class="details"><summary>Details</summary><p>Off by default if the LoopTools add-on is already installed. See the <a href='https://docs.blender.org/manual/en/latest/addons/mesh/looptools.html' target='_blank' rel='noopener'>LoopTools manual</a>.</p><p class="pref">Toggle in preferences: <b>LoopTools Menu</b></p></details>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>
