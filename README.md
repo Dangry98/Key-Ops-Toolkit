@@ -24,17 +24,6 @@
 
 ---
 
-## Install
-
-**From Blender (recommended)**
-1. In Blender 4.2 or newer, open **Edit › Preferences › Get Extensions**.
-2. Search for **Key Ops** and click **Install**.
-
-**From this repository**
-1. Download the latest release zip (or build one with `blender --command extension build` in the repo root).
-2. In Blender, open **Edit › Preferences › Get Extensions**, click the dropdown in the top right and choose **Install from Disk…**.
-
-Once installed, open **Edit › Preferences › Add-ons › Key Ops: Toolkit** (or the **Prefs** button in the Toolkit panel) to pick the features you want. No restart needed.
 
 ## Features
 
