@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preferences · Key Ops: Toolkit</title>
+<meta name="description" content="Key Ops: Toolkit preferences: features, settings, keymaps and the Rebind tab.">
+<script>try{var t=localStorage.getItem("kot-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="assets/icon-k.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="preferences.html">
+<header id="topbar"></header>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main><div class="content">
+
+<h1>Preferences</h1>
+<p class="lead">Edit › Preferences › Add-ons › Key Ops: Toolkit, or <b>Prefs</b> in the Toolkit panel.</p>
+
+<section class="feature" id="extensions-tab">
+  <div class="feature-head"><h2>Extensions / Settings</h2></div>
+  <p class="tagline">Turn each feature on or off. Settings for enabled features show on the right.</p>
+  <figure class="media"><img src="assets/shots/prefs-extensions.png" alt="Extensions / Settings tab" loading="lazy"></figure>
+  <details class="details"><summary>Details</summary><p>Click a feature's description to open its docs. No restart needed.</p></details>
+</section>
+
+<section class="feature" id="keymaps-tab">
+  <div class="feature-head"><h2>Keymaps</h2></div>
+  <p class="tagline">Change any of the add-on's shortcuts.</p>
+  <figure class="media"><img src="assets/shots/prefs-keymaps.png" alt="Keymaps tab" loading="lazy"></figure>
+  <details class="details"><summary>Details</summary><p>Defaults are on the <a href='shortcuts.html'>Shortcut Cheat Sheet</a>.</p></details>
+</section>
+
+<section class="feature" id="rebind-tab">
+  <div class="feature-head"><h2>Rebind</h2></div>
+  <p class="tagline">One-click changes to Blender's own keymap.</p>
+  <figure class="media"><img src="assets/shots/prefs-rebind.png" alt="Rebind tab" loading="lazy"></figure>
+  <details class="details"><summary>Details</summary><ul class='plain'><li><b>Context Menu</b>: right-click or <kbd>W</kbd>.</li><li><b>Add Menu</b>: Add Objects Pie on <kbd>Shift</kbd> <kbd>A</kbd>.</li><li><b>View Camera Pie</b>: View pie on <kbd>Space</kbd>.</li><li><b>No Lag Pie</b>: removes the pie animation delay.</li></ul><div class='callout warn'>These edit Blender's keymap and stay after the add-on is disabled. Each has a reset button.</div></details>
+</section>
+
+<section class="feature" id="experimental">
+  <div class="feature-head"><h2>Experimental</h2><span class="badge exp">Use with care</span></div>
+  <p class="tagline">Shows work-in-progress features: Utility Pie, UV Pies and Maya Pivot in Edit Mode.</p>
+</section>
+
+<nav id="pager"></nav>
+<footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
+</div></main>
+</div>
+</body>
+</html>
