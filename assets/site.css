@@ -300,3 +300,6 @@ footer.site-footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid 
 .feature .details .where { font-style: normal; font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
 .feature .feature-head { margin-bottom: 0; }
 .feature .tagline { color: var(--muted); }
+.media-row.tool-shots { align-items: center; gap: 18px; }
+.media-row.tool-shots > .media { flex: 0 1 auto; margin: 12px 0 4px; }
+.media-row.tool-shots > .media:first-child img { max-height: 150px; }
