@@ -2,11 +2,14 @@
 """Static pre-upload scan of a Blender add-on extension against extensions.blender.org rules.
 
 Usage:
-    python3 scan.py [ADDON_DIR] [--json] [--include-excluded]
+    python3 scan.py [ADDON_DIR | PACKAGE.zip] [--json] [--include-excluded]
 
-ADDON_DIR defaults to the current directory and must contain blender_manifest.toml.
-Files excluded by the manifest's [build] paths_exclude_pattern (or the defaults) are
-skipped for code checks, because they will not ship; use --include-excluded to scan them.
+ADDON_DIR is the folder holding blender_manifest.toml (default: current directory; if the
+manifest is not there, the first sub-folder that has one is used). A built extension .zip
+can be passed instead and is scanned exactly as it would ship.
+In a source folder, files outside the manifest's [build] paths / paths_exclude_pattern (or
+the defaults) are skipped because they will not ship; use --include-excluded to scan them.
+Works for any add-on; needs only the Python standard library (3.11+ for manifest checks).
 
 Findings are heuristics. Every hit must be confirmed by reading the code: the scan
 exists to make sure nothing is overlooked, not to replace review.
@@ -73,6 +76,7 @@ class Scanner:
         self.findings: list[dict] = []
         self.manifest: dict = {}
         self.excludes: list[str] = list(DEFAULT_EXCLUDES)
+        self.include_paths: list[str] | None = None
         self.shipped: list[str] = []
         self.py_files: list[str] = []
         self.texts: dict[str, str] = {}
@@ -125,6 +129,8 @@ class Scanner:
         build = self.manifest.get("build", {})
         if "paths_exclude_pattern" in build:
             self.excludes = list(build["paths_exclude_pattern"])
+        if "paths" in build:
+            self.include_paths = [p.replace("\\", "/").strip("/") for p in build["paths"]]
         if "generated" in build:
             self.add("REQUIRED", "manifest", "[build.generated] is reserved and must not be in the source manifest",
                      "blender_manifest.toml")
@@ -228,8 +234,14 @@ class Scanner:
                 continue
             for fn in filenames:
                 rel = os.path.join(rel_dir, fn) if rel_dir else fn
-                if self.excluded(rel) and not self.include_excluded:
-                    continue
+                if not self.include_excluded:
+                    rel_posix = rel.replace(os.sep, "/")
+                    if self.include_paths is not None:
+                        if rel_posix != "blender_manifest.toml" and not any(
+                                rel_posix == p or rel_posix.startswith(p + "/") for p in self.include_paths):
+                            continue
+                    elif self.excluded(rel):
+                        continue
                 self.shipped.append(rel)
                 if fn.endswith(".py"):
                     self.py_files.append(rel)
@@ -293,7 +305,7 @@ class Scanner:
     # ------------------------------------------------------------------ code
     LINE_RULES = [
         # (severity, rule, regex, message)
-        ("BLOCKER", "threading", r"^\s*(import|from)\s+(threading|_thread|queue|concurrent\.futures)\b",
+        ("BLOCKER", "threading", r"^\s*(from\s+(threading|_thread|queue|concurrent\.futures)\b|import\s+([\w.]+(\s+as\s+\w+)?\s*,\s*)*(threading|_thread|queue|concurrent\.futures)\b)",
          "threading/queue are treated as Blender crashers and are delisted on sight; use subprocess, "
          "multiprocessing, timers or modal operators"),
         ("BLOCKER", "eval-exec", r"(?<![\w.])(eval|exec)\s*\(",
@@ -323,7 +335,7 @@ class Scanner:
         ("REQUIRED", "addon-dir-write", r"__file__",
          "check this use of __file__: never write into the add-on directory (read-only 'System' installs) - "
          "use bpy.utils.extension_path_user(__package__, create=True); never build sys.path entries from it"),
-        ("BLOCKER", "network", r"^\s*(import|from)\s+(requests|urllib|http\.client|httpx|aiohttp|socket|ftplib|websocket|smtplib)\b",
+        ("BLOCKER", "network", r"^\s*(from\s+(requests|urllib|http\.client|httpx|aiohttp|socket|ftplib|websocket|smtplib)\b|import\s+([\w.]+(\s+as\s+\w+)?\s*,\s*)*(requests|urllib|http\.client|httpx|aiohttp|socket|ftplib|websocket|smtplib)\b)",
          "network code found: needs the 'network' permission, a bpy.app.online_access check before every "
          "connection, explicit user action before sending data, and only completely free services (ToS 4.x)"),
         ("WARN", "network", r"['\"]https?://(?!docs\.blender\.org|developer\.blender\.org|projects\.blender\.org|extensions\.blender\.org|www\.blender\.org)[^'\"]+['\"]",
@@ -525,10 +537,28 @@ class Scanner:
         return self.findings
 
 
+def resolve_root(target):
+    """Return (addon_dir, is_zip). Extracts a .zip to a temp dir; finds the manifest folder."""
+    is_zip = target.lower().endswith(".zip") and os.path.isfile(target)
+    if is_zip:
+        import tempfile
+        import zipfile
+        tmp = tempfile.mkdtemp(prefix="ext-scan-")
+        with zipfile.ZipFile(target) as z:
+            z.extractall(tmp)
+        target = tmp
+    if not os.path.exists(os.path.join(target, "blender_manifest.toml")):
+        for dirpath, dirnames, filenames in os.walk(target):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "__pycache__"]
+            if "blender_manifest.toml" in filenames:
+                return dirpath, is_zip
+    return target, is_zip
+
+
 def main(argv):
     args = [a for a in argv if not a.startswith("--")]
-    root = args[0] if args else "."
-    sc = Scanner(root, include_excluded="--include-excluded" in argv)
+    root, is_zip = resolve_root(args[0] if args else ".")
+    sc = Scanner(root, include_excluded=is_zip or "--include-excluded" in argv)
     findings = sc.run()
     if "--json" in argv:
         print(json.dumps({"root": sc.root, "shipped_files": len(sc.shipped), "findings": findings}, indent=1))
@@ -551,4 +581,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    try:
+        main(sys.argv[1:])
+    except BrokenPipeError:  # output piped into head etc.
+        sys.stderr.close()
