@@ -6,13 +6,13 @@ description: Pre-upload compliance review of a Blender add-on against the extens
 # Extension platform review
 
 Goal: decide whether the current code can be uploaded to extensions.blender.org without being
-sent back or **delisted**, and list exactly what must change. This add-on (Key Ops: Toolkit) was
-delisted once already (June 2026) and is under closer watch; treat every DELIST item as release
-blocking.
+sent back or **delisted**, and list exactly what must change. Treat every DELIST item as release
+blocking; add-ons that were delisted before get closer scrutiny on every later upload.
 
 Read `references/rules.md` (the full rule set with severities) before judging anything, and
-`references/moderation-evidence.md` for how moderators actually apply it and this add-on's own
-review history. Do not soften a rule because "it was approved before": approved add-ons are
+`references/moderation-evidence.md` for how moderators actually apply it. If the add-on is already
+on the platform, also read its own review page (`https://extensions.blender.org/approval-queue/<slug>/`)
+for past moderator requests - repeating one is the fastest way to get delisted. Do not soften a rule because "it was approved before": approved add-ons are
 re-reviewed and delisted for things earlier reviews missed.
 
 ## Workflow
@@ -20,7 +20,7 @@ re-reviewed and delisted for things earlier reviews missed.
 ### 1. Scope the release
 - Read `blender_manifest.toml` (version, permissions, tags, `[build]` excludes, wheels, platforms).
 - Find what changed since the last uploaded version: the last version listed on
-  https://extensions.blender.org/add-ons/key-ops-toolkit/versions/ (or ask the user), then
+  `https://extensions.blender.org/add-ons/<slug>/versions/` (or ask), then
   `git log`/`git diff` from the matching commit or tag. Review the whole add-on, but read every
   changed line carefully: delistings usually come from something new in the latest version.
 - Check `version` was bumped and follows semver.
@@ -42,16 +42,15 @@ BLOCKER / REQUIRED / WARN / INFO with file:line. It is a net, not a verdict:
 ### 3. Build, validate and run it in Blender
 Use the oldest supported Blender (`blender_version_min`) and the newest release. If Blender
 is not installed in this environment, download the official Linux build from
-download.blender.org and verify its sha256 (see how it was done earlier in this repo's
-history if needed).
+download.blender.org and verify it against the published `.sha256` file.
 ```
 blender --command extension validate            # manifest + tags
-mkdir -p /tmp/kot-build                         # build fails if the dir doesn't exist
-blender --command extension build --output-dir /tmp/kot-build
-unzip -l /tmp/kot-build/*.zip                   # inspect EVERY shipped file
+mkdir -p /tmp/ext-build                         # build fails if the dir doesn't exist
+blender --command extension build --output-dir /tmp/ext-build
+unzip -l /tmp/ext-build/*.zip                   # inspect EVERY shipped file
 # isolated profile so the user's real config is never touched:
-export BLENDER_USER_RESOURCES=/tmp/kot-profile
-blender -b --factory-startup --command extension install-file -r user_default -e /tmp/kot-build/<zip>
+export BLENDER_USER_RESOURCES=/tmp/ext-profile
+blender -b --factory-startup --command extension install-file -r user_default -e /tmp/ext-build/<zip>
 blender -b --python-expr "import bpy; m='bl_ext.user_default.<id>'; bpy.ops.preferences.addon_enable(module=m); bpy.ops.preferences.addon_disable(module=m); bpy.ops.preferences.addon_enable(module=m)"
 ```
 Any line printed with "Error" or a traceback during enable/disable is a finding.
@@ -100,7 +99,7 @@ Any line printed with "Error" or a traceback during enable/disable is a finding.
 - Upload cadence: batch fixes; dozens of versions in weeks has drawn a delisting warning.
 
 ### 6. Report
-Write the result for the user in this order:
+Write the result in this order:
 1. Verdict: **Ready to upload** / **Fix before upload** / **Will be delisted** (one line why).
 2. Blocking issues (DELIST-level), each with file:line, the rule (ToS number or
    "unwritten - moderator policy"), and the concrete fix.
