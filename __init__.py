@@ -16,6 +16,7 @@
 # ***** END GPL LICENSE BLOCK *****
 
 from .addon_preferences import KeyOpsPreferences
+from .properties import register_properties, unregister_properties
 from .operators.rebind import Rebind
 from .operators.xray_select import register_xray_select, unregister_xray_select
 from .ui.toolkit_paneL_ui import NewToolkitPanel
@@ -271,6 +272,9 @@ def register():
         import time 
         addon_start_time = time.time()
 
+    # Scene properties must exist before anything that reads them is registered
+    register_properties()
+
     # Register default classes
     for cls in default_classes:
         bpy.utils.register_class(cls)
@@ -301,3 +305,5 @@ def unregister():
 
     for cls in reversed(default_classes):
         bpy.utils.unregister_class(cls)
+
+    unregister_properties()
