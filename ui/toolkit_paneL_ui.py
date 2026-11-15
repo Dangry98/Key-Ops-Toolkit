@@ -268,20 +268,13 @@ class NewToolkitPanel(bpy.types.Panel):
         #     icoon = get_icon("mesh_cube")
         # print(object_emboss)
  
-        # row.prop(context.scene, "show_object_panel", text="", icon_value=icoon, emboss= object_emboss)
-        # row.prop(context.scene, "show_modifiers_panel", text="", icon_value=get_icon("modifier"), emboss=scene.show_modifiers_panel)
-        # row.prop(context.scene, "show_lod_panel", text="", icon_value=get_icon("mesh_icosphere2"), emboss=scene.show_lod_panel)
-        # row.prop(context.scene, "show_cad_decimate_panel", text="", icon_value=get_icon("mod_decim"), emboss=scene.show_cad_decimate_panel)
+        # row.prop(context.scene.keyops, "show_object_panel", text="", icon_value=icoon, emboss= object_emboss)
+        # row.prop(context.scene.keyops, "show_modifiers_panel", text="", icon_value=get_icon("modifier"), emboss=scene.show_modifiers_panel)
+        # row.prop(context.scene.keyops, "show_lod_panel", text="", icon_value=get_icon("mesh_icosphere2"), emboss=scene.show_lod_panel)
+        # row.prop(context.scene.keyops, "show_cad_decimate_panel", text="", icon_value=get_icon("mod_decim"), emboss=scene.show_cad_decimate_panel)
 
     def register():
 
-        # You can add a toggle to demonstrate dynamic change
-        bpy.types.Scene.some_toggle = bpy.props.BoolProperty(
-            name="Toggle Icon Change",
-            description="Change enum icon dynamically",
-            default=False
-        )
-        
         bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
             name="Toolkit Panel Mode",
             description="Manage which panels should show",
@@ -289,42 +282,13 @@ class NewToolkitPanel(bpy.types.Panel):
             options={'ENUM_FLAG'},
         )
 
-        bpy.types.Scene.show_object_panel = bpy.props.BoolProperty(
-            name="Show Object Panel",
-            description="Toggle visibility of the Object panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_modifiers_panel = bpy.props.BoolProperty(
-            name="Show Modifiers Panel",
-            description="Toggle visibility of the Modifiers panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_lod_panel = bpy.props.BoolProperty(
-            name="Show LOD Panel",
-            description="Toggle visibility of the LOD panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_cad_decimate_panel = bpy.props.BoolProperty(
-            name="Show CAD Decimate Panel",
-            description="Toggle visibility of the CAD Decimate panel",
-            default=True,
-            update=update_ui
-        )
         
         bpy.utils.register_class(ToggleToolkitPanelEnum)
         from ..operators.select_similar import register_select_similar
         register_select_similar()
         
     def unregister():
-        del bpy.types.Scene.some_toggle
         del bpy.types.WindowManager.toolkit_panel_mode
-        del bpy.types.Scene.show_object_panel
-        del bpy.types.Scene.show_modifiers_panel
-        del bpy.types.Scene.show_lod_panel
-        del bpy.types.Scene.show_cad_decimate_panel
 
         bpy.utils.unregister_class(ToggleToolkitPanelEnum)
         from ..operators.select_similar import unregister_select_similar

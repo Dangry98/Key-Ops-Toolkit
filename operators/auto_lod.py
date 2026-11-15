@@ -86,26 +86,6 @@ def delete_loose_edge_node_group():
     delete_loose_edge.links.new(edge_neighbors.outputs[0], boolean_math.inputs[0])
     return delete_loose_edge
 
-class AutoLODProperties(bpy.types.PropertyGroup):
-    suffix: bpy.props.StringProperty(default="_LOD")  # type: ignore
-    iterativ_lod_suffix: bpy.props.BoolProperty(default=True)  # type: ignore
-    lod_parent_object: bpy.props.BoolProperty(default=False)  # type: ignore
-    apply_decimate_modifier: bpy.props.BoolProperty(default=False)  # type: ignore
-    amount_of_lods: bpy.props.IntProperty(default=3, min=1)  # type: ignore
-    lod_difference: bpy.props.FloatProperty(default=45.0, min=0.0, max=100.0)  # type: ignore
-    unlock_normals_on_all_lods: bpy.props.BoolProperty(default=False)  # type: ignore
-    edge_split: bpy.props.BoolProperty(default=False)  # type: ignore
-    edge_split_angle: bpy.props.FloatProperty(default=60.0)  # type: ignore
-    max_face_size: bpy.props.FloatProperty(default=0.0005)  # type: ignore
-    remove_non_manifold_faces: bpy.props.BoolProperty(default=False)  # type: ignore
-    multipler: bpy.props.FloatProperty(default=2.0)  # type: ignore
-    delete_loose_edges: bpy.props.BoolProperty(default=True)  # type: ignore
-    keep_symmetry_X: bpy.props.BoolProperty(default=False)  # type: ignore
-    transfere_normals: bpy.props.BoolProperty(default=True)  # type: ignore
-    transfere_edge_normals: bpy.props.BoolProperty(default=True)  # type: ignore
-    create_collection: bpy.props.BoolProperty(default=False)  # type: ignore
-    add_weighted_normals: bpy.props.BoolProperty(default=True)  # type: ignore
-
 
 class AutoLOD(bpy.types.Operator):
     bl_idname = "keyops.auto_lod"
@@ -114,7 +94,7 @@ class AutoLOD(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        props = context.scene.auto_lod_props
+        props = context.scene.keyops.auto_lod_props
         selected_objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
         suffix = props.suffix
         parent_object = props.lod_parent_object
@@ -254,20 +234,16 @@ class AutoLOD(bpy.types.Operator):
         return {'FINISHED'}
 def register_auto_lod():
     bpy.utils.register_class(AutoLOD)
-    bpy.utils.register_class(AutoLODProperties)
     # bpy.utils.register_class(GenerateLODPanel)
-    bpy.types.Scene.auto_lod_props = bpy.props.PointerProperty(type=AutoLODProperties)
 
 def unregister_auto_lod():
     bpy.utils.unregister_class(AutoLOD)
-    bpy.utils.unregister_class(AutoLODProperties)
     # bpy.utils.unregister_class(GenerateLODPanel)
-    del bpy.types.Scene.auto_lod_props
 
 def draw_lod_panel(self, context, draw_header=False):
     layout = self.layout    
     box = layout.box()
-    props = context.scene.auto_lod_props
+    props = context.scene.keyops.auto_lod_props
 
     if draw_header:
         row = box.row()
