@@ -52,7 +52,7 @@ class SnapToFloor(bpy.types.Operator):
 
         if not self.individual:
             all_bounds = []
-            new_selected_objects = [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE']]
+            new_selected_objects = [o for o in context.selected_objects if o.type in ['MESH', 'CURVE', 'FONT', 'SURFACE', 'META']]
 
             empty = [o for o in context.selected_objects if o.type in ['EMPTY', 'LATTICE']]
             from ..utils.utilities import get_AABB_bounding_box_coords
@@ -74,7 +74,7 @@ class SnapToFloor(bpy.types.Operator):
 
             def move_individual_to_floor(selection):
                 for obj in selection:
-                    if obj.type in ['MESH', 'CURVE', 'TEXT', 'SURFACE', 'FONT', 'META']:
+                    if obj.type in ['MESH', 'CURVE', 'SURFACE', 'FONT', 'META']:
                         m = obj.evaluated_get(depsgraph)
                         me = m.to_mesh()
 

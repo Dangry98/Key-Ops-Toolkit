@@ -237,7 +237,7 @@ def force_show_obj(objs, select=True):
     return selected_objs
 
 def get_obj_coords(obj, depsgraph=None, worldspace=True):
-    if obj.mode == "EDIT":
+    if obj.mode == "EDIT" and obj.type == 'MESH':
         bm = bmesh.from_edit_mesh(obj.data)
         verts = [v for v in bm.verts if v.select] if obj.data.total_vert_sel else bm.verts
         if not verts:
@@ -298,6 +298,22 @@ def get_AABB_bounding_box_coords(objs):
         ]
 
     return coords
+
+def set_uv_island_select_mode(context):
+    """UV island select mode. Blender 5.0 replaced the 'ISLAND' select mode with a toggle."""
+    if BLENDER_VERSION >= (5, 0, 0):
+        context.tool_settings.uv_select_mode = 'FACE'
+        context.tool_settings.use_uv_select_island = True
+    else:
+        bpy.ops.uv.select_mode(type='ISLAND')
+
+def can_run_ops(op, *inner_ops, message="Not available in the current context"):
+    """Check the poll of every operator an operator calls, report a warning if one can not run."""
+    for inner in inner_ops:
+        if not inner.poll():
+            op.report({'WARNING'}, message)
+            return False
+    return True
 
 def select_loop():
     if BLENDER_VERSION >= (5, 1, 0):

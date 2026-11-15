@@ -85,7 +85,7 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object 
+        return context.object is not None and context.object.mode == 'EDIT'
   
     def invoke(self, context, event):
         global first_invoked
@@ -127,6 +127,7 @@ class DoubleClickSelectIsland(bpy.types.Operator):
                 bmesh.update_edit_mesh(me)
 
             # Capture Blender reports for index tracking
+            message = ""
             if BLENDER_VERSION >= (5, 2, 0):
                 if bpy.context.window_manager.reports:
                     r = bpy.context.window_manager.reports[-1]
@@ -230,9 +231,9 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
             first_invoked = False
 
-        elif obj and obj.type == 'CURVE':
+        elif obj and obj.type == 'CURVE' and bpy.ops.curve.select_linked_pick.poll():
             bpy.ops.curve.select_linked_pick('INVOKE_DEFAULT')
-        elif obj and obj.type == 'CURVES':
+        elif obj and obj.type == 'CURVES' and hasattr(bpy.types, "CURVES_OT_select_linked_pick") and bpy.ops.curves.select_linked_pick.poll():
             bpy.ops.curves.select_linked_pick('INVOKE_DEFAULT')
 
         return {'FINISHED'}

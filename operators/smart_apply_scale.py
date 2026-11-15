@@ -258,6 +258,10 @@ class SmartApplyScale(bpy.types.Operator):
             self.report({'WARNING'}, "No objects selected")
             return { 'CANCELLED' }
 
+        if context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Smart Apply Scale only works in Object Mode")
+            return { 'CANCELLED' }
+
         for obj in objects:
             if not obj.data:
                 continue

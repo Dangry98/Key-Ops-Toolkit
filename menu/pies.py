@@ -1,6 +1,7 @@
 import bpy.types
 from bpy.types import Menu
 from ..utils.pref_utils import clear_registered_keymaps
+from ..utils.utilities import can_run_ops, set_uv_island_select_mode
 
 
 registered_workspace_pie_keymaps = []
@@ -97,7 +98,7 @@ class UVSpacePie(Menu):
         pie = layout.menu_pie()
 
         pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
-        pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
+        pie.operator("uv.keyops_isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
         pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
         pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #TOP
@@ -206,6 +207,8 @@ class MakeSingleUser(bpy.types.Operator):
     object_animation_data : bpy.props.BoolProperty(name="Object Animation Data", default=False, description="Object Animation Data") # type: ignore
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.object.make_single_user, message="Make Single User only works in Object Mode"):
+            return {'CANCELLED'}
         bpy.ops.object.make_single_user(object=self.object, obdata=self.obdata, material=self.materials, animation=self.object_animation, obdata_animation=self.object_animation_data)
         return {'FINISHED'}
 
@@ -267,9 +270,26 @@ class UnwrapingOp(bpy.types.Operator):
         default=False) # type: ignore
         
     def execute(self, context):
-        bpy.ops.uv
+        unwrap_ops = {
+            "unwrap": (bpy.ops.uv.unwrap, {}),
+            "smart_project": (bpy.ops.uv.smart_project, {}),
+            "lightmap_pack": (bpy.ops.uv.lightmap_pack, {}),
+            "follow_active_quads": (bpy.ops.uv.follow_active_quads, {}),
+            "cube_project": (bpy.ops.uv.cube_project, {}),
+            "cylinder_project": (bpy.ops.uv.cylinder_project, {}),
+            "sphere_project": (bpy.ops.uv.sphere_project, {}),
+            "project_from_view": (bpy.ops.uv.project_from_view, {"scale_to_bounds": False}),
+            "project_from_view_bounds": (bpy.ops.uv.project_from_view, {"scale_to_bounds": True}),
+            "reset": (bpy.ops.uv.reset, {}),
+        }
+        unwrap_op, kwargs = unwrap_ops[self.unwrap_options]
+        if not can_run_ops(self, unwrap_op, message="UV mapping needs a mesh in Edit Mode"):
+            return {'CANCELLED'}
+
+        unwrap_op(**kwargs)
         if self.pack_islands:
             bpy.ops.uv.pack_islands()
+        return {'FINISHED'}
 
 
 class StreightenSelection(bpy.types.Operator):
@@ -284,6 +304,12 @@ class StreightenSelection(bpy.types.Operator):
         default=True) # type: ignore
 
     def execute(self, context):
+            if not hasattr(bpy.types, "UV_OT_toolkit_straighten"):
+                self.report({'WARNING'}, "Requires an extra add-on")
+                return {'CANCELLED'}
+            if not can_run_ops(self, bpy.ops.uv.toolkit_straighten, message="Needs a mesh in Edit Mode in the UV Editor"):
+                return {'CANCELLED'}
+
             if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
                 bpy.ops.keyops.smart_uv_sync()
@@ -305,6 +331,12 @@ class StreightenAfterEdge(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        if not hasattr(bpy.types, "UV_OT_toolkit_straighten_island"):
+            self.report({'WARNING'}, "Requires an extra add-on")
+            return {'CANCELLED'}
+        if not can_run_ops(self, bpy.ops.uv.toolkit_straighten_island, message="Needs a mesh in Edit Mode in the UV Editor"):
+            return {'CANCELLED'}
+
         if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
             bpy.ops.keyops.smart_uv_sync()
@@ -323,6 +355,8 @@ class StackSimilarIslands(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.copy, bpy.ops.uv.paste, message="Needs a mesh in Edit Mode in the UV Editor"):
+            return {'CANCELLED'}
         bpy.ops.uv.copy()
         bpy.ops.uv.paste()
         return {'FINISHED'}
@@ -335,7 +369,7 @@ class MirrorSeams(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
+        return context.mode == 'EDIT_MESH'
     
     def execute(self, context):
         bpy.ops.mesh.select_mirror(extend=True)
@@ -350,14 +384,16 @@ class SelectSimilarIslands(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
+        return context.mode == 'EDIT_MESH'
     
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.select_similar, message="Select Similar Islands only works in the UV Editor"):
+            return {'CANCELLED'}
         bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
         if bpy.context.tool_settings.use_uv_select_sync:
             bpy.ops.keyops.smart_uv_sync()
 
-        bpy.ops.uv.select_mode(type='ISLAND')
+        set_uv_island_select_mode(context)
 
         bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
 
