@@ -137,10 +137,6 @@ def select_atribute(attribute_name):
     set_act_index = C.object.data.attributes.find(ip_name)
     C.object.data.attributes.active_index = set_act_index
 
-def get_scale(obj):
-    s = obj.scale
-    return (s[0] + s[1] + s[2]) / 3
-
 def get_description(type: str) -> str:
     if type == "offset_uv":
         return "Offset UV"
@@ -515,96 +511,6 @@ class ToolkitPanel(bpy.types.Operator):
             data_transfer_modifier.mix_factor = self.mix_factor
             data_transfer_modifier.object = duplicated_object
             
-        elif self.type == "set_bevel_segment_amount":
-            new_selected_meshes = bpy.context.selected_objects
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    if bpy.context.scene.keyops.bevel_segments_type == 'ALL':
-                        for modifier in modifiers: 
-                            if modifier.type == 'BEVEL':
-                                modifier.segments = bpy.context.scene.keyops.bevel_segment_amount
-
-                    elif bpy.context.scene.keyops.bevel_segments_type == 'TOP':
-                        if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                            modifiers[0].segments = bpy.context.scene.keyops.bevel_segment_amount
-
-                    elif bpy.context.scene.keyops.bevel_segments_type == 'BOTTOM':
-                        if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                            modifiers[-1].segments = bpy.context.scene.keyops.bevel_segment_amount
-                    elif bpy.context.scene.keyops.bevel_segments_type == 'BY_OFFSET':
-                        if bpy.context.scene.keyops.compensate_for_scale == True:
-                            bevel_offset = bpy.context.scene.keyops.bevel_offset / get_scale(selected_obj)
-                        else:
-                            bevel_offset = bpy.context.scene.keyops.bevel_offset
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                if modifier.width < bevel_offset:
-                                    modifier.segments = bpy.context.scene.keyops.bevel_segment_amount
-
-        elif self.type == "bevel_segment_amount_by_%":
-            new_selected_meshes = bpy.context.selected_objects
-
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    if bpy.context.scene.keyops.bevel_segments_type == 'ALL':
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.keyops.bevel_segment_by_percent / 100)
-                                modifier.segments = int(segment_amount)
-                    if bpy.context.scene.keyops.bevel_segments_type == 'TOP':
-                        if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                            segment_amount = modifiers[0].segments + (modifiers[0].segments * bpy.context.scene.keyops.bevel_segment_by_percent / 100)
-                            modifiers[0].segments = int(segment_amount)
-                    if bpy.context.scene.keyops.bevel_segments_type == 'BOTTOM':
-                        if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                            segment_amount = modifiers[-1].segments + (modifiers[-1].segments * bpy.context.scene.keyops.bevel_segment_by_percent / 100)
-                            modifiers[-1].segments = int(segment_amount)
-                    if bpy.context.scene.keyops.bevel_segments_type == 'BY_OFFSET':
-                        if bpy.context.scene.keyops.compensate_for_scale == True:
-                            bevel_offset = bpy.context.scene.keyops.bevel_offset / get_scale(selected_obj)
-                        else:
-                            bevel_offset = bpy.context.scene.keyops.bevel_offset
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                if modifier.width < bevel_offset:
-                                    segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.keyops.bevel_segment_by_percent / 100)
-                                    modifier.segments = int(segment_amount)
-                                                            
-        elif self.type == "hide_bevels_by_offset":
-            new_selected_meshes = bpy.context.selected_objects
-
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    for modifier in selected_obj.modifiers:
-                        if modifier.type == 'BEVEL':
-                            if bpy.context.scene.keyops.compensate_for_scale == True:
-                                bevel_offset = bpy.context.scene.keyops.bevel_offset / get_scale(selected_obj)
-                            else:
-                                bevel_offset = bpy.context.scene.keyops.bevel_offset
-                            if bpy.context.scene.keyops.bevel_segments_type == 'ALL':
-                                if modifier.width < bevel_offset:
-                                    modifier.show_viewport = False
-                            if bpy.context.scene.keyops.bevel_segments_type == 'TOP':
-                                if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                                    if modifiers[0].width < bevel_offset:
-                                        modifiers[0].show_viewport = False
-                            if bpy.context.scene.keyops.bevel_segments_type == 'BOTTOM':
-                                if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                                    if modifiers[-1].width < bevel_offset:
-                                        modifiers[-1].show_viewport = False
-                            if bpy.context.scene.keyops.bevel_segments_type == 'BY_OFFSET':
-                                if modifier.width < bevel_offset:
-                                    modifier.show_viewport = False
-
         elif self.type == "seprate_objects_by":
             if bpy.context.mode == 'EDIT_MESH':
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -1271,38 +1177,6 @@ def draw_modifier_panel(self, context, draw_header=False):
         operation_FFD2X.subdivisions = 4
         operation_FFD2X.type = "LATTICE"
 
-
-        # if context.mode == 'OBJECT':
-        #     # header, panel_changde_meshes = box.panel(idname="Set Bevel",  default_closed=False)
-        #     # header.label(text="Set Bevel", icon = "MOD_BEVEL")
-        #     # if panel_changde_meshes:
-        #     box = layout.box()
-
-        #     layout = box
-        #     col = layout.column(align=False)
-        #     row = col.row(align=False)
-        #     row.label(text="Set Bevel", icon = "MOD_BEVEL")
-        #     row = col.row(align=True)
-
-        #     row.prop(context.scene.keyops, "bevel_segments_type", text="Set")
-        #     row = col.row(align=False)
-        #     col = layout.column(align=True)
-
-        #     row = col.row(align=True)
-        #     row.operator("keyops.toolkit_panel", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
-        #     row.operator("keyops.toolkit_panel", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
-        #     row = col.row(align=True)
-        #     row.prop(context.scene.keyops, "bevel_segment_amount", text="")
-        #     row.prop(context.scene.keyops, "bevel_segment_by_percent", text="")
-
-        #     row = layout.row()
-        #     row.scale_x = 0.4
-        #     row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-        #     sub = row.row()
-        #     sub.prop(context.scene.keyops, "compensate_for_scale", text="")
-        #     subrow = sub.row(align=False)
-        #     subrow.scale_x = 0.4
-        #     subrow.prop(context.scene.keyops, "bevel_offset", text="")
 class ModifierPanel(bpy.types.Panel):
     bl_description = "Modifier Operations"
     bl_label = "Modifiers"

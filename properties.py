@@ -219,11 +219,6 @@ class KeyOpsSceneProperties(PropertyGroup):
 
     # --- Toolkit panel (operators/toolkit_panel.py) --------------------------
     vertex_color: FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=_update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))  # type: ignore
-    bevel_segment_amount: IntProperty(name="Bevel Segment Amount", default=2, min=1, max=128)  # type: ignore
-    bevel_segment_by_percent: IntProperty(name="Bevel Segment By %", default=-50, min=-100, max=100, subtype='FACTOR')  # type: ignore
-    bevel_offset: FloatProperty(name="Bevel Offset", default=0.1, min=-0.0, max=10.0)  # type: ignore
-    compensate_for_scale: BoolProperty(name="Compensate for Scale", default=True, description="Compensate for Scale")  # type: ignore
-    bevel_segments_type: EnumProperty(name="bevel_segments_type", items=[('ALL', 'All Bevelse', 'All Bevelse'), ('TOP', 'First Bevel', 'First Bevel'), ('BOTTOM', 'Last Bevel', 'Last Bevel'), ('BY_OFFSET', 'By Bevel Offset', 'By Bevel Offset')], default='ALL', description="Set based on bevel settings")  # type: ignore
 
     # --- CAD Decimate (operators/cad_decimate.py) ----------------------------
     auto_clear_garbage_data: BoolProperty(name="Auto Clear Garbage Data", default=True, description="Auto Clear Mesh Data Blocks (Saves a lot of Memory, but is slower)")  # type: ignore
