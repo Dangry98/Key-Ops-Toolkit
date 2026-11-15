@@ -115,12 +115,10 @@ class SmartUVSync(bpy.types.Operator):
 
     def register():
         bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Smart UV Sync (Slower)", default=True, description="Right Click to Toggle Sync Mode and UV Selection")
     
 
     def unregister():
         bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        del bpy.types.Scene.smart_uv_sync_enable
 
 
     def execute(self, context):
@@ -128,7 +126,7 @@ class SmartUVSync(bpy.types.Operator):
         uv_sync_enable = not tool_settings.use_uv_select_sync
         tool_settings.use_uv_select_sync = uv_sync_enable
 
-        if context.scene.smart_uv_sync_enable:
+        if context.scene.keyops.smart_uv_sync_enable:
             self.sync_uv_selction_mode(context, uv_sync_enable)
             self.sync_selected_elements(context, uv_sync_enable)
 
@@ -153,4 +151,4 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         layout = self.layout
         row = layout.row()
         row.scale_y = 1.5
-        row.prop(context.scene, "smart_uv_sync_enable", toggle=True, icon='UV_SYNC_SELECT')
+        row.prop(context.scene.keyops, "smart_uv_sync_enable", toggle=True, icon='UV_SYNC_SELECT')
