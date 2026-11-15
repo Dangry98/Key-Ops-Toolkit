@@ -31,7 +31,7 @@ Official sources (re-read when in doubt, they change):
 | Add-on code must be wholly GPL compliant and declared `SPDX:GPL-3.0-or-later` (1.1). Since 2025 every add-on update must use GPL-3.0-or-later, even if code was GPL-2/MIT/ZLIB before (moderators posted this notice on 144 add-ons). | DELIST |
 | Bundled images, SVGs, fonts, other assets must be CC0 / public domain (1.2). | CHANGES |
 | Bundled third-party copyrighted code: credit all holders in manifest `copyright` ("Year Name" / "Year-Year Name") (1.3). | CHANGES |
-| Copying code from another add-on without credit, or a "rewrite" with identical functions, gets the add-on removed **[observed: remove-loops unlisted, allset delisted permanently over copyright concerns]**. | DELIST |
+| Copying code from another add-on without credit, or a "rewrite" with identical functions, gets the add-on removed **[observed: one add-on unlisted, another delisted permanently over copyright concerns]**. | DELIST |
 | Add-on must not impose a license on what users create with it. **[unwritten]** | CHANGES |
 
 ## 2. Branding (ToS 2)
@@ -47,11 +47,11 @@ Official sources (re-read when in doubt, they change):
 
 | Rule | Sev |
 |---|---|
-| **No surprises** (3.1): description lists everything the add-on does. Adding features unrelated to the approved scope is treated as a violation ("toggle-language" unlisted for adding unrelated tools; "shapekey-axis-control" delisted for smuggling in a different tool). | DELIST |
+| **No surprises** (3.1): description lists everything the add-on does. Adding features unrelated to the approved scope is treated as a violation (add-ons have been unlisted for adding unrelated tools, or for bundling a different, unreviewed tool). | DELIST |
 | Fully functional, documented, actively maintained (3.3). Broken registration, syntax errors, missing imports, tracebacks on enable = "Broken Add-on". | CHANGES |
 | Not for internal/private/closed groups (3.4). Personal workflow toolkits without a clear theme are declined **[unwritten]**. | DECLINE |
 | **No obfuscated code or byte code** (3.5): no `__pycache__`, `.pyc`, minified/renamed identifiers. | DELIST |
-| **Source fully Python** (3.6): no pre-compiled C/C++ libraries, DLLs, `.so`, `.pyd`, executables (texel-density-checker and gzm-mod delisted for C libraries). Exception granted only for hardware "driver" software. Binary wheels from PyPI are allowed (see 5). | DELIST |
+| **Source fully Python** (3.6): no pre-compiled C/C++ libraries, DLLs, `.so`, `.pyd`, executables (add-ons delisted for bundling C libraries). Exception granted only for hardware "driver" software. Binary wheels from PyPI are allowed (see 5). | DELIST |
 | Must not hurt performance or stability (3.7). See section 8. | DELIST |
 | Forks: clearly different name, significant difference, credit original authors (3.8). | CHANGES |
 | **Must not tamper with the OS, third-party software, other extensions, Blender internals, or sensitive user data** (3.9). Keymaps and preferences count as sensitive user data - see section 6. | DELIST |
@@ -63,7 +63,7 @@ Official sources (re-read when in doubt, they change):
 |---|---|
 | Request `network` permission with a reason (4.1). | CHANGES |
 | Check `bpy.app.online_access` before every connection; do nothing online when it is False (4.2). | DELIST |
-| Only connect to services that are **completely free and open to all**; free tiers of paid services, API keys for commercial services, logins to mixed offerings are rejected (4.3) (ftl-exporter unlisted; "free plans are not enough"). | DELIST |
+| Only connect to services that are **completely free and open to all**; free tiers of paid services, API keys for commercial services, logins to mixed offerings are rejected (4.3) ("free plans are not enough"). | DELIST |
 | Buttons that only open a browser (manual, bug report) need no permission if clearly labelled (4.4). | - |
 | Never send data anywhere without explicit user action (4.5). | DELIST |
 | AI: extensions that use or connect to AI models/services are currently not hosted **[unwritten, stated repeatedly in 2026]**. | DECLINE |
@@ -74,13 +74,13 @@ Official sources (re-read when in doubt, they change):
 |---|---|
 | Self-contained; never load remote code for execution (5.1). | DELIST |
 | No external functional components to download, **even optional features** (5.2). This includes launching/checking for other programs (winreg lookups, Chromium, Git, slicers, "bridge" add-ons). | DELIST |
-| **No dependency on other extensions, even optional** (5.3): no `addon_utils` queries, no `bpy.ops` from other add-ons, no panels showing other add-ons' properties, no "install LoopTools for this feature". Key Ops itself was delisted in June 2026 for depending on Set Flow, PolyQuilt_Fork and LoopTools. Bundling the other add-on inside yours (with credit) is the allowed alternative. | DELIST |
+| **No dependency on other extensions, even optional** (5.3): no `addon_utils` queries, no `bpy.ops` from other add-ons, no panels showing other add-ons' properties, no "install add-on X for this feature" instructions. Add-ons have been delisted for depending on other add-ons this way. Bundling the other add-on inside yours (with credit) is the allowed alternative. | DELIST |
 | Never install anything at runtime: no pip, ensurepip, downloads of modules. Python dependencies ship as wheels listed in the manifest (unmodified PyPI wheels, all dependencies included, under `./wheels/`). | DELIST |
 | Platform-specific wheels: declare `platforms`, build with `--split-platforms`, upload one zip per platform. Do not declare `platforms` when nothing is platform-specific. | CHANGES |
-| Do not ship wheels Blender already bundles (e.g. `packaging` - only-blends-mixer delisted), or for Python ABIs no supported Blender uses. | DELIST |
-| Only load modules into the add-on's own namespace: no `sys.path`/`sys.modules`/`site` manipulation, no `importlib` loading from paths, no custom module "auto-registration" frameworks that touch `sys.modules` (modifier-list-fork, refboard, chunk-render delisted). "Import and register modules normally, and manually." | DELIST |
+| Do not ship wheels Blender already bundles (e.g. `packaging` - cited in a delisting), or for Python ABIs no supported Blender uses. | DELIST |
+| Only load modules into the add-on's own namespace: no `sys.path`/`sys.modules`/`site` manipulation, no `importlib` loading from paths, no custom module "auto-registration" frameworks that touch `sys.modules` (several delistings). "Import and register modules normally, and manually." | DELIST |
 | Sub-processes of Blender's Python must forward `*bpy.app.python_args` with `sys.executable`. | CHANGES |
-| Add-ons built with code generators like Serpens are not accepted. **[unwritten]** | DECLINE |
+| Add-ons produced by visual add-on generators are not accepted. **[unwritten]** | DECLINE |
 
 ## 6. Keymaps, preferences, other add-ons **[unwritten - strictly enforced]**
 
@@ -90,21 +90,21 @@ extensions [that] modify them" / "Do not temper with peoples keymap and preferen
 
 | Rule | Sev |
 |---|---|
-| Keymaps: only `keyconfigs.addon` items created in `register()` and removed in `unregister()`, exactly like the official tutorial. Nothing else: no editing, disabling, deleting or "rebinding" items in `keyconfigs.user/default/active`, no conflict finders/resolvers, no custom keymap import/export, no operators that change shortcuts, no restore logic (blenderdefender-gizmodalops unlisted, bbrush warned "add-ons will be delisted for this"). | DELIST |
+| Keymaps: only `keyconfigs.addon` items created in `register()` and removed in `unregister()`, exactly like the official tutorial. Nothing else: no editing, disabling, deleting or "rebinding" items in `keyconfigs.user/default/active`, no conflict finders/resolvers, no custom keymap import/export, no operators that change shortcuts, no restore logic (an add-on was unlisted for this; another was warned "add-ons will be delisted for this"). | DELIST |
 | Exposing your own keymap items in the add-on preferences (rna_keymap_ui) is allowed and recommended for add-ons that assign many keys. | - |
 | Do not assign default keys for niche operators ("does not need a forced keymap"); do not overwrite common default keys. | CHANGES |
 | `wm.keyconfigs.addon` is None in background mode - guard it. | CHANGES |
 | Operators with a custom `bl_idname` category (e.g. `myaddon.op`) are "unkeymappable from the UI"; moderators recommend built-in categories (`object.`, `mesh.`, `wm.` ...). Raised on ≈60 add-ons; advisory. | ADVICE |
 | Do not write user preferences (`context.preferences.view/inputs/edit/... = ...`), save/load prefs, reset themes, or edit theme XML. | DELIST |
-| Never enable/disable/install/uninstall/modify other add-ons or extensions, clear their handlers, or import their modules (plugin managers declined; multiple-camera-render warned for clearing others' handlers). | DELIST |
+| Never enable/disable/install/uninstall/modify other add-ons or extensions, clear their handlers, or import their modules (plugin managers declined; an add-on was warned for clearing others' handlers). | DELIST |
 | No "uninstall" or alternative installer operators - Blender manages add-ons. | DELIST |
 
 ## 7. Advertising (ToS 6)
 
 | Rule | Sev |
 |---|---|
-| No ads, shop links, donation/funding buttons, Patreon/Gumroad/Ko-fi, social media (YouTube, Discord, X, Facebook) or "About/credits" upsell panels inside Blender's UI (6.1). Allowed: documentation and bug tracker links. Funding links may go in the platform description. Key Ops' first review required removing its About tab for this. | DELIST |
-| No "Pro"/"Lite" split: no locked features, no detection of other editions, no mention of commercial versions in UI, description or images (6.2, 6.3) (smart-apply-scale, autocam unlisted). | DELIST |
+| No ads, shop links, donation/funding buttons, Patreon/Gumroad/Ko-fi, social media (YouTube, Discord, X, Facebook) or "About/credits" upsell panels inside Blender's UI (6.1). Allowed: documentation and bug tracker links. Funding links may go in the platform description. An "About" tab with promotional links was required to be removed for this. | DELIST |
+| No "Pro"/"Lite" split: no locked features, no detection of other editions, no mention of commercial versions in UI, description or images (6.2, 6.3) (add-ons unlisted for this). | DELIST |
 | No in-UI update/promotion notifications (6.3) - "notifications will be considered advertisement". | DELIST |
 | Description/images only show features of the hosted version (6.2). | CHANGES |
 
@@ -113,10 +113,10 @@ extensions [that] modify them" / "Do not temper with peoples keymap and preferen
 | Rule | Sev |
 |---|---|
 | **No `threading` or `queue`** (also `concurrent.futures`) - "known crashers"; >10 approved add-ons delisted for this in June 2026 alone. Use `subprocess`/`multiprocessing`, `bpy.app.timers`, modal operators. | DELIST |
-| **No `eval()`/`exec()`** - security; delisted on sight in 2026 (faster-fbx-exporter, math-formula, nodepie, linkforge...). Use getattr/setattr, JSON, `ast.literal_eval`. | DELIST |
+| **No `eval()`/`exec()`** - security; delisted on sight in 2026. Use getattr/setattr, JSON, `ast.literal_eval`. | DELIST |
 | No self-updaters, update checks, "check for updates" buttons, release polling. | DELIST |
-| Avoid `depsgraph_update_*`/frame handlers unless essential; never use them to watch UI/outliner state (Key Ops had to remove one in 2026). Remove every handler/timer/msgbus in `unregister()`. | CHANGES / DELIST |
-| No heavy work in `register()` (node-runner delisted: "In future something like this will result in permanent removal"); no adding/removing asset libraries on every register. | DELIST |
+| Avoid `depsgraph_update_*`/frame handlers unless essential; never use them to watch UI/outliner state. Remove every handler/timer/msgbus in `unregister()`. | CHANGES / DELIST |
+| No heavy work in `register()` ("In future something like this will result in permanent removal"); no adding/removing asset libraries on every register. | DELIST |
 | No register/unregister of classes inside operators or at runtime ("if users don't unregister manually everything will break"). | CHANGES |
 | Don't register stray properties directly on `Scene`/`Object`/... - group them in one PropertyGroup. | CHANGES |
 | Don't spam the console; no default logger setup, no system console toggling. | CHANGES |
@@ -147,8 +147,8 @@ extensions [that] modify them" / "Do not temper with peoples keymap and preferen
 
 ## 11. Manifest (schema 1.0.0)
 
-Required: `schema_version="1.0.0"`, `id` (valid identifier, no leading digit - 3d-cursor-snap had to
-resubmit), `version` (semver), `name`, `tagline` (≤64 chars, no end punctuation), `maintainer`,
+Required: `schema_version="1.0.0"`, `id` (valid identifier, no leading digit - an add-on had to
+resubmit under a new ID), `version` (semver), `name`, `tagline` (≤64 chars, no end punctuation), `maintainer`,
 `type`, `blender_version_min` (≥4.2.0), `license`. Optional values must be omitted rather than
 empty. `permissions` reasons: one sentence, ≤64 chars, no trailing period. `[build.generated]` is
 reserved. Valid tags only - and only relevant ones ("Remove 3D View tag" is the single most common
