@@ -17,7 +17,7 @@ class CADDecimate(bpy.types.Operator):
 
     def execute(self, context):        
         totall_time = time.time()
-        if bpy.context.scene.fast_mode == False:    
+        if bpy.context.scene.keyops.fast_mode == False:    
             export_time = time.time()
             bpy.ops.keyops.export_cad_decimate()
             export_time = time.time() - export_time
@@ -26,13 +26,13 @@ class CADDecimate(bpy.types.Operator):
         bpy.ops.keyops.import_cad_decimate()
         decimate_time = time.time() - decimate_time
 
-        if bpy.context.scene.fast_mode == False:    
+        if bpy.context.scene.keyops.fast_mode == False:    
             import_time = time.time()
             bpy.ops.keyops.import_all_cad_decimate()
             import_time = time.time() - import_time
 
         totall_time = time.time() - totall_time
-        if bpy.context.scene.fast_mode == False:    
+        if bpy.context.scene.keyops.fast_mode == False:    
             print(f"Exported in {export_time:.4f} seconds")
             print(f"Decimated in {decimate_time:.4f} seconds")
             print(f"Imported in {import_time:.4f} seconds")
@@ -63,7 +63,7 @@ class ExportCADDecimate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return bpy.context.scene.fast_mode == False    
+        return bpy.context.scene.keyops.fast_mode == False    
 
     def execute(self, context):
         global totall_tris
@@ -71,15 +71,15 @@ class ExportCADDecimate(bpy.types.Operator):
         export_time = time.time()
         export_type = None
         
-        if bpy.context.scene.fast_mode == False:
-            if bpy.context.scene.export_selected_only:
+        if bpy.context.scene.keyops.fast_mode == False:
+            if bpy.context.scene.keyops.export_selected_only:
                 export_type = [obj for obj in context.selected_objects if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'FONT' or obj.type == 'SURFACE' or obj.type == 'META']
             else:
                 export_type = [obj for obj in context.scene.objects if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'FONT' or obj.type == 'SURFACE' or obj.type == 'META']
         else:
             export_type = [obj for obj in context.selected_objects if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'FONT' or obj.type == 'SURFACE' or obj.type == 'META']
 
-        # if bpy.context.scene.procent_or_amount == 'AMOUNT':
+        # if bpy.context.scene.keyops.procent_or_amount == 'AMOUNT':
         #     for obj in export_type:
         #         if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'SURFACE' or obj.type == 'FONT' or obj.type == 'META':
         #             m = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
@@ -87,10 +87,10 @@ class ExportCADDecimate(bpy.types.Operator):
         #             totall_tris += tris
 
         bpy.ops.wm.console_toggle()
-        output_directory = bpy.context.scene.cad_decimate_export_path
+        output_directory = bpy.context.scene.keyops.cad_decimate_export_path
         os.makedirs(output_directory, exist_ok=True)
         bpy.ops.object.select_all(action='DESELECT')
-        preserv_uv = bpy.context.scene.preserv_uvs
+        preserv_uv = bpy.context.scene.keyops.preserv_uvs
 
         for obj in export_type:
             if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'FONT' or obj.type == 'SURFACE' or obj.type == 'META':
@@ -103,7 +103,7 @@ class ExportCADDecimate(bpy.types.Operator):
                 #bpy.ops.wm.ply_export(filepath=export_file, export_selected_objects=True, export_uv=preserv_uv, ascii_format=True) 
 
                 bpy.ops.object.delete()
-            if bpy.context.scene.auto_clear_garbage_data:
+            if bpy.context.scene.keyops.auto_clear_garbage_data:
                 bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
         export_time = time.time() - export_time
         print(f"Exported in {export_time:.4f} seconds")
@@ -142,17 +142,17 @@ def high_quality_decimate():
     global totall_tris
 
     bpy.ops.object.modifier_add(type='DECIMATE')
-    if bpy.context.scene.procent_or_amount == 'PROCENT':
-        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.decimation_ratio
+    if bpy.context.scene.keyops.procent_or_amount == 'PROCENT':
+        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.keyops.decimation_ratio
     else:
-        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.tris_count / len(bpy.context.object.data.loop_triangles)
+        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.keyops.tris_count / len(bpy.context.object.data.loop_triangles)
 def medium_quality_decimate():
     bpy.ops.object.modifier_add(type='WELD')
-    bpy.context.object.modifiers["Weld"].merge_threshold = bpy.context.scene.merge_distance
+    bpy.context.object.modifiers["Weld"].merge_threshold = bpy.context.scene.keyops.merge_distance
 def low_quality_decimate():
     weld_modifier = bpy.context.object.modifiers.new(name="Weld", type='WELD')
     weld_modifier.mode = 'CONNECTED'
-    weld_modifier.merge_threshold = bpy.context.scene.merge_distance
+    weld_modifier.merge_threshold = bpy.context.scene.keyops.merge_distance
     
 class ImportCADDecimate(bpy.types.Operator):
     bl_idname = "keyops.import_cad_decimate"
@@ -167,13 +167,13 @@ class ImportCADDecimate(bpy.types.Operator):
         global totall_tris
 
         export_time = time.time()
-        output_directory = bpy.context.scene.cad_decimate_export_path
+        output_directory = bpy.context.scene.keyops.cad_decimate_export_path
         os.makedirs(output_directory, exist_ok=True)
 
 
         # export_type = [obj for obj in context.selected_objects if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'FONT' or obj.type == 'SURFACE' or obj.type == 'META']
 
-        # if bpy.context.scene.procent_or_amount == 'AMOUNT' and bpy.context.scene.fast_mode == True:
+        # if bpy.context.scene.keyops.procent_or_amount == 'AMOUNT' and bpy.context.scene.keyops.fast_mode == True:
         #     for obj in export_type:
         #         if obj.type == 'MESH' or obj.type == 'CURVE' or obj.type == 'SURFACE' or obj.type == 'FONT' or obj.type == 'META':
         #             m = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
@@ -182,15 +182,15 @@ class ImportCADDecimate(bpy.types.Operator):
 
         # print(totall_tris)
 
-        preserv_uv = bpy.context.scene.preserv_uvs
+        preserv_uv = bpy.context.scene.keyops.preserv_uvs
 
-        if bpy.context.scene.deceimate_type == 'DECIMATE':
+        if bpy.context.scene.keyops.deceimate_type == 'DECIMATE':
             self.decimate_type = high_quality_decimate
-        elif bpy.context.scene.deceimate_type == 'WELD':
+        elif bpy.context.scene.keyops.deceimate_type == 'WELD':
             self.decimate_type = medium_quality_decimate
-        elif bpy.context.scene.deceimate_type == 'CONNECT':
+        elif bpy.context.scene.keyops.deceimate_type == 'CONNECT':
             self.decimate_type = low_quality_decimate
-        if bpy.context.scene.fast_mode == False:
+        if bpy.context.scene.keyops.fast_mode == False:
         
             for file_name in os.listdir(output_directory):
                 if file_name.endswith(".obj"):  
@@ -212,7 +212,7 @@ class ImportCADDecimate(bpy.types.Operator):
                 bpy.context.view_layer.objects.active = o
                 self.decimate_type()
 
-        if bpy.context.scene.auto_clear_garbage_data:
+        if bpy.context.scene.keyops.auto_clear_garbage_data:
                 bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
         decimate_time = time.time() - export_time
         print(f"Decimated in {decimate_time:.4f} seconds")
@@ -227,10 +227,10 @@ class ImportAllCADDecimate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return bpy.context.scene.fast_mode == False    
+        return bpy.context.scene.keyops.fast_mode == False    
 
     def execute(self, context):
-        output_directory = bpy.context.scene.cad_decimate_export_path
+        output_directory = bpy.context.scene.keyops.cad_decimate_export_path
         os.makedirs(output_directory, exist_ok=True)
 
         imported_files = []  
@@ -242,7 +242,7 @@ class ImportAllCADDecimate(bpy.types.Operator):
 
         bpy.ops.wm.obj_import(filepath=input_file, directory=output_directory, files=[{"name": file_name} for file_name in imported_files])
         
-        if bpy.context.scene.delete_files_after_import:
+        if bpy.context.scene.keyops.delete_files_after_import:
             for file_name in os.listdir(output_directory):
                 if file_name.endswith(".obj"):  
                     input_file = os.path.join(output_directory, file_name)
@@ -263,7 +263,7 @@ class KEYOPS_PT_cad_decimate_panel_manual(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        if context.mode == "OBJECT" and bpy.context.scene.fast_mode == False:
+        if context.mode == "OBJECT" and bpy.context.scene.keyops.fast_mode == False:
             return True
 
     def draw(self, context):
@@ -279,29 +279,29 @@ def draw_cad_decimate_panel(self, context, draw_header=False):
         if get_keyops_prefs().enable_cad_decimate:
             if draw_header:
                 box.label(text="CAD Decimate", icon_value=get_icon("mod_decim"))
-            box.prop(context.scene, "deceimate_type", text="")
-            if context.scene.deceimate_type != 'DECIMATE':
+            box.prop(context.scene.keyops, "deceimate_type", text="")
+            if context.scene.keyops.deceimate_type != 'DECIMATE':
                 box.label(text="Does not preserv UVs", icon='ERROR')
-            box.prop(context.scene, "fast_mode", text="Enable Fast Mode", toggle=True)
+            box.prop(context.scene.keyops, "fast_mode", text="Enable Fast Mode", toggle=True)
             col = box.column(align=True)
             row = col.row(align=True)
-            if bpy.context.scene.deceimate_type == 'DECIMATE':
-                row.prop(context.scene, "procent_or_amount", text="Procent or Amount", expand=True)
+            if bpy.context.scene.keyops.deceimate_type == 'DECIMATE':
+                row.prop(context.scene.keyops, "procent_or_amount", text="Procent or Amount", expand=True)
                 row = col.row(align=True)
-                if bpy.context.scene.procent_or_amount == 'PROCENT':
-                    row.prop(context.scene, "decimation_ratio", text="Decimation %")
+                if bpy.context.scene.keyops.procent_or_amount == 'PROCENT':
+                    row.prop(context.scene.keyops, "decimation_ratio", text="Decimation %")
                 else:
-                    row.prop(context.scene, "tris_count", text="Target Tris:")
+                    row.prop(context.scene.keyops, "tris_count", text="Target Tris:")
             else:
-                box.prop(context.scene, "merge_distance", text="Merge Amount")
-            if bpy.context.scene.fast_mode == False:
-                box.prop(context.scene, "export_selected_only", text="Selected Only")
-            if bpy.context.scene.fast_mode == False and bpy.context.scene.deceimate_type == 'DECIMATE':
-                box.prop(context.scene, "preserv_uvs", text="Preserve UVs")
-            if bpy.context.scene.fast_mode == False:
-                box.prop(context.scene, "delete_files_after_import", text="Delete Files After Import")
-                box.prop(context.scene, "auto_clear_garbage_data", text="Clear Mesh Data")
-                box.prop(context.scene, "cad_decimate_export_path", text="Path")
+                box.prop(context.scene.keyops, "merge_distance", text="Merge Amount")
+            if bpy.context.scene.keyops.fast_mode == False:
+                box.prop(context.scene.keyops, "export_selected_only", text="Selected Only")
+            if bpy.context.scene.keyops.fast_mode == False and bpy.context.scene.keyops.deceimate_type == 'DECIMATE':
+                box.prop(context.scene.keyops, "preserv_uvs", text="Preserve UVs")
+            if bpy.context.scene.keyops.fast_mode == False:
+                box.prop(context.scene.keyops, "delete_files_after_import", text="Delete Files After Import")
+                box.prop(context.scene.keyops, "auto_clear_garbage_data", text="Clear Mesh Data")
+                box.prop(context.scene.keyops, "cad_decimate_export_path", text="Path")
 
             row = box.row()
             row.operator("keyops.cad_decimate", text="CAD Decimate", icon='MOD_DECIM')
@@ -332,42 +332,7 @@ class CADDecimatePanel(bpy.types.Panel):
 
     def register():
         bpy.utils.register_class(KEYOPS_PT_cad_decimate_panel_manual)
-        bpy.types.Scene.auto_clear_garbage_data = bpy.props.BoolProperty(name="Auto Clear Garbage Data", default=True, description="Auto Clear Mesh Data Blocks (Saves a lot of Memory, but is slower)")
-        bpy.types.Scene.preserv_uvs = bpy.props.BoolProperty(name="Preserve UVs",default=True, description="Preserve UVs")
-        bpy.types.Scene.cad_decimate_export_path = bpy.props.StringProperty(name="Path",subtype='FILE_PATH',description="Path for exporting files",default=os.path.join(tempfile.gettempdir(),"CAD_Decimate"))
-        bpy.types.Scene.decimation_ratio = bpy.props.FloatProperty(name="Decimation Ratio",default=0.2, min=0.0,max=1.0,subtype='FACTOR',description="Decimation Ratio")
-        bpy.types.Scene.delete_files_after_import = bpy.props.BoolProperty(name="Delete Files After Import", default=True, description="Delete Files After Import")
-        bpy.types.Scene.export_selected_only = bpy.props.BoolProperty(name="Export Selected Only",default=True,description="Export Selected Only")
-        bpy.types.Scene.deceimate_type = bpy.props.EnumProperty(name="deceimate_type",
-            items=[('DECIMATE', 'High Quality (Slow)', 'High Quality, but slow'),
-                ('WELD', 'Medium Quality (Fast)', 'Medium Quality, does not preserv UVs'),
-                ('CONNECT', 'Low Quality (Fastest)', 'Low Quality, very fast! But does not preserv UVs')],
-            default='DECIMATE',description="Decimate Quality")
-        bpy.types.Scene.merge_distance = bpy.props.FloatProperty(name="Merge Distance",default=0.02,min=0.001,max=1.0,subtype='FACTOR',description="Merge Distance (higher value = more decimation)")
-        bpy.types.Scene.format = bpy.props.EnumProperty(name="format",
-            items=[('OBJ', 'OBJ(Reliable, but slower)', 'OBJ'),
-                ('PLY', 'PLY (Faster, but more error prone)', 'PLY'),
-                ('COLLADA', 'COLLADA (Fastest, but always triangulated)', 'COLLADA')],
-            default='COLLADA',description="Format")
-        bpy.types.Scene.fast_mode = bpy.props.BoolProperty(default=True, description="Disabling 'Fast Mode' is Slower, but it can handle way more polygons without crashing Blender")
-        bpy.types.Scene.procent_or_amount = bpy.props.EnumProperty(name="Procent or Amount",
-            items=[('PROCENT', 'By Procent', 'By Procent'),
-                ('AMOUNT', 'By Tris Count', 'By Tris Amount')],
-            default='PROCENT',description="Procent or Amount")
-        bpy.types.Scene.tris_count = bpy.props.IntProperty(name="Target Tris Count",default=10000,min=1,description="Target Tris Count")
 
     def unregister():
         bpy.utils.unregister_class(KEYOPS_PT_cad_decimate_panel_manual)
-        del bpy.types.Scene.auto_clear_garbage_data
-        del bpy.types.Scene.preserv_uvs
-        del bpy.types.Scene.cad_decimate_export_path
-        del bpy.types.Scene.decimation_ratio
-        del bpy.types.Scene.delete_files_after_import
-        del bpy.types.Scene.export_selected_only
-        del bpy.types.Scene.deceimate_type
-        del bpy.types.Scene.merge_distance
-        del bpy.types.Scene.format
-        del bpy.types.Scene.fast_mode
-        del bpy.types.Scene.procent_or_amount
-        del bpy.types.Scene.tris_count
 

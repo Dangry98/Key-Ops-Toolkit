@@ -1,5 +1,6 @@
 import bpy
-from mathutils import Vector
+from bpy_extras import view3d_utils
+from mathutils import Vector, geometry
 
 ARRAY_SLOTS = ("Array", "Array.001", "Array.002")
 AXIS_NAMES = ("X", "Y", "Z")
@@ -32,7 +33,7 @@ def _draw_status(header, context):
 
     item(('MOUSE_LMB',), "Confirm")
     item(('MOUSE_RMB',), "Cancel")
-    item(('MOUSE_MOVE',), "Offset")
+    item(('MOUSE_MOVE',), "End at Cursor" if op.to_cursor else "Offset")
     item(('EVENT_SHIFT',), "Precise")
     item(('EVENT_CTRL',), "Snap")
     item(('MOUSE_MMB_SCROLL',), f"Count ({op.current_count()})")
@@ -41,6 +42,7 @@ def _draw_status(header, context):
     item(('EVENT_SHIFT', 'EVENT_X'), "Toggle Axis")
     item(('EVENT_R',), "Relative" + (" ✓" if op.relative else ""))
     item(('EVENT_C',), "Constant" + ("" if op.relative else " ✓"))
+    item(('EVENT_V',), "To Cursor" + (" ✓" if op.to_cursor else ""))
     row.label(text="1 / 2 / 3")
     row.label(text=f"Array Slot ({op.active_name})")
     row.separator(factor=2.0)
@@ -54,7 +56,8 @@ class FastArray(bpy.types.Operator):
     bl_label = "Fast Array"
     bl_description = ("Add or adjust an Array modifier interactively.\n"
                       "Drag to set the offset, scroll for count, X/Y/Z for axis, "
-                      "R/C for relative/constant, 1/2/3 for up to three arrays")
+                      "R/C for relative/constant, V to end the array at the mouse cursor, "
+                      "1/2/3 for up to three arrays")
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     @classmethod
@@ -87,6 +90,9 @@ class FastArray(bpy.types.Operator):
         self.axes = [True, False, False]
         self.last_x = event.mouse_x
         self.skip_next_move = False
+        self.to_cursor = False     # V: last copy follows the mouse cursor
+        self.mouse_region = (event.mouse_region_x, event.mouse_region_y)
+        self.input_size = {}       # (obj, mod name) -> local bbox size of the array's input
 
         self.activate_slot(0)
 
@@ -97,7 +103,7 @@ class FastArray(bpy.types.Operator):
             context.workspace.status_text_set(_draw_status)
         except Exception:
             context.workspace.status_text_set(
-                "LMB Confirm | RMB Cancel | Move Offset | Wheel Count | X/Y/Z Axis | R/C Relative/Constant | 1/2/3 Slot")
+                "LMB Confirm | RMB Cancel | Move Offset | Wheel Count | X/Y/Z Axis | R/C Relative/Constant | V To Cursor | 1/2/3 Slot")
         self.update_header()
         return {'RUNNING_MODAL'}
 
@@ -263,6 +269,97 @@ class FastArray(bpy.types.Operator):
         mod = self.ref_obj.modifiers.get(self.mod_names.get(self.ref_obj, self.active_name))
         return mod.count if mod is not None else 0
 
+    # ---------------------------------------------------------- to cursor
+
+    def array_input_size(self, context, obj, mod):
+        """Local bounding box size of the mesh entering this Array modifier.
+
+        Relative offset is a multiple of this size, so it is needed to turn a
+        cursor distance into a relative offset. Modifiers from this one down are
+        hidden for a single evaluation to measure it."""
+        key = (obj, mod.name)
+        if key in self.input_size:
+            return self.input_size[key]
+        idx = obj.modifiers.find(mod.name)
+        hidden = [m for m in obj.modifiers[idx:] if m.show_viewport]
+        for m in hidden:
+            m.show_viewport = False
+        try:
+            depsgraph = context.evaluated_depsgraph_get()
+            depsgraph.update()
+            corners = [Vector(c) for c in obj.evaluated_get(depsgraph).bound_box]
+        finally:
+            for m in hidden:
+                m.show_viewport = True
+        size = Vector(max(c[i] for c in corners) - min(c[i] for c in corners) for i in range(3))
+        self.input_size[key] = size
+        return size
+
+    def cursor_target(self, context, obj):
+        """Point (object local space) under the mouse, constrained to the active axes."""
+        region, rv3d = self.region, context.region_data
+        if region is None or rv3d is None:
+            return None
+        coord = self.mouse_region
+        mw = obj.matrix_world
+        origin = mw.translation
+        ray_o = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
+        ray_d = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
+        axes = [i for i in range(3) if self.axes[i]]
+        dirs = [(mw.to_3x3() @ Vector([1.0 if j == i else 0.0 for j in range(3)])).normalized()
+                for i in axes]
+
+        point = None
+        if len(dirs) == 1:
+            # Closest point on the axis line to the view ray
+            hit = geometry.intersect_line_line(origin, origin + dirs[0], ray_o, ray_o + ray_d)
+            if hit is not None:
+                point = hit[0]
+        elif len(dirs) == 2:
+            normal = dirs[0].cross(dirs[1])
+            if normal.length > EPS and abs(normal.normalized().dot(ray_d)) > 1e-3:
+                point = geometry.intersect_line_plane(ray_o, ray_o + ray_d, origin, normal)
+        if point is None:  # three axes, or the ray runs along the line/plane
+            point = view3d_utils.region_2d_to_location_3d(region, rv3d, coord, origin)
+        return mw.inverted_safe() @ point
+
+    def apply_cursor(self, context, snap=False):
+        for obj, mod in self.active_mods():
+            target = self.cursor_target(context, obj)
+            if target is None:
+                continue
+            steps = max(mod.count - 1, 1)
+            base = self.base.get(obj, Vector((0.0, 0.0, 0.0)))
+            vec = Vector(base)
+            size = self.array_input_size(context, obj, mod) if self.relative else None
+            for i in range(3):
+                if not self.axes[i]:
+                    continue
+                v = target[i] / steps
+                if self.relative:
+                    v = v / size[i] if size[i] > EPS else base[i]
+                vec[i] = round(v * 10.0) / 10.0 if snap else round(v, 4)
+            if self.relative:
+                mod.relative_offset_displace = vec
+            else:
+                mod.constant_offset_displace = vec
+
+    def toggle_to_cursor(self, context, snap=False):
+        self.to_cursor = not self.to_cursor
+        if self.to_cursor:
+            for obj, mod in self.active_mods():
+                if mod.count < 2:
+                    mod.count = 2
+            self.input_size.clear()
+            self.apply_cursor(context, snap)
+            context.window.cursor_modal_set('CROSSHAIR')
+        else:
+            # Carry on dragging from where the cursor left the offset
+            self.capture_base()
+            self.last_x = self.region.x + self.mouse_region[0] if self.region else self.last_x
+            context.window.cursor_modal_set('SCROLL_X')
+        self.report({'INFO'}, "Array to Cursor" if self.to_cursor else "Array Offset Drag")
+
     # ---------------------------------------------------------------- modal
 
     def pixel_scale(self, context):
@@ -292,6 +389,13 @@ class FastArray(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+            self.mouse_region = (event.mouse_region_x, event.mouse_region_y)
+            if self.to_cursor:
+                self.skip_next_move = False
+                self.last_x = event.mouse_x
+                self.apply_cursor(context, snap=event.ctrl)
+                self.update_header()
+                return {'RUNNING_MODAL'}
             if self.skip_next_move:
                 self.skip_next_move = False
                 self.last_x = event.mouse_x
@@ -333,6 +437,9 @@ class FastArray(bpy.types.Operator):
         elif event.type == 'C':
             self.set_relative(False)
 
+        elif event.type == 'V':
+            self.toggle_to_cursor(context, snap=event.ctrl)
+
         elif event.type in {'ONE', 'TWO', 'THREE'}:
             self.activate_slot(('ONE', 'TWO', 'THREE').index(event.type))
 
@@ -349,9 +456,19 @@ class FastArray(bpy.types.Operator):
             except RuntimeError as e:
                 self.report({'WARNING'}, str(e).replace("Error: ", "").strip())
             self.capture_base()
+            self.input_size.clear()
 
         else:
             return {'RUNNING_MODAL'}
+
+        if event.type in {'Q', 'W', 'ONE', 'TWO', 'THREE'} or (event.shift and event.type.startswith('WHEEL')):
+            self.input_size.clear()  # stack order changed what feeds the array
+        if self.to_cursor and event.type != 'V':
+            # Count, axis, mode or slot changed: keep the last copy on the cursor
+            for obj, mod in self.active_mods():
+                if mod.count < 2:
+                    mod.count = 2
+            self.apply_cursor(context, snap=event.ctrl)
 
         self.update_header()
         return {'RUNNING_MODAL'}
@@ -367,6 +484,9 @@ class FastArray(bpy.types.Operator):
         text = (f"{mod.name}    Count: {mod.count}    "
                 f"{'Relative' if self.relative else 'Constant'}: "
                 f"X {vec[0]:.3f}  Y {vec[1]:.3f}  Z {vec[2]:.3f}    Axis: {axes}")
+        if self.to_cursor:
+            text += "    To Cursor"
+
         if len(self.objects) > 1:
             text += f"    ({len(self.objects)} objects)"
         self.area.header_text_set(text)

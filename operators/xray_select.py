@@ -88,7 +88,7 @@ def _xray_select_watcher():
         if key in _forced_xray:
             if not running:
                 _restore_xray(key)
-        elif running and window.scene.keyops_xray_select and _window_in_edit_mesh(window):
+        elif running and window.scene.keyops.xray_select and _window_in_edit_mesh(window):
             _force_xray(window)
 
     for key in list(_forced_xray):  # windows closed mid-gesture
@@ -105,7 +105,7 @@ class XraySelectToggleOperator(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        context.scene.keyops_xray_select = not context.scene.keyops_xray_select
+        context.scene.keyops.xray_select = not context.scene.keyops.xray_select
         return {'FINISHED'}
 
 
@@ -115,7 +115,7 @@ def _draw_select_through(context, layout):
     tool = context.workspace.tools.from_space_view3d_mode(context.mode, create=False)
     if tool is None or tool.idname not in SELECT_TOOLS:
         return
-    layout.prop(context.scene, "keyops_xray_select", text="X-Ray Select")
+    layout.prop(context.scene.keyops, "xray_select", text="X-Ray Select")
 
 
 # The select tools' Mode enum is drawn by the tool's own draw_settings, called from
@@ -155,12 +155,6 @@ classes = (XraySelectToggleOperator,)
 
 
 def register_xray_select():
-    bpy.types.Scene.keyops_xray_select = bpy.props.BoolProperty(
-        name="X-Ray Select",
-        description="Always select through geometry when using the box, circle or lasso select tools",
-        default=False,
-    )
-
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -180,5 +174,3 @@ def unregister_xray_select():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
-    if hasattr(bpy.types.Scene, "keyops_xray_select"):
-        del bpy.types.Scene.keyops_xray_select
