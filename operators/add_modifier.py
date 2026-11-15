@@ -517,11 +517,12 @@ class AddModifier(bpy.types.Operator):
             #selected juts 1 mesh object
             selected = [o for o in context.selected_objects if o.type == 'MESH']
             if len(selected) == 1:
-                bpy.ops.object.modifier_add(type='SHRINKWRAP')
+                mod = selected[0].modifiers.new(type='SHRINKWRAP', name='Shrinkwrap')
+                mod.wrap_method = self.shrink_mode
             else:
                 #add the shrinkwrap modifier to the none active object and choose the active object as target
                 has_active_object = False
-                if context.active_object.type == 'MESH':
+                if context.active_object and context.active_object.type == 'MESH':
                     has_active_object = True
                 if has_active_object:
                     for obj in selected:
@@ -532,7 +533,7 @@ class AddModifier(bpy.types.Operator):
                             mod.show_on_cage = True
                             mod.show_in_editmode = True
                 else:       
-                    self.report({'ERROR'}, "Needs to have one active mesh object (target) and one or more mesh objects selected")
+                    self.report({'WARNING'}, "Needs to have one active mesh object (target) and one or more mesh objects selected")
                     return {'CANCELLED'}
                     
         if self.type == 'LATTICE':  

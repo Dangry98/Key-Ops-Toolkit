@@ -533,11 +533,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         return update_enable
 
     def update_legacy_collection_shortcuts(self, context):
-        if bpy.app.version < (5, 0, 0):
-            self.enable_legacy_collection_shortcuts = False
-            return
-        if not self.enable_legacy_shortcuts:
-            self.enable_legacy_collection_shortcuts = False
+        if bpy.app.version < (5, 0, 0) or not self.enable_legacy_shortcuts:
+            # Only reset when needed, setting the property calls this update again
+            if self.enable_legacy_collection_shortcuts:
+                self.enable_legacy_collection_shortcuts = False
             return
 
         if self.enable_legacy_collection_shortcuts:

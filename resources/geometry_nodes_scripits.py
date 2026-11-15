@@ -1,6 +1,50 @@
 import bpy
 from ..utils.utilities import BLENDER_VERSION
 
+def set_socket_default(sockets, index, value):
+	# The socket layout of some nodes changes between Blender versions (unused sockets of other
+	# data types get removed or change type), skip values that no longer fit
+	try:
+		sockets[index].default_value = value
+	except (IndexError, TypeError, AttributeError, ValueError):
+		pass
+
+# Input layouts these scripts were generated with. Newer Blender versions changed them, so look the
+# sockets up by identifier/name instead of by index.
+_OLD_NODE_INPUTS = {
+	'FunctionNodeCompare': ['A', 'B', 'A_INT', 'B_INT', 'A_VEC3', 'B_VEC3', 'A_COL', 'B_COL', 'A_STR', 'B_STR', 'C', 'Angle', 'Epsilon'],
+	'GeometryNodeTransform': ['Geometry', 'Translation', 'Rotation', 'Scale'],
+}
+
+def node_input(node, index):
+	old_layout = _OLD_NODE_INPUTS.get(node.bl_idname)
+	if old_layout is None:
+		return node.inputs[index]
+	identifier = old_layout[index]
+	for socket in node.inputs:
+		if socket.identifier == identifier:
+			return socket
+	# Blender 5.3+ Compare node only has the A and B sockets of the active data type
+	return node.inputs[identifier.split('_')[0]]
+
+def set_node_input_default(node, index, value):
+	try:
+		node_input(node, index).default_value = value
+	except (IndexError, KeyError, TypeError, AttributeError, ValueError):
+		pass
+
+def set_node_option(node, attribute, value):
+	"""Set a node enum option. Blender 5.0+ turned some of them into menu input sockets."""
+	if hasattr(node, attribute):
+		setattr(node, attribute, value)
+		return
+	socket = node.inputs.get(attribute.replace('_', ' ').title())
+	if socket is not None and socket.type == 'MENU':
+		try:
+			socket.default_value = value.replace('_', ' ').title()
+		except (TypeError, ValueError):
+			pass
+
 def offset_uv_node_group():
 	offset_uv = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Offset UV")
 
@@ -50,24 +94,24 @@ def offset_uv_node_group():
 	#node Named Attribute
 	named_attribute = offset_uv.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute.name = "Named Attribute"
-	named_attribute.data_type = 'FLOAT_VECTOR'
+	set_node_option(named_attribute, "data_type", 'FLOAT_VECTOR')
 	
 	#node Vector Math
 	vector_math = offset_uv.nodes.new("ShaderNodeVectorMath")
 	vector_math.name = "Vector Math"
-	vector_math.operation = 'ADD'
+	set_node_option(vector_math, "operation", 'ADD')
 	
 	#node Combine XYZ
 	combine_xyz = offset_uv.nodes.new("ShaderNodeCombineXYZ")
 	combine_xyz.name = "Combine XYZ"
 	#Z
-	combine_xyz.inputs[2].default_value = 0.0
+	set_socket_default(combine_xyz.inputs, 2, 0.0)
 	
 	#node Store Named Attribute
 	store_named_attribute = offset_uv.nodes.new("GeometryNodeStoreNamedAttribute")
 	store_named_attribute.name = "Store Named Attribute"
-	store_named_attribute.data_type = 'FLOAT2'
-	store_named_attribute.domain = 'CORNER'
+	set_node_option(store_named_attribute, "data_type", 'FLOAT2')
+	set_node_option(store_named_attribute, "domain", 'CORNER')
 	
 	#node Group Output
 	group_output = offset_uv.nodes.new("NodeGroupOutput")
@@ -227,25 +271,25 @@ def triplanar_uv_mapping_node_group():
     #node Store Named Attribute
     store_named_attribute = triplanar_uv_mapping.nodes.new("GeometryNodeStoreNamedAttribute")
     store_named_attribute.name = "Store Named Attribute"
-    store_named_attribute.data_type = 'FLOAT2'
-    store_named_attribute.domain = 'CORNER'
+    set_node_option(store_named_attribute, "data_type", 'FLOAT2')
+    set_node_option(store_named_attribute, "domain", 'CORNER')
 
     #node Combine XYZ
     combine_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
     combine_xyz.name = "Combine XYZ"
     combine_xyz.inputs[2].hide = True
     #Z
-    combine_xyz.inputs[2].default_value = 0.0
+    set_socket_default(combine_xyz.inputs, 2, 0.0)
 
     #node Vector Rotate.001
     vector_rotate_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
     vector_rotate_001.name = "Vector Rotate.001"
     vector_rotate_001.invert = False
-    vector_rotate_001.rotation_type = 'AXIS_ANGLE'
+    set_node_option(vector_rotate_001, "rotation_type", 'AXIS_ANGLE')
     vector_rotate_001.inputs[2].hide = True
     vector_rotate_001.inputs[4].hide = True
     #Axis
-    vector_rotate_001.inputs[2].default_value = (0.0, 0.0, 1.0)
+    set_socket_default(vector_rotate_001.inputs, 2, (0.0, 0.0, 1.0))
 
     #node Separate XYZ.001
     separate_xyz_001 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
@@ -254,16 +298,16 @@ def triplanar_uv_mapping_node_group():
     #node Compare.002
     compare_002 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
     compare_002.name = "Compare.002"
-    compare_002.data_type = 'FLOAT'
-    compare_002.mode = 'ELEMENT'
-    compare_002.operation = 'GREATER_THAN'
+    set_node_option(compare_002, "data_type", 'FLOAT')
+    set_node_option(compare_002, "mode", 'ELEMENT')
+    set_node_option(compare_002, "operation", 'GREATER_THAN')
 
     #node Compare.003
     compare_003 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
     compare_003.name = "Compare.003"
-    compare_003.data_type = 'FLOAT'
-    compare_003.mode = 'ELEMENT'
-    compare_003.operation = 'GREATER_THAN'
+    set_node_option(compare_003, "data_type", 'FLOAT')
+    set_node_option(compare_003, "mode", 'ELEMENT')
+    set_node_option(compare_003, "operation", 'GREATER_THAN')
 
     #node Position
     position = triplanar_uv_mapping.nodes.new("GeometryNodeInputPosition")
@@ -272,39 +316,39 @@ def triplanar_uv_mapping_node_group():
     #node Vector Math
     vector_math = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math.name = "Vector Math"
-    vector_math.operation = 'MULTIPLY'
+    set_node_option(vector_math, "operation", 'MULTIPLY')
 
     #node Switch
     switch = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch.name = "Switch"
-    switch.input_type = 'VECTOR'
+    set_node_option(switch, "input_type", 'VECTOR')
     #True
-    switch.inputs[2].default_value = (1.0, 0.0, 1.0)
+    set_socket_default(switch.inputs, 2, (1.0, 0.0, 1.0))
 
     #node Switch.001
     switch_001 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch_001.name = "Switch.001"
-    switch_001.input_type = 'VECTOR'
+    set_node_option(switch_001, "input_type", 'VECTOR')
     #False
-    switch_001.inputs[1].default_value = (1.0, 1.0, 0.0)
+    set_socket_default(switch_001.inputs, 1, (1.0, 1.0, 0.0))
     #True
-    switch_001.inputs[2].default_value = (0.0, 1.0, 1.0)
+    set_socket_default(switch_001.inputs, 2, (0.0, 1.0, 1.0))
 
     #node Switch.003
     switch_003 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch_003.name = "Switch.003"
-    switch_003.input_type = 'VECTOR'
+    set_node_option(switch_003, "input_type", 'VECTOR')
     #False
-    switch_003.inputs[1].default_value = (0.0, 0.0, 0.0)
+    set_socket_default(switch_003.inputs, 1, (0.0, 0.0, 0.0))
     #True
-    switch_003.inputs[2].default_value = (0.0, -1.5707999467849731, 0.0)
+    set_socket_default(switch_003.inputs, 2, (0.0, -1.5707999467849731, 0.0))
 
     #node Switch.002
     switch_002 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch_002.name = "Switch.002"
-    switch_002.input_type = 'VECTOR'
+    set_node_option(switch_002, "input_type", 'VECTOR')
     #True
-    switch_002.inputs[2].default_value = (-1.5707999467849731, 0.0, 0.0)
+    set_socket_default(switch_002.inputs, 2, (-1.5707999467849731, 0.0, 0.0))
 
     #node Normal
     normal = triplanar_uv_mapping.nodes.new("GeometryNodeInputNormal")
@@ -313,7 +357,7 @@ def triplanar_uv_mapping_node_group():
     #node Vector Math.001
     vector_math_001 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_001.name = "Vector Math.001"
-    vector_math_001.operation = 'ABSOLUTE'
+    set_node_option(vector_math_001, "operation", 'ABSOLUTE')
 
     #node Separate XYZ
     separate_xyz = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
@@ -322,46 +366,46 @@ def triplanar_uv_mapping_node_group():
     #node Compare
     compare = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
     compare.name = "Compare"
-    compare.data_type = 'FLOAT'
-    compare.mode = 'ELEMENT'
-    compare.operation = 'GREATER_THAN'
+    set_node_option(compare, "data_type", 'FLOAT')
+    set_node_option(compare, "mode", 'ELEMENT')
+    set_node_option(compare, "operation", 'GREATER_THAN')
 
     #node Compare.001
     compare_001 = triplanar_uv_mapping.nodes.new("FunctionNodeCompare")
     compare_001.name = "Compare.001"
-    compare_001.data_type = 'FLOAT'
-    compare_001.mode = 'ELEMENT'
-    compare_001.operation = 'GREATER_THAN'
+    set_node_option(compare_001, "data_type", 'FLOAT')
+    set_node_option(compare_001, "mode", 'ELEMENT')
+    set_node_option(compare_001, "operation", 'GREATER_THAN')
 
     #node Boolean Math
     boolean_math = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
     boolean_math.name = "Boolean Math"
-    boolean_math.operation = 'AND'
+    set_node_option(boolean_math, "operation", 'AND')
 
     #node Boolean Math.001
     boolean_math_001 = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
     boolean_math_001.name = "Boolean Math.001"
-    boolean_math_001.operation = 'AND'
+    set_node_option(boolean_math_001, "operation", 'AND')
 
     #node Vector Rotate
     vector_rotate = triplanar_uv_mapping.nodes.new("ShaderNodeVectorRotate")
     vector_rotate.name = "Vector Rotate"
     vector_rotate.invert = False
-    vector_rotate.rotation_type = 'EULER_XYZ'
+    set_node_option(vector_rotate, "rotation_type", 'EULER_XYZ')
     #Center
-    vector_rotate.inputs[1].default_value = (0.0, 0.0, 0.0)
+    set_socket_default(vector_rotate.inputs, 1, (0.0, 0.0, 0.0))
 
     #node Vector Math.004
     vector_math_004 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_004.name = "Vector Math.004"
-    vector_math_004.operation = 'MULTIPLY'
+    set_node_option(vector_math_004, "operation", 'MULTIPLY')
 
     #node Object Info.001
     object_info_001 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
     object_info_001.name = "Object Info.001"
-    object_info_001.transform_space = 'ORIGINAL'
+    set_node_option(object_info_001, "transform_space", 'ORIGINAL')
     #As Instance
-    object_info_001.inputs[1].default_value = False
+    set_socket_default(object_info_001.inputs, 1, False)
 
     #node Self Object.001
     self_object_001 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
@@ -384,12 +428,12 @@ def triplanar_uv_mapping_node_group():
     #node Switch.004
     switch_004 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch_004.name = "Switch.004"
-    switch_004.input_type = 'VECTOR'
+    set_node_option(switch_004, "input_type", 'VECTOR')
 
     #node Vector Math.006
     vector_math_006 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_006.name = "Vector Math.006"
-    vector_math_006.operation = 'SCALE'
+    set_node_option(vector_math_006, "operation", 'SCALE')
     vector_math_006.inputs[1].hide = True
     vector_math_006.inputs[2].hide = True
     vector_math_006.outputs[1].hide = True
@@ -410,7 +454,7 @@ def triplanar_uv_mapping_node_group():
     #node Vector Math.007
     vector_math_007 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_007.name = "Vector Math.007"
-    vector_math_007.operation = 'ADD'
+    set_node_option(vector_math_007, "operation", 'ADD')
     vector_math_007.inputs[2].hide = True
     vector_math_007.inputs[3].hide = True
     vector_math_007.outputs[1].hide = True
@@ -419,9 +463,9 @@ def triplanar_uv_mapping_node_group():
     object_info_003 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
     object_info_003.name = "Object Info.003"
     object_info_003.mute = True
-    object_info_003.transform_space = 'ORIGINAL'
+    set_node_option(object_info_003, "transform_space", 'ORIGINAL')
     #As Instance
-    object_info_003.inputs[1].default_value = False
+    set_socket_default(object_info_003.inputs, 1, False)
 
     #node Self Object.003
     self_object_003 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
@@ -445,12 +489,12 @@ def triplanar_uv_mapping_node_group():
     #node Boolean Math.003
     boolean_math_003 = triplanar_uv_mapping.nodes.new("FunctionNodeBooleanMath")
     boolean_math_003.name = "Boolean Math.003"
-    boolean_math_003.operation = 'NOT'
+    set_node_option(boolean_math_003, "operation", 'NOT')
 
     #node Math
     math = triplanar_uv_mapping.nodes.new("ShaderNodeMath")
     math.name = "Math"
-    math.operation = 'ADD'
+    set_node_option(math, "operation", 'ADD')
     math.use_clamp = False
 
     #node Separate XYZ.002
@@ -461,9 +505,9 @@ def triplanar_uv_mapping_node_group():
     combine_xyz_001 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
     combine_xyz_001.name = "Combine XYZ.001"
     #X
-    combine_xyz_001.inputs[0].default_value = 0.0
+    set_socket_default(combine_xyz_001.inputs, 0, 0.0)
     #Y
-    combine_xyz_001.inputs[1].default_value = -1.5707999467849731
+    set_socket_default(combine_xyz_001.inputs, 1, -1.5707999467849731)
 
     #node Separate XYZ.003
     separate_xyz_003 = triplanar_uv_mapping.nodes.new("ShaderNodeSeparateXYZ")
@@ -473,22 +517,22 @@ def triplanar_uv_mapping_node_group():
     combine_xyz_002 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
     combine_xyz_002.name = "Combine XYZ.002"
     #X
-    combine_xyz_002.inputs[0].default_value = -1.5707999467849731
+    set_socket_default(combine_xyz_002.inputs, 0, -1.5707999467849731)
     #Y
-    combine_xyz_002.inputs[1].default_value = 0.0
+    set_socket_default(combine_xyz_002.inputs, 1, 0.0)
 
     #node Math.001
     math_001 = triplanar_uv_mapping.nodes.new("ShaderNodeMath")
     math_001.name = "Math.001"
-    math_001.operation = 'MULTIPLY'
+    set_node_option(math_001, "operation", 'MULTIPLY')
     math_001.use_clamp = False
     #Value_001
-    math_001.inputs[1].default_value = -1.0
+    set_socket_default(math_001.inputs, 1, -1.0)
 
     #node Vector Math.010
     vector_math_010 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_010.name = "Vector Math.010"
-    vector_math_010.operation = 'ADD'
+    set_node_option(vector_math_010, "operation", 'ADD')
     vector_math_010.inputs[2].hide = True
     vector_math_010.inputs[3].hide = True
     vector_math_010.outputs[1].hide = True
@@ -505,16 +549,16 @@ def triplanar_uv_mapping_node_group():
     combine_xyz_003 = triplanar_uv_mapping.nodes.new("ShaderNodeCombineXYZ")
     combine_xyz_003.name = "Combine XYZ.003"
     #X
-    combine_xyz_003.inputs[0].default_value = 0.0
+    set_socket_default(combine_xyz_003.inputs, 0, 0.0)
     #Y
-    combine_xyz_003.inputs[1].default_value = 0.0
+    set_socket_default(combine_xyz_003.inputs, 1, 0.0)
 
     #node Object Info.004
     object_info_004 = triplanar_uv_mapping.nodes.new("GeometryNodeObjectInfo")
     object_info_004.name = "Object Info.004"
-    object_info_004.transform_space = 'ORIGINAL'
+    set_node_option(object_info_004, "transform_space", 'ORIGINAL')
     #As Instance
-    object_info_004.inputs[1].default_value = False
+    set_socket_default(object_info_004.inputs, 1, False)
 
     #node Self Object.004
     self_object_004 = triplanar_uv_mapping.nodes.new("GeometryNodeSelfObject")
@@ -523,7 +567,7 @@ def triplanar_uv_mapping_node_group():
     #node Vector Math.009
     vector_math_009 = triplanar_uv_mapping.nodes.new("ShaderNodeVectorMath")
     vector_math_009.name = "Vector Math.009"
-    vector_math_009.operation = 'ADD'
+    set_node_option(vector_math_009, "operation", 'ADD')
     vector_math_009.inputs[2].hide = True
     vector_math_009.inputs[3].hide = True
     vector_math_009.outputs[1].hide = True
@@ -545,7 +589,7 @@ def triplanar_uv_mapping_node_group():
     #node Switch.005
     switch_005 = triplanar_uv_mapping.nodes.new("GeometryNodeSwitch")
     switch_005.name = "Switch.005"
-    switch_005.input_type = 'VECTOR'
+    set_node_option(switch_005, "input_type", 'VECTOR')
 
 
 
@@ -667,13 +711,13 @@ def triplanar_uv_mapping_node_group():
     #vector_math_001.Vector -> separate_xyz.Vector
     triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz.inputs[0])
     #separate_xyz.X -> compare.A
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare.inputs[0])
+    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], node_input(compare, 0))
     #separate_xyz.Y -> compare.B
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[1], compare.inputs[1])
+    triplanar_uv_mapping.links.new(separate_xyz.outputs[1], node_input(compare, 1))
     #separate_xyz.X -> compare_001.A
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], compare_001.inputs[0])
+    triplanar_uv_mapping.links.new(separate_xyz.outputs[0], node_input(compare_001, 0))
     #separate_xyz.Z -> compare_001.B
-    triplanar_uv_mapping.links.new(separate_xyz.outputs[2], compare_001.inputs[1])
+    triplanar_uv_mapping.links.new(separate_xyz.outputs[2], node_input(compare_001, 1))
     #compare.Result -> boolean_math.Boolean
     triplanar_uv_mapping.links.new(compare.outputs[0], boolean_math.inputs[0])
     #compare_001.Result -> boolean_math.Boolean
@@ -681,17 +725,17 @@ def triplanar_uv_mapping_node_group():
     #vector_math_001.Vector -> separate_xyz_001.Vector
     triplanar_uv_mapping.links.new(vector_math_001.outputs[0], separate_xyz_001.inputs[0])
     #separate_xyz_001.Z -> compare_003.B
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[2], compare_003.inputs[1])
+    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[2], node_input(compare_003, 1))
     #compare_002.Result -> boolean_math_001.Boolean
     triplanar_uv_mapping.links.new(compare_002.outputs[0], boolean_math_001.inputs[0])
     #compare_003.Result -> boolean_math_001.Boolean
     triplanar_uv_mapping.links.new(compare_003.outputs[0], boolean_math_001.inputs[1])
     #separate_xyz_001.Y -> compare_002.A
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_002.inputs[0])
+    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], node_input(compare_002, 0))
     #separate_xyz_001.X -> compare_002.B
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[0], compare_002.inputs[1])
+    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[0], node_input(compare_002, 1))
     #separate_xyz_001.Y -> compare_003.A
-    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], compare_003.inputs[0])
+    triplanar_uv_mapping.links.new(separate_xyz_001.outputs[1], node_input(compare_003, 0))
     #switch.Output -> vector_math.Vector
     triplanar_uv_mapping.links.new(switch.outputs[0], vector_math.inputs[1])
     #switch_001.Output -> switch.False
@@ -824,7 +868,7 @@ def duplicate_linked_modifiers_node_group():
 	#node Object Info
 	object_info = duplicate_linked_modifiers.nodes.new("GeometryNodeObjectInfo")
 	object_info.name = "Object Info"
-	object_info.transform_space = 'ORIGINAL'
+	set_node_option(object_info, "transform_space", 'ORIGINAL')
 	
 	#Set locations
 	group_input.location = (-251.35650634765625, -25.58302116394043)
@@ -867,64 +911,64 @@ def match_bounding_box_node_group():
 	#node Vector Math.001
 	vector_math_001 = match_bounding_box.nodes.new("ShaderNodeVectorMath")
 	vector_math_001.name = "Vector Math.001"
-	vector_math_001.operation = 'SUBTRACT'
+	set_node_option(vector_math_001, "operation", 'SUBTRACT')
 	#Vector_002
-	vector_math_001.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_001.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_001.inputs[3].default_value = 1.0
+	set_socket_default(vector_math_001.inputs, 3, 1.0)
 	
 	#node Vector Math
 	vector_math = match_bounding_box.nodes.new("ShaderNodeVectorMath")
 	vector_math.name = "Vector Math"
-	vector_math.operation = 'DIVIDE'
+	set_node_option(vector_math, "operation", 'DIVIDE')
 	#Vector_002
-	vector_math.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math.inputs[3].default_value = 1.0
+	set_socket_default(vector_math.inputs, 3, 1.0)
 	
 	#node Math
 	math = match_bounding_box.nodes.new("ShaderNodeMath")
 	math.name = "Math"
-	math.operation = 'ADD'
+	set_node_option(math, "operation", 'ADD')
 	math.use_clamp = False
 	#Value
-	math.inputs[0].default_value = 2.0
+	set_socket_default(math.inputs, 0, 2.0)
 	#Value_001
-	math.inputs[1].default_value = 1.0
+	set_socket_default(math.inputs, 1, 1.0)
 	#Value_002
-	math.inputs[2].default_value = 0.5
+	set_socket_default(math.inputs, 2, 0.5)
 	
 	#node Math.001
 	math_001 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_001.name = "Math.001"
-	math_001.operation = 'MODULO'
+	set_node_option(math_001, "operation", 'MODULO')
 	math_001.use_clamp = False
 	#Value_001
-	math_001.inputs[1].default_value = 3.0
+	set_socket_default(math_001.inputs, 1, 3.0)
 	#Value_002
-	math_001.inputs[2].default_value = 0.5
+	set_socket_default(math_001.inputs, 2, 0.5)
 	
 	#node Math.002
 	math_002 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_002.name = "Math.002"
-	math_002.operation = 'ADD'
+	set_node_option(math_002, "operation", 'ADD')
 	math_002.use_clamp = False
 	#Value
-	math_002.inputs[0].default_value = 2.0
+	set_socket_default(math_002.inputs, 0, 2.0)
 	#Value_001
-	math_002.inputs[1].default_value = 2.0
+	set_socket_default(math_002.inputs, 1, 2.0)
 	#Value_002
-	math_002.inputs[2].default_value = 0.5
+	set_socket_default(math_002.inputs, 2, 0.5)
 	
 	#node Math.003
 	math_003 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_003.name = "Math.003"
-	math_003.operation = 'MODULO'
+	set_node_option(math_003, "operation", 'MODULO')
 	math_003.use_clamp = False
 	#Value_001
-	math_003.inputs[1].default_value = 3.0
+	set_socket_default(math_003.inputs, 1, 3.0)
 	#Value_002
-	math_003.inputs[2].default_value = 0.5
+	set_socket_default(math_003.inputs, 2, 0.5)
 	
 	#node Position
 	position = match_bounding_box.nodes.new("GeometryNodeInputPosition")
@@ -942,71 +986,71 @@ def match_bounding_box_node_group():
 	#node Mix
 	mix = match_bounding_box.nodes.new("ShaderNodeMix")
 	mix.name = "Mix"
-	mix.blend_type = 'MIX'
+	set_node_option(mix, "blend_type", 'MIX')
 	mix.clamp_factor = True
 	mix.clamp_result = False
-	mix.data_type = 'VECTOR'
-	mix.factor_mode = 'UNIFORM'
+	set_node_option(mix, "data_type", 'VECTOR')
+	set_node_option(mix, "factor_mode", 'UNIFORM')
 	#Factor_Vector
-	mix.inputs[1].default_value = (0.5, 0.5, 0.5)
+	set_socket_default(mix.inputs, 1, (0.5, 0.5, 0.5))
 	#A_Float
-	mix.inputs[2].default_value = 0.0
+	set_socket_default(mix.inputs, 2, 0.0)
 	#B_Float
-	mix.inputs[3].default_value = 0.0
+	set_socket_default(mix.inputs, 3, 0.0)
 	#A_Color
-	mix.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix.inputs, 6, (0.5, 0.5, 0.5, 1.0))
 	#B_Color
-	mix.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix.inputs, 7, (0.5, 0.5, 0.5, 1.0))
 	#A_Rotation
-	mix.inputs[8].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix.inputs, 8, (0.0, 0.0, 0.0))
 	#B_Rotation
-	mix.inputs[9].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix.inputs, 9, (0.0, 0.0, 0.0))
 	
 	#node Mix.001
 	mix_001 = match_bounding_box.nodes.new("ShaderNodeMix")
 	mix_001.name = "Mix.001"
-	mix_001.blend_type = 'MIX'
+	set_node_option(mix_001, "blend_type", 'MIX')
 	mix_001.clamp_factor = True
 	mix_001.clamp_result = False
-	mix_001.data_type = 'VECTOR'
-	mix_001.factor_mode = 'UNIFORM'
+	set_node_option(mix_001, "data_type", 'VECTOR')
+	set_node_option(mix_001, "factor_mode", 'UNIFORM')
 	#Factor_Vector
-	mix_001.inputs[1].default_value = (0.5, 0.5, 0.5)
+	set_socket_default(mix_001.inputs, 1, (0.5, 0.5, 0.5))
 	#A_Float
-	mix_001.inputs[2].default_value = 0.0
+	set_socket_default(mix_001.inputs, 2, 0.0)
 	#B_Float
-	mix_001.inputs[3].default_value = 0.0
+	set_socket_default(mix_001.inputs, 3, 0.0)
 	#A_Color
-	mix_001.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix_001.inputs, 6, (0.5, 0.5, 0.5, 1.0))
 	#B_Color
-	mix_001.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix_001.inputs, 7, (0.5, 0.5, 0.5, 1.0))
 	#A_Rotation
-	mix_001.inputs[8].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix_001.inputs, 8, (0.0, 0.0, 0.0))
 	#B_Rotation
-	mix_001.inputs[9].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix_001.inputs, 9, (0.0, 0.0, 0.0))
 	
 	#node Mix.002
 	mix_002 = match_bounding_box.nodes.new("ShaderNodeMix")
 	mix_002.name = "Mix.002"
-	mix_002.blend_type = 'MIX'
+	set_node_option(mix_002, "blend_type", 'MIX')
 	mix_002.clamp_factor = True
 	mix_002.clamp_result = False
-	mix_002.data_type = 'VECTOR'
-	mix_002.factor_mode = 'UNIFORM'
+	set_node_option(mix_002, "data_type", 'VECTOR')
+	set_node_option(mix_002, "factor_mode", 'UNIFORM')
 	#Factor_Vector
-	mix_002.inputs[1].default_value = (0.5, 0.5, 0.5)
+	set_socket_default(mix_002.inputs, 1, (0.5, 0.5, 0.5))
 	#A_Float
-	mix_002.inputs[2].default_value = 0.0
+	set_socket_default(mix_002.inputs, 2, 0.0)
 	#B_Float
-	mix_002.inputs[3].default_value = 0.0
+	set_socket_default(mix_002.inputs, 3, 0.0)
 	#A_Color
-	mix_002.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix_002.inputs, 6, (0.5, 0.5, 0.5, 1.0))
 	#B_Color
-	mix_002.inputs[7].default_value = (0.5, 0.5, 0.5, 1.0)
+	set_socket_default(mix_002.inputs, 7, (0.5, 0.5, 0.5, 1.0))
 	#A_Rotation
-	mix_002.inputs[8].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix_002.inputs, 8, (0.0, 0.0, 0.0))
 	#B_Rotation
-	mix_002.inputs[9].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(mix_002.inputs, 9, (0.0, 0.0, 0.0))
 	
 	#node Bounding Box
 	bounding_box = match_bounding_box.nodes.new("GeometryNodeBoundBox")
@@ -1015,11 +1059,11 @@ def match_bounding_box_node_group():
 	#node Vector Math.004
 	vector_math_004 = match_bounding_box.nodes.new("ShaderNodeVectorMath")
 	vector_math_004.name = "Vector Math.004"
-	vector_math_004.operation = 'SUBTRACT'
+	set_node_option(vector_math_004, "operation", 'SUBTRACT')
 	#Vector_002
-	vector_math_004.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_004.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_004.inputs[3].default_value = 1.0
+	set_socket_default(vector_math_004.inputs, 3, 1.0)
 	
 	#node Reroute
 	reroute = match_bounding_box.nodes.new("NodeReroute")
@@ -1031,41 +1075,41 @@ def match_bounding_box_node_group():
 	#node Compare
 	compare = match_bounding_box.nodes.new("FunctionNodeCompare")
 	compare.name = "Compare"
-	compare.data_type = 'INT'
-	compare.mode = 'ELEMENT'
-	compare.operation = 'EQUAL'
+	set_node_option(compare, "data_type", 'INT')
+	set_node_option(compare, "mode", 'ELEMENT')
+	set_node_option(compare, "operation", 'EQUAL')
 	#A
-	compare.inputs[0].default_value = 0.0
+	set_node_input_default(compare, 0, 0.0)
 	#B
-	compare.inputs[1].default_value = 0.0
+	set_node_input_default(compare, 1, 0.0)
 	#B_INT
-	compare.inputs[3].default_value = 0
+	set_node_input_default(compare, 3, 0)
 	#A_VEC3
-	compare.inputs[4].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare, 4, (0.0, 0.0, 0.0))
 	#B_VEC3
-	compare.inputs[5].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare, 5, (0.0, 0.0, 0.0))
 	#A_COL
-	compare.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	set_node_input_default(compare, 6, (0.0, 0.0, 0.0, 0.0))
 	#B_COL
-	compare.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	set_node_input_default(compare, 7, (0.0, 0.0, 0.0, 0.0))
 	#A_STR
-	compare.inputs[8].default_value = ""
+	set_node_input_default(compare, 8, "")
 	#B_STR
-	compare.inputs[9].default_value = ""
+	set_node_input_default(compare, 9, "")
 	#C
-	compare.inputs[10].default_value = 0.8999999761581421
+	set_node_input_default(compare, 10, 0.8999999761581421)
 	#Angle
-	compare.inputs[11].default_value = 0.08726649731397629
+	set_node_input_default(compare, 11, 0.08726649731397629)
 	#Epsilon
-	compare.inputs[12].default_value = 0.0010000000474974513
+	set_node_input_default(compare, 12, 0.0010000000474974513)
 	
 	#node Math.004
 	math_004 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_004.name = "Math.004"
-	math_004.operation = 'MULTIPLY'
+	set_node_option(math_004, "operation", 'MULTIPLY')
 	math_004.use_clamp = False
 	#Value_002
-	math_004.inputs[2].default_value = 0.5
+	set_socket_default(math_004.inputs, 2, 0.5)
 	
 	#node Reroute.001
 	reroute_001 = match_bounding_box.nodes.new("NodeReroute")
@@ -1077,57 +1121,57 @@ def match_bounding_box_node_group():
 	#node Compare.001
 	compare_001 = match_bounding_box.nodes.new("FunctionNodeCompare")
 	compare_001.name = "Compare.001"
-	compare_001.data_type = 'INT'
-	compare_001.mode = 'ELEMENT'
-	compare_001.operation = 'EQUAL'
+	set_node_option(compare_001, "data_type", 'INT')
+	set_node_option(compare_001, "mode", 'ELEMENT')
+	set_node_option(compare_001, "operation", 'EQUAL')
 	#A
-	compare_001.inputs[0].default_value = 0.0
+	set_node_input_default(compare_001, 0, 0.0)
 	#B
-	compare_001.inputs[1].default_value = 0.0
+	set_node_input_default(compare_001, 1, 0.0)
 	#B_INT
-	compare_001.inputs[3].default_value = 0
+	set_node_input_default(compare_001, 3, 0)
 	#A_VEC3
-	compare_001.inputs[4].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_001, 4, (0.0, 0.0, 0.0))
 	#B_VEC3
-	compare_001.inputs[5].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_001, 5, (0.0, 0.0, 0.0))
 	#A_COL
-	compare_001.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+	set_node_input_default(compare_001, 6, (0.0, 0.0, 0.0, 0.0))
 	#B_COL
-	compare_001.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+	set_node_input_default(compare_001, 7, (0.0, 0.0, 0.0, 0.0))
 	#A_STR
-	compare_001.inputs[8].default_value = ""
+	set_node_input_default(compare_001, 8, "")
 	#B_STR
-	compare_001.inputs[9].default_value = ""
+	set_node_input_default(compare_001, 9, "")
 	#C
-	compare_001.inputs[10].default_value = 0.8999999761581421
+	set_node_input_default(compare_001, 10, 0.8999999761581421)
 	#Angle
-	compare_001.inputs[11].default_value = 0.08726649731397629
+	set_node_input_default(compare_001, 11, 0.08726649731397629)
 	#Epsilon
-	compare_001.inputs[12].default_value = 0.0010000000474974513
+	set_node_input_default(compare_001, 12, 0.0010000000474974513)
 	
 	#node Math.007
 	math_007 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_007.name = "Math.007"
-	math_007.operation = 'MULTIPLY'
+	set_node_option(math_007, "operation", 'MULTIPLY')
 	math_007.use_clamp = False
 	#Value_002
-	math_007.inputs[2].default_value = 0.5
+	set_socket_default(math_007.inputs, 2, 0.5)
 	
 	#node Math.008
 	math_008 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_008.name = "Math.008"
-	math_008.operation = 'MULTIPLY'
+	set_node_option(math_008, "operation", 'MULTIPLY')
 	math_008.use_clamp = False
 	#Value_002
-	math_008.inputs[2].default_value = 0.5
+	set_socket_default(math_008.inputs, 2, 0.5)
 	
 	#node Math.009
 	math_009 = match_bounding_box.nodes.new("ShaderNodeMath")
 	math_009.name = "Math.009"
-	math_009.operation = 'ADD'
+	set_node_option(math_009, "operation", 'ADD')
 	math_009.use_clamp = False
 	#Value_002
-	math_009.inputs[2].default_value = 0.5
+	set_socket_default(math_009.inputs, 2, 0.5)
 	
 	#node Position.001
 	position_001 = match_bounding_box.nodes.new("GeometryNodeInputPosition")
@@ -1145,9 +1189,9 @@ def match_bounding_box_node_group():
 	corners_of_face_001 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
 	corners_of_face_001.name = "Corners of Face.001"
 	#Weights
-	corners_of_face_001.inputs[1].default_value = 0.0
+	set_socket_default(corners_of_face_001.inputs, 1, 0.0)
 	#Sort Index
-	corners_of_face_001.inputs[2].default_value = 1
+	set_socket_default(corners_of_face_001.inputs, 2, 1)
 	
 	#node Vertex of Corner.002
 	vertex_of_corner_002 = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
@@ -1157,9 +1201,9 @@ def match_bounding_box_node_group():
 	corners_of_face_002 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
 	corners_of_face_002.name = "Corners of Face.002"
 	#Weights
-	corners_of_face_002.inputs[1].default_value = 0.0
+	set_socket_default(corners_of_face_002.inputs, 1, 0.0)
 	#Sort Index
-	corners_of_face_002.inputs[2].default_value = 2
+	set_socket_default(corners_of_face_002.inputs, 2, 2)
 	
 	#node Vertex of Corner.003
 	vertex_of_corner_003 = match_bounding_box.nodes.new("GeometryNodeVertexOfCorner")
@@ -1169,81 +1213,81 @@ def match_bounding_box_node_group():
 	sample_index_002 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_002.name = "Sample Index.002"
 	sample_index_002.clamp = False
-	sample_index_002.data_type = 'FLOAT_VECTOR'
-	sample_index_002.domain = 'POINT'
+	set_node_option(sample_index_002, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_002, "domain", 'POINT')
 	
 	#node Sample Index.005
 	sample_index_005 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_005.name = "Sample Index.005"
 	sample_index_005.clamp = False
-	sample_index_005.data_type = 'FLOAT_VECTOR'
-	sample_index_005.domain = 'POINT'
+	set_node_option(sample_index_005, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_005, "domain", 'POINT')
 	
 	#node Sample Index.004
 	sample_index_004 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_004.name = "Sample Index.004"
 	sample_index_004.clamp = False
-	sample_index_004.data_type = 'FLOAT_VECTOR'
-	sample_index_004.domain = 'POINT'
+	set_node_option(sample_index_004, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_004, "domain", 'POINT')
 	
 	#node Sample Index.007
 	sample_index_007 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_007.name = "Sample Index.007"
 	sample_index_007.clamp = False
-	sample_index_007.data_type = 'FLOAT_VECTOR'
-	sample_index_007.domain = 'POINT'
+	set_node_option(sample_index_007, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_007, "domain", 'POINT')
 	
 	#node Sample Index.001
 	sample_index_001 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_001.name = "Sample Index.001"
 	sample_index_001.clamp = False
-	sample_index_001.data_type = 'FLOAT_VECTOR'
-	sample_index_001.domain = 'FACE'
+	set_node_option(sample_index_001, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_001, "domain", 'FACE')
 	#Index
-	sample_index_001.inputs[2].default_value = 0
+	set_socket_default(sample_index_001.inputs, 2, 0)
 	
 	#node Sample Index.003
 	sample_index_003 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_003.name = "Sample Index.003"
 	sample_index_003.clamp = False
-	sample_index_003.data_type = 'FLOAT_VECTOR'
-	sample_index_003.domain = 'FACE'
+	set_node_option(sample_index_003, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_003, "domain", 'FACE')
 	#Index
-	sample_index_003.inputs[2].default_value = 0
+	set_socket_default(sample_index_003.inputs, 2, 0)
 	
 	#node Sample Index.008
 	sample_index_008 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_008.name = "Sample Index.008"
 	sample_index_008.clamp = False
-	sample_index_008.data_type = 'FLOAT_VECTOR'
-	sample_index_008.domain = 'FACE'
+	set_node_option(sample_index_008, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_008, "domain", 'FACE')
 	#Index
-	sample_index_008.inputs[2].default_value = 0
+	set_socket_default(sample_index_008.inputs, 2, 0)
 	
 	#node Sample Index.006
 	sample_index_006 = match_bounding_box.nodes.new("GeometryNodeSampleIndex")
 	sample_index_006.name = "Sample Index.006"
 	sample_index_006.clamp = False
-	sample_index_006.data_type = 'FLOAT_VECTOR'
-	sample_index_006.domain = 'FACE'
+	set_node_option(sample_index_006, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_006, "domain", 'FACE')
 	#Index
-	sample_index_006.inputs[2].default_value = 0
+	set_socket_default(sample_index_006.inputs, 2, 0)
 	
 	#node Corners of Face.003
 	corners_of_face_003 = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
 	corners_of_face_003.name = "Corners of Face.003"
 	#Weights
-	corners_of_face_003.inputs[1].default_value = 0.0
+	set_socket_default(corners_of_face_003.inputs, 1, 0.0)
 	#Sort Index
-	corners_of_face_003.inputs[2].default_value = 3
+	set_socket_default(corners_of_face_003.inputs, 2, 3)
 	
 	#node Corners of Face
 	corners_of_face = match_bounding_box.nodes.new("GeometryNodeCornersOfFace")
 	corners_of_face.name = "Corners of Face"
 	#Weights
-	corners_of_face.inputs[1].default_value = 0.0
+	set_socket_default(corners_of_face.inputs, 1, 0.0)
 	#Sort Index
-	corners_of_face.inputs[2].default_value = 0
+	set_socket_default(corners_of_face.inputs, 2, 0)
 	
 	#node Index
 	index = match_bounding_box.nodes.new("GeometryNodeInputIndex")
@@ -1366,7 +1410,7 @@ def match_bounding_box_node_group():
 	#group_input.Target -> bounding_box.Geometry
 	match_bounding_box.links.new(group_input.outputs[1], bounding_box.inputs[0])
 	#reroute.Output -> compare.A
-	match_bounding_box.links.new(reroute.outputs[0], compare.inputs[2])
+	match_bounding_box.links.new(reroute.outputs[0], node_input(compare, 2))
 	#separate_xyz.X -> math_004.Value
 	match_bounding_box.links.new(separate_xyz.outputs[0], math_004.inputs[0])
 	#compare.Result -> math_004.Value
@@ -1380,7 +1424,7 @@ def match_bounding_box_node_group():
 	#math_004.Value -> mix_001.Factor
 	match_bounding_box.links.new(math_004.outputs[0], mix_001.inputs[0])
 	#reroute_001.Output -> compare_001.A
-	match_bounding_box.links.new(reroute_001.outputs[0], compare_001.inputs[2])
+	match_bounding_box.links.new(reroute_001.outputs[0], node_input(compare_001, 2))
 	#reroute_001.Output -> math_008.Value
 	match_bounding_box.links.new(reroute_001.outputs[0], math_008.inputs[1])
 	#separate_xyz_001.X -> math_007.Value
@@ -1500,12 +1544,12 @@ def unwrap_in_place_tool_node_group():
 	set_position = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
 	set_position.name = "Set Position"
 	#Offset
-	set_position.inputs[3].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(set_position.inputs, 3, (0.0, 0.0, 0.0))
 	
 	#node Named Attribute
 	named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute.name = "Named Attribute"
-	named_attribute.data_type = 'FLOAT_VECTOR'
+	set_node_option(named_attribute, "data_type", 'FLOAT_VECTOR')
 	
 	#node Position
 	position_1 = unwrap_in_place_tool.nodes.new("GeometryNodeInputPosition")
@@ -1518,34 +1562,34 @@ def unwrap_in_place_tool_node_group():
 	#node Store Named Attribute.003
 	store_named_attribute_003 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
 	store_named_attribute_003.name = "Store Named Attribute.003"
-	store_named_attribute_003.data_type = 'FLOAT2'
-	store_named_attribute_003.domain = 'CORNER'
+	set_node_option(store_named_attribute_003, "data_type", 'FLOAT2')
+	set_node_option(store_named_attribute_003, "domain", 'CORNER')
 	
 	#node UV Unwrap.001
 	uv_unwrap_001 = unwrap_in_place_tool.nodes.new("GeometryNodeUVUnwrap")
 	uv_unwrap_001.name = "UV Unwrap.001"
-	uv_unwrap_001.method = 'ANGLE_BASED'
+	set_node_option(uv_unwrap_001, "method", 'ANGLE_BASED')
 	
 	#node Store Named Attribute.004
 	store_named_attribute_004 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
 	store_named_attribute_004.name = "Store Named Attribute.004"
-	store_named_attribute_004.data_type = 'FLOAT2'
-	store_named_attribute_004.domain = 'CORNER'
+	set_node_option(store_named_attribute_004, "data_type", 'FLOAT2')
+	set_node_option(store_named_attribute_004, "domain", 'CORNER')
 	#Selection
-	store_named_attribute_004.inputs[1].default_value = True
+	set_socket_default(store_named_attribute_004.inputs, 1, True)
 	
 	#node Set Position.003
 	set_position_003 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
 	set_position_003.name = "Set Position.003"
 	#Offset
-	set_position_003.inputs[3].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(set_position_003.inputs, 3, (0.0, 0.0, 0.0))
 	
 	#node Set Position.001
 	set_position_001 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
 	set_position_001.name = "Set Position.001"
 	set_position_001.inputs[3].hide = True
 	#Offset
-	set_position_001.inputs[3].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(set_position_001.inputs, 3, (0.0, 0.0, 0.0))
 	
 	#node Group.001
 	group_001 = unwrap_in_place_tool.nodes.new("GeometryNodeGroup")
@@ -1561,20 +1605,20 @@ def unwrap_in_place_tool_node_group():
 	#node Store Named Attribute.006
 	store_named_attribute_006 = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
 	store_named_attribute_006.name = "Store Named Attribute.006"
-	store_named_attribute_006.data_type = 'FLOAT2'
-	store_named_attribute_006.domain = 'CORNER'
+	set_node_option(store_named_attribute_006, "data_type", 'FLOAT2')
+	set_node_option(store_named_attribute_006, "domain", 'CORNER')
 	
 	#node Named Attribute.001
 	named_attribute_001 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute_001.name = "Named Attribute.001"
-	named_attribute_001.data_type = 'FLOAT_VECTOR'
+	set_node_option(named_attribute_001, "data_type", 'FLOAT_VECTOR')
 	
 	#node Sample Index.001
 	sample_index_001_1 = unwrap_in_place_tool.nodes.new("GeometryNodeSampleIndex")
 	sample_index_001_1.name = "Sample Index.001"
 	sample_index_001_1.clamp = False
-	sample_index_001_1.data_type = 'FLOAT_VECTOR'
-	sample_index_001_1.domain = 'CORNER'
+	set_node_option(sample_index_001_1, "data_type", 'FLOAT_VECTOR')
+	set_node_option(sample_index_001_1, "domain", 'CORNER')
 	
 	#node Index
 	index_1 = unwrap_in_place_tool.nodes.new("GeometryNodeInputIndex")
@@ -1583,21 +1627,21 @@ def unwrap_in_place_tool_node_group():
 	#node Duplicate Elements
 	duplicate_elements = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
 	duplicate_elements.name = "Duplicate Elements"
-	duplicate_elements.domain = 'FACE'
+	set_node_option(duplicate_elements, "domain", 'FACE')
 	#Amount
-	duplicate_elements.inputs[2].default_value = 1
+	set_socket_default(duplicate_elements.inputs, 2, 1)
 	
 	#node Switch
 	switch = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
 	switch.name = "Switch"
-	switch.input_type = 'VECTOR'
+	set_node_option(switch, "input_type", 'VECTOR')
 	#Switch
-	switch.inputs[0].default_value = False
+	set_socket_default(switch.inputs, 0, False)
 	
 	#node UV Unwrap.002
 	uv_unwrap_002 = unwrap_in_place_tool.nodes.new("GeometryNodeUVUnwrap")
 	uv_unwrap_002.name = "UV Unwrap.002"
-	uv_unwrap_002.method = 'CONFORMAL'
+	set_node_option(uv_unwrap_002, "method", 'CONFORMAL')
 	
 	#node Selection
 	selection = unwrap_in_place_tool.nodes.new("GeometryNodeToolSelection")
@@ -1606,25 +1650,25 @@ def unwrap_in_place_tool_node_group():
 	#node Evaluate on Domain
 	evaluate_on_domain = unwrap_in_place_tool.nodes.new("GeometryNodeFieldOnDomain")
 	evaluate_on_domain.name = "Evaluate on Domain"
-	evaluate_on_domain.data_type = 'BOOLEAN'
-	evaluate_on_domain.domain = 'FACE'
+	set_node_option(evaluate_on_domain, "data_type", 'BOOLEAN')
+	set_node_option(evaluate_on_domain, "domain", 'FACE')
 	
 	#node Named Attribute.002
 	named_attribute_002 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute_002.name = "Named Attribute.002"
-	named_attribute_002.data_type = 'BOOLEAN'
+	set_node_option(named_attribute_002, "data_type", 'BOOLEAN')
 	
 	#node Named Attribute.003
 	named_attribute_003 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute_003.name = "Named Attribute.003"
-	named_attribute_003.data_type = 'BOOLEAN'
+	set_node_option(named_attribute_003, "data_type", 'BOOLEAN')
 	
 	#node Remove Named Attribute
 	remove_named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeRemoveAttribute")
 	remove_named_attribute.name = "Remove Named Attribute"
-	remove_named_attribute.pattern_mode = 'EXACT'
+	set_node_option(remove_named_attribute, "pattern_mode", 'EXACT')
 	#Name
-	remove_named_attribute.inputs[1].default_value = "seam_Unwrap_In_Place"
+	set_socket_default(remove_named_attribute.inputs, 1, "seam_Unwrap_In_Place")
 	
 	#node String
 	string = unwrap_in_place_tool.nodes.new("FunctionNodeInputString")
@@ -1653,11 +1697,11 @@ def unwrap_in_place_tool_node_group():
 	#node Vector Math
 	vector_math_1 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
 	vector_math_1.name = "Vector Math"
-	vector_math_1.operation = 'SUBTRACT'
+	set_node_option(vector_math_1, "operation", 'SUBTRACT')
 	#Vector_002
-	vector_math_1.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_1.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_1.inputs[3].default_value = 1.0
+	set_socket_default(vector_math_1.inputs, 3, 1.0)
 	
 	#node Grid
 	grid = unwrap_in_place_tool.nodes.new("GeometryNodeMeshGrid")
@@ -1666,90 +1710,90 @@ def unwrap_in_place_tool_node_group():
 	grid.inputs[3].hide = True
 	grid.outputs[1].hide = True
 	#Vertices X
-	grid.inputs[2].default_value = 2
+	set_socket_default(grid.inputs, 2, 2)
 	#Vertices Y
-	grid.inputs[3].default_value = 2
+	set_socket_default(grid.inputs, 3, 2)
 	
 	#node Transform Geometry
 	transform_geometry = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
 	transform_geometry.name = "Transform Geometry"
-	transform_geometry.mode = 'COMPONENTS'
+	set_node_option(transform_geometry, "mode", 'COMPONENTS')
 	#Rotation
-	transform_geometry.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(transform_geometry, 2, (0.0, 0.0, 0.0))
 	#Scale
-	transform_geometry.inputs[3].default_value = (1.0, 1.0, 1.0)
+	set_node_input_default(transform_geometry, 3, (1.0, 1.0, 1.0))
 	
 	#node Switch.003
 	switch_003 = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
 	switch_003.name = "Switch.003"
-	switch_003.input_type = 'GEOMETRY'
+	set_node_option(switch_003, "input_type", 'GEOMETRY')
 	
 	#node Vector Math.001
 	vector_math_001_1 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
 	vector_math_001_1.name = "Vector Math.001"
-	vector_math_001_1.operation = 'ADD'
+	set_node_option(vector_math_001_1, "operation", 'ADD')
 	#Vector_002
-	vector_math_001_1.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_001_1.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_001_1.inputs[3].default_value = 1.0
+	set_socket_default(vector_math_001_1.inputs, 3, 1.0)
 	
 	#node Vector Math.002
 	vector_math_002 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
 	vector_math_002.name = "Vector Math.002"
-	vector_math_002.operation = 'SCALE'
+	set_node_option(vector_math_002, "operation", 'SCALE')
 	#Vector_001
-	vector_math_002.inputs[1].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_002.inputs, 1, (0.0, 0.0, 0.0))
 	#Vector_002
-	vector_math_002.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_002.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_002.inputs[3].default_value = 0.5
+	set_socket_default(vector_math_002.inputs, 3, 0.5)
 	
 	#node Compare.002
 	compare_002 = unwrap_in_place_tool.nodes.new("FunctionNodeCompare")
 	compare_002.name = "Compare.002"
-	compare_002.data_type = 'FLOAT'
-	compare_002.mode = 'ELEMENT'
-	compare_002.operation = 'LESS_EQUAL'
+	set_node_option(compare_002, "data_type", 'FLOAT')
+	set_node_option(compare_002, "mode", 'ELEMENT')
+	set_node_option(compare_002, "operation", 'LESS_EQUAL')
 	#B
-	compare_002.inputs[1].default_value = 2.0
+	set_node_input_default(compare_002, 1, 2.0)
 	#A_INT
-	compare_002.inputs[2].default_value = 0
+	set_node_input_default(compare_002, 2, 0)
 	#B_INT
-	compare_002.inputs[3].default_value = 0
+	set_node_input_default(compare_002, 3, 0)
 	#A_VEC3
-	compare_002.inputs[4].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_002, 4, (0.0, 0.0, 0.0))
 	#B_VEC3
-	compare_002.inputs[5].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_002, 5, (0.0, 0.0, 0.0))
 	#A_COL
-	compare_002.inputs[6].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+	set_node_input_default(compare_002, 6, (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0))
 	#B_COL
-	compare_002.inputs[7].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+	set_node_input_default(compare_002, 7, (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0))
 	#A_STR
-	compare_002.inputs[8].default_value = ""
+	set_node_input_default(compare_002, 8, "")
 	#B_STR
-	compare_002.inputs[9].default_value = ""
+	set_node_input_default(compare_002, 9, "")
 	#C
-	compare_002.inputs[10].default_value = 0.8999999761581421
+	set_node_input_default(compare_002, 10, 0.8999999761581421)
 	#Angle
-	compare_002.inputs[11].default_value = 0.08726649731397629
+	set_node_input_default(compare_002, 11, 0.08726649731397629)
 	#Epsilon
-	compare_002.inputs[12].default_value = 0.0010000000474974513
+	set_node_input_default(compare_002, 12, 0.0010000000474974513)
 	
 	#node Vector Math.003
 	vector_math_003 = unwrap_in_place_tool.nodes.new("ShaderNodeVectorMath")
 	vector_math_003.name = "Vector Math.003"
-	vector_math_003.operation = 'LENGTH'
+	set_node_option(vector_math_003, "operation", 'LENGTH')
 	#Vector_001
-	vector_math_003.inputs[1].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_003.inputs, 1, (0.0, 0.0, 0.0))
 	#Vector_002
-	vector_math_003.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(vector_math_003.inputs, 2, (0.0, 0.0, 0.0))
 	#Scale
-	vector_math_003.inputs[3].default_value = 1.0
+	set_socket_default(vector_math_003.inputs, 3, 1.0)
 	
 	#node Domain Size
 	domain_size = unwrap_in_place_tool.nodes.new("GeometryNodeAttributeDomainSize")
 	domain_size.name = "Domain Size"
-	domain_size.component = 'MESH'
+	set_node_option(domain_size, "component", 'MESH')
 	domain_size.outputs[1].hide = True
 	domain_size.outputs[2].hide = True
 	domain_size.outputs[3].hide = True
@@ -1760,114 +1804,114 @@ def unwrap_in_place_tool_node_group():
 	#node Merge by Distance.002
 	merge_by_distance_002 = unwrap_in_place_tool.nodes.new("GeometryNodeMergeByDistance")
 	merge_by_distance_002.name = "Merge by Distance.002"
-	merge_by_distance_002.mode = 'CONNECTED'
+	set_node_option(merge_by_distance_002, "mode", 'CONNECTED')
 	#Selection
-	merge_by_distance_002.inputs[1].default_value = True
+	set_socket_default(merge_by_distance_002.inputs, 1, True)
 	#Distance
-	merge_by_distance_002.inputs[2].default_value = 9.999999747378752e-05
+	set_socket_default(merge_by_distance_002.inputs, 2, 9.999999747378752e-05)
 	
 	#node Named Attribute.004
 	named_attribute_004 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute_004.name = "Named Attribute.004"
-	named_attribute_004.data_type = 'FLOAT_VECTOR'
+	set_node_option(named_attribute_004, "data_type", 'FLOAT_VECTOR')
 	
 	#node Duplicate Elements.002
 	duplicate_elements_002 = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
 	duplicate_elements_002.name = "Duplicate Elements.002"
-	duplicate_elements_002.domain = 'FACE'
+	set_node_option(duplicate_elements_002, "domain", 'FACE')
 	#Selection
-	duplicate_elements_002.inputs[1].default_value = True
+	set_socket_default(duplicate_elements_002.inputs, 1, True)
 	#Amount
-	duplicate_elements_002.inputs[2].default_value = 1
+	set_socket_default(duplicate_elements_002.inputs, 2, 1)
 	
 	#node Set Position.002
 	set_position_002 = unwrap_in_place_tool.nodes.new("GeometryNodeSetPosition")
 	set_position_002.name = "Set Position.002"
 	#Selection
-	set_position_002.inputs[1].default_value = True
+	set_socket_default(set_position_002.inputs, 1, True)
 	#Offset
-	set_position_002.inputs[3].default_value = (0.0, 0.0, 0.0)
+	set_socket_default(set_position_002.inputs, 3, (0.0, 0.0, 0.0))
 	
 	#node Duplicate Elements.003
 	duplicate_elements_003 = unwrap_in_place_tool.nodes.new("GeometryNodeDuplicateElements")
 	duplicate_elements_003.name = "Duplicate Elements.003"
-	duplicate_elements_003.domain = 'POINT'
+	set_node_option(duplicate_elements_003, "domain", 'POINT')
 	#Amount
-	duplicate_elements_003.inputs[2].default_value = 1
+	set_socket_default(duplicate_elements_003.inputs, 2, 1)
 	
 	#node Switch.004
 	switch_004 = unwrap_in_place_tool.nodes.new("GeometryNodeSwitch")
 	switch_004.name = "Switch.004"
-	switch_004.input_type = 'GEOMETRY'
+	set_node_option(switch_004, "input_type", 'GEOMETRY')
 	
 	#node Grid.001
 	grid_001 = unwrap_in_place_tool.nodes.new("GeometryNodeMeshGrid")
 	grid_001.name = "Grid.001"
 	#Size X
-	grid_001.inputs[0].default_value = 0.5
+	set_socket_default(grid_001.inputs, 0, 0.5)
 	#Size Y
-	grid_001.inputs[1].default_value = 0.5
+	set_socket_default(grid_001.inputs, 1, 0.5)
 	#Vertices X
-	grid_001.inputs[2].default_value = 2
+	set_socket_default(grid_001.inputs, 2, 2)
 	#Vertices Y
-	grid_001.inputs[3].default_value = 2
+	set_socket_default(grid_001.inputs, 3, 2)
 	
 	#node Transform Geometry.001
 	transform_geometry_001 = unwrap_in_place_tool.nodes.new("GeometryNodeTransform")
 	transform_geometry_001.name = "Transform Geometry.001"
-	transform_geometry_001.mode = 'COMPONENTS'
+	set_node_option(transform_geometry_001, "mode", 'COMPONENTS')
 	#Translation
-	transform_geometry_001.inputs[1].default_value = (0.5, 0.5, 0.0)
+	set_node_input_default(transform_geometry_001, 1, (0.5, 0.5, 0.0))
 	#Rotation
-	transform_geometry_001.inputs[2].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(transform_geometry_001, 2, (0.0, 0.0, 0.0))
 	#Scale
-	transform_geometry_001.inputs[3].default_value = (1.0, 1.0, 1.0)
+	set_node_input_default(transform_geometry_001, 3, (1.0, 1.0, 1.0))
 	
 	#node Compare.003
 	compare_003 = unwrap_in_place_tool.nodes.new("FunctionNodeCompare")
 	compare_003.name = "Compare.003"
-	compare_003.data_type = 'FLOAT'
-	compare_003.mode = 'ELEMENT'
-	compare_003.operation = 'LESS_EQUAL'
+	set_node_option(compare_003, "data_type", 'FLOAT')
+	set_node_option(compare_003, "mode", 'ELEMENT')
+	set_node_option(compare_003, "operation", 'LESS_EQUAL')
 	#B
-	compare_003.inputs[1].default_value = 2.0
+	set_node_input_default(compare_003, 1, 2.0)
 	#A_INT
-	compare_003.inputs[2].default_value = 0
+	set_node_input_default(compare_003, 2, 0)
 	#B_INT
-	compare_003.inputs[3].default_value = 0
+	set_node_input_default(compare_003, 3, 0)
 	#A_VEC3
-	compare_003.inputs[4].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_003, 4, (0.0, 0.0, 0.0))
 	#B_VEC3
-	compare_003.inputs[5].default_value = (0.0, 0.0, 0.0)
+	set_node_input_default(compare_003, 5, (0.0, 0.0, 0.0))
 	#A_COL
-	compare_003.inputs[6].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+	set_node_input_default(compare_003, 6, (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0))
 	#B_COL
-	compare_003.inputs[7].default_value = (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0)
+	set_node_input_default(compare_003, 7, (0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0))
 	#A_STR
-	compare_003.inputs[8].default_value = ""
+	set_node_input_default(compare_003, 8, "")
 	#B_STR
-	compare_003.inputs[9].default_value = ""
+	set_node_input_default(compare_003, 9, "")
 	#C
-	compare_003.inputs[10].default_value = 0.8999999761581421
+	set_node_input_default(compare_003, 10, 0.8999999761581421)
 	#Angle
-	compare_003.inputs[11].default_value = 0.08726649731397629
+	set_node_input_default(compare_003, 11, 0.08726649731397629)
 	#Epsilon
-	compare_003.inputs[12].default_value = 0.0010000000474974513
+	set_node_input_default(compare_003, 12, 0.0010000000474974513)
 	
 	#node Store Named Attribute
 	store_named_attribute = unwrap_in_place_tool.nodes.new("GeometryNodeStoreNamedAttribute")
 	store_named_attribute.name = "Store Named Attribute"
-	store_named_attribute.data_type = 'FLOAT_VECTOR'
-	store_named_attribute.domain = 'POINT'
+	set_node_option(store_named_attribute, "data_type", 'FLOAT_VECTOR')
+	set_node_option(store_named_attribute, "domain", 'POINT')
 	#Name
-	store_named_attribute.inputs[2].default_value = "pos"
+	set_socket_default(store_named_attribute.inputs, 2, "pos")
 	
 	#node Named Attribute.005
 	named_attribute_005 = unwrap_in_place_tool.nodes.new("GeometryNodeInputNamedAttribute")
 	named_attribute_005.name = "Named Attribute.005"
-	named_attribute_005.data_type = 'FLOAT_VECTOR'
+	set_node_option(named_attribute_005, "data_type", 'FLOAT_VECTOR')
 	#Name
-	named_attribute_005.inputs[0].default_value = "pos"
+	set_socket_default(named_attribute_005.inputs, 0, "pos")
 	
 	
 	
@@ -2066,7 +2110,7 @@ def unwrap_in_place_tool_node_group():
 	#bounding_box_1.Max -> vector_math_1.Vector
 	unwrap_in_place_tool.links.new(bounding_box_1.outputs[2], vector_math_1.inputs[1])
 	#grid.Mesh -> transform_geometry.Geometry
-	unwrap_in_place_tool.links.new(grid.outputs[0], transform_geometry.inputs[0])
+	unwrap_in_place_tool.links.new(grid.outputs[0], node_input(transform_geometry, 0))
 	#transform_geometry.Geometry -> switch_003.True
 	unwrap_in_place_tool.links.new(transform_geometry.outputs[0], switch_003.inputs[2])
 	#vector_math_001_1.Vector -> vector_math_002.Vector
@@ -2076,7 +2120,7 @@ def unwrap_in_place_tool_node_group():
 	#bounding_box_1.Max -> vector_math_001_1.Vector
 	unwrap_in_place_tool.links.new(bounding_box_1.outputs[2], vector_math_001_1.inputs[1])
 	#vector_math_002.Vector -> transform_geometry.Translation
-	unwrap_in_place_tool.links.new(vector_math_002.outputs[0], transform_geometry.inputs[1])
+	unwrap_in_place_tool.links.new(vector_math_002.outputs[0], node_input(transform_geometry, 1))
 	#vector_math_1.Vector -> vector_math_003.Vector
 	unwrap_in_place_tool.links.new(vector_math_1.outputs[0], vector_math_003.inputs[0])
 	#vector_math_003.Value -> grid.Size X
@@ -2084,7 +2128,7 @@ def unwrap_in_place_tool_node_group():
 	#vector_math_003.Value -> grid.Size Y
 	unwrap_in_place_tool.links.new(vector_math_003.outputs[1], grid.inputs[1])
 	#domain_size.Point Count -> compare_002.A
-	unwrap_in_place_tool.links.new(domain_size.outputs[0], compare_002.inputs[0])
+	unwrap_in_place_tool.links.new(domain_size.outputs[0], node_input(compare_002, 0))
 	#merge_by_distance_002.Geometry -> switch_003.False
 	unwrap_in_place_tool.links.new(merge_by_distance_002.outputs[0], switch_003.inputs[1])
 	#compare_002.Result -> switch_003.Switch
@@ -2114,11 +2158,11 @@ def unwrap_in_place_tool_node_group():
 	#switch_004.Output -> group_001.Geometry
 	unwrap_in_place_tool.links.new(switch_004.outputs[0], group_001.inputs[0])
 	#grid_001.Mesh -> transform_geometry_001.Geometry
-	unwrap_in_place_tool.links.new(grid_001.outputs[0], transform_geometry_001.inputs[0])
+	unwrap_in_place_tool.links.new(grid_001.outputs[0], node_input(transform_geometry_001, 0))
 	#transform_geometry_001.Geometry -> switch_004.True
 	unwrap_in_place_tool.links.new(transform_geometry_001.outputs[0], switch_004.inputs[2])
 	#domain_size.Point Count -> compare_003.A
-	unwrap_in_place_tool.links.new(domain_size.outputs[0], compare_003.inputs[0])
+	unwrap_in_place_tool.links.new(domain_size.outputs[0], node_input(compare_003, 0))
 	#compare_003.Result -> switch_004.Switch
 	unwrap_in_place_tool.links.new(compare_003.outputs[0], switch_004.inputs[0])
 	#position_1.Position -> store_named_attribute.Value
@@ -2174,26 +2218,26 @@ def sharpfromuvislands_node_group():
 		#node Set Shade Smooth.001
 		set_shade_smooth_001 = sharpfromuvislands.nodes.new("GeometryNodeSetShadeSmooth")
 		set_shade_smooth_001.name = "Set Shade Smooth.001"
-		set_shade_smooth_001.domain = 'FACE'
+		set_node_option(set_shade_smooth_001, "domain", 'FACE')
 		#Selection
-		set_shade_smooth_001.inputs[1].default_value = True
+		set_socket_default(set_shade_smooth_001.inputs, 1, True)
 		#Shade Smooth
-		set_shade_smooth_001.inputs[2].default_value = True
+		set_socket_default(set_shade_smooth_001.inputs, 2, True)
 
 		
 		#node Set Shade Smooth.002
 		set_shade_smooth_002 = sharpfromuvislands.nodes.new("GeometryNodeSetShadeSmooth")
 		set_shade_smooth_002.name = "Set Shade Smooth.002"
-		set_shade_smooth_002.domain = 'EDGE'
+		set_node_option(set_shade_smooth_002, "domain", 'EDGE')
 		#Shade Smooth
-		set_shade_smooth_002.inputs[2].default_value = True
+		set_socket_default(set_shade_smooth_002.inputs, 2, True)
 
 		#node Set Shade Smooth.003
 		set_shade_smooth_003 = sharpfromuvislands.nodes.new("GeometryNodeSetShadeSmooth")
 		set_shade_smooth_003.name = "Set Shade Smooth.002"
-		set_shade_smooth_003.domain = 'EDGE'
+		set_node_option(set_shade_smooth_003, "domain", 'EDGE')
 		#Shade Smooth
-		set_shade_smooth_003.inputs[2].default_value = False
+		set_socket_default(set_shade_smooth_003.inputs, 2, False)
 	else:
 		set_shade_smooth_001 = sharpfromuvislands.nodes.new("GeometryNodeSetMeshNormal")
 
@@ -2243,12 +2287,12 @@ def sharpfromuvislands_node_group():
 		#node Boolean Math.002
 		boolean_math_002 = uv_islands_boundaries.nodes.new("FunctionNodeBooleanMath")
 		boolean_math_002.name = "Boolean Math.002"
-		boolean_math_002.operation = 'OR'
+		set_node_option(boolean_math_002, "operation", 'OR')
 
 		#node Boolean Math.001
 		boolean_math_001 = uv_islands_boundaries.nodes.new("FunctionNodeBooleanMath")
 		boolean_math_001.name = "Boolean Math.001"
-		boolean_math_001.operation = 'NAND'
+		set_node_option(boolean_math_001, "operation", 'NAND')
 
 		#node Edge Neighbors.001
 		edge_neighbors_001 = uv_islands_boundaries.nodes.new("GeometryNodeInputMeshEdgeNeighbors")
@@ -2257,14 +2301,14 @@ def sharpfromuvislands_node_group():
 		#node Evaluate at Index.001
 		evaluate_at_index_001 = uv_islands_boundaries.nodes.new("GeometryNodeFieldAtIndex")
 		evaluate_at_index_001.name = "Evaluate at Index.001"
-		evaluate_at_index_001.data_type = 'FLOAT_VECTOR'
-		evaluate_at_index_001.domain = 'CORNER'
+		set_node_option(evaluate_at_index_001, "data_type", 'FLOAT_VECTOR')
+		set_node_option(evaluate_at_index_001, "domain", 'CORNER')
 
 		#node Offset Corner in Face
 		offset_corner_in_face = uv_islands_boundaries.nodes.new("GeometryNodeOffsetCornerInFace")
 		offset_corner_in_face.name = "Offset Corner in Face"
 		#Offset
-		offset_corner_in_face.inputs[1].default_value = 1
+		set_socket_default(offset_corner_in_face.inputs, 1, 1)
 
 		#node Corners of Edge
 		corners_of_edge = uv_islands_boundaries.nodes.new("GeometryNodeCornersOfEdge")
@@ -2273,11 +2317,11 @@ def sharpfromuvislands_node_group():
 		corners_of_edge.inputs[1].hide = True
 		corners_of_edge.outputs[1].hide = True
 		#Edge Index
-		corners_of_edge.inputs[0].default_value = 0
+		set_socket_default(corners_of_edge.inputs, 0, 0)
 		#Weights
-		corners_of_edge.inputs[1].default_value = 0.0
+		set_socket_default(corners_of_edge.inputs, 1, 0.0)
 		#Sort Index
-		corners_of_edge.inputs[2].default_value = 0
+		set_socket_default(corners_of_edge.inputs, 2, 0)
 
 		#node Corners of Edge.001
 		corners_of_edge_001 = uv_islands_boundaries.nodes.new("GeometryNodeCornersOfEdge")
@@ -2286,29 +2330,29 @@ def sharpfromuvislands_node_group():
 		corners_of_edge_001.inputs[1].hide = True
 		corners_of_edge_001.outputs[1].hide = True
 		#Edge Index
-		corners_of_edge_001.inputs[0].default_value = 0
+		set_socket_default(corners_of_edge_001.inputs, 0, 0)
 		#Weights
-		corners_of_edge_001.inputs[1].default_value = 0.0
+		set_socket_default(corners_of_edge_001.inputs, 1, 0.0)
 		#Sort Index
-		corners_of_edge_001.inputs[2].default_value = 1
+		set_socket_default(corners_of_edge_001.inputs, 2, 1)
 
 		#node Evaluate at Index
 		evaluate_at_index = uv_islands_boundaries.nodes.new("GeometryNodeFieldAtIndex")
 		evaluate_at_index.name = "Evaluate at Index"
-		evaluate_at_index.data_type = 'FLOAT_VECTOR'
-		evaluate_at_index.domain = 'CORNER'
+		set_node_option(evaluate_at_index, "data_type", 'FLOAT_VECTOR')
+		set_node_option(evaluate_at_index, "domain", 'CORNER')
 
 		#node Evaluate at Index.002
 		evaluate_at_index_002 = uv_islands_boundaries.nodes.new("GeometryNodeFieldAtIndex")
 		evaluate_at_index_002.name = "Evaluate at Index.002"
-		evaluate_at_index_002.data_type = 'FLOAT_VECTOR'
-		evaluate_at_index_002.domain = 'CORNER'
+		set_node_option(evaluate_at_index_002, "data_type", 'FLOAT_VECTOR')
+		set_node_option(evaluate_at_index_002, "domain", 'CORNER')
 
 		#node Offset Corner in Face.001
 		offset_corner_in_face_001 = uv_islands_boundaries.nodes.new("GeometryNodeOffsetCornerInFace")
 		offset_corner_in_face_001.name = "Offset Corner in Face.001"
 		#Offset
-		offset_corner_in_face_001.inputs[1].default_value = 1
+		set_socket_default(offset_corner_in_face_001.inputs, 1, 1)
 
 		#node Corners of Edge.002
 		corners_of_edge_002 = uv_islands_boundaries.nodes.new("GeometryNodeCornersOfEdge")
@@ -2317,11 +2361,11 @@ def sharpfromuvislands_node_group():
 		corners_of_edge_002.inputs[1].hide = True
 		corners_of_edge_002.outputs[1].hide = True
 		#Edge Index
-		corners_of_edge_002.inputs[0].default_value = 0
+		set_socket_default(corners_of_edge_002.inputs, 0, 0)
 		#Weights
-		corners_of_edge_002.inputs[1].default_value = 0.0
+		set_socket_default(corners_of_edge_002.inputs, 1, 0.0)
 		#Sort Index
-		corners_of_edge_002.inputs[2].default_value = 1
+		set_socket_default(corners_of_edge_002.inputs, 2, 1)
 
 		#node Corners of Edge.003
 		corners_of_edge_003 = uv_islands_boundaries.nodes.new("GeometryNodeCornersOfEdge")
@@ -2330,106 +2374,106 @@ def sharpfromuvislands_node_group():
 		corners_of_edge_003.inputs[1].hide = True
 		corners_of_edge_003.outputs[1].hide = True
 		#Edge Index
-		corners_of_edge_003.inputs[0].default_value = 0
+		set_socket_default(corners_of_edge_003.inputs, 0, 0)
 		#Weights
-		corners_of_edge_003.inputs[1].default_value = 0.0
+		set_socket_default(corners_of_edge_003.inputs, 1, 0.0)
 		#Sort Index
-		corners_of_edge_003.inputs[2].default_value = 0
+		set_socket_default(corners_of_edge_003.inputs, 2, 0)
 
 		#node Evaluate at Index.003
 		evaluate_at_index_003 = uv_islands_boundaries.nodes.new("GeometryNodeFieldAtIndex")
 		evaluate_at_index_003.name = "Evaluate at Index.003"
-		evaluate_at_index_003.data_type = 'FLOAT_VECTOR'
-		evaluate_at_index_003.domain = 'CORNER'
+		set_node_option(evaluate_at_index_003, "data_type", 'FLOAT_VECTOR')
+		set_node_option(evaluate_at_index_003, "domain", 'CORNER')
 
 		#node Compare
 		compare = uv_islands_boundaries.nodes.new("FunctionNodeCompare")
 		compare.name = "Compare"
-		compare.data_type = 'VECTOR'
-		compare.mode = 'ELEMENT'
-		compare.operation = 'EQUAL'
+		set_node_option(compare, "data_type", 'VECTOR')
+		set_node_option(compare, "mode", 'ELEMENT')
+		set_node_option(compare, "operation", 'EQUAL')
 		#A
-		compare.inputs[0].default_value = 0.0
+		set_node_input_default(compare, 0, 0.0)
 		#B
-		compare.inputs[1].default_value = 0.0
+		set_node_input_default(compare, 1, 0.0)
 		#A_INT
-		compare.inputs[2].default_value = 0
+		set_node_input_default(compare, 2, 0)
 		#B_INT
-		compare.inputs[3].default_value = 0
+		set_node_input_default(compare, 3, 0)
 		#A_COL
-		compare.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare, 6, (0.0, 0.0, 0.0, 0.0))
 		#B_COL
-		compare.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare, 7, (0.0, 0.0, 0.0, 0.0))
 		#A_STR
-		compare.inputs[8].default_value = ""
+		set_node_input_default(compare, 8, "")
 		#B_STR
-		compare.inputs[9].default_value = ""
+		set_node_input_default(compare, 9, "")
 		#C
-		compare.inputs[10].default_value = 0.8999999761581421
+		set_node_input_default(compare, 10, 0.8999999761581421)
 		#Angle
-		compare.inputs[11].default_value = 0.08726649731397629
+		set_node_input_default(compare, 11, 0.08726649731397629)
 		#Epsilon
-		compare.inputs[12].default_value = 0.0
+		set_node_input_default(compare, 12, 0.0)
 
 		#node Compare.002
 		compare_002 = uv_islands_boundaries.nodes.new("FunctionNodeCompare")
 		compare_002.name = "Compare.002"
-		compare_002.data_type = 'VECTOR'
-		compare_002.mode = 'ELEMENT'
-		compare_002.operation = 'EQUAL'
+		set_node_option(compare_002, "data_type", 'VECTOR')
+		set_node_option(compare_002, "mode", 'ELEMENT')
+		set_node_option(compare_002, "operation", 'EQUAL')
 		#A
-		compare_002.inputs[0].default_value = 0.0
+		set_node_input_default(compare_002, 0, 0.0)
 		#B
-		compare_002.inputs[1].default_value = 0.0
+		set_node_input_default(compare_002, 1, 0.0)
 		#A_INT
-		compare_002.inputs[2].default_value = 0
+		set_node_input_default(compare_002, 2, 0)
 		#B_INT
-		compare_002.inputs[3].default_value = 0
+		set_node_input_default(compare_002, 3, 0)
 		#A_COL
-		compare_002.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare_002, 6, (0.0, 0.0, 0.0, 0.0))
 		#B_COL
-		compare_002.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare_002, 7, (0.0, 0.0, 0.0, 0.0))
 		#A_STR
-		compare_002.inputs[8].default_value = ""
+		set_node_input_default(compare_002, 8, "")
 		#B_STR
-		compare_002.inputs[9].default_value = ""
+		set_node_input_default(compare_002, 9, "")
 		#C
-		compare_002.inputs[10].default_value = 0.8999999761581421
+		set_node_input_default(compare_002, 10, 0.8999999761581421)
 		#Angle
-		compare_002.inputs[11].default_value = 0.08726649731397629
+		set_node_input_default(compare_002, 11, 0.08726649731397629)
 		#Epsilon
-		compare_002.inputs[12].default_value = 0.0
+		set_node_input_default(compare_002, 12, 0.0)
 
 		#node Compare.003
 		compare_003 = uv_islands_boundaries.nodes.new("FunctionNodeCompare")
 		compare_003.name = "Compare.003"
-		compare_003.data_type = 'INT'
-		compare_003.mode = 'ELEMENT'
-		compare_003.operation = 'EQUAL'
+		set_node_option(compare_003, "data_type", 'INT')
+		set_node_option(compare_003, "mode", 'ELEMENT')
+		set_node_option(compare_003, "operation", 'EQUAL')
 		#A
-		compare_003.inputs[0].default_value = 0.0
+		set_node_input_default(compare_003, 0, 0.0)
 		#B
-		compare_003.inputs[1].default_value = 0.0
+		set_node_input_default(compare_003, 1, 0.0)
 		#B_INT
-		compare_003.inputs[3].default_value = 1
+		set_node_input_default(compare_003, 3, 1)
 		#A_VEC3
-		compare_003.inputs[4].default_value = (0.0, 0.0, 0.0)
+		set_node_input_default(compare_003, 4, (0.0, 0.0, 0.0))
 		#B_VEC3
-		compare_003.inputs[5].default_value = (0.0, 0.0, 0.0)
+		set_node_input_default(compare_003, 5, (0.0, 0.0, 0.0))
 		#A_COL
-		compare_003.inputs[6].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare_003, 6, (0.0, 0.0, 0.0, 0.0))
 		#B_COL
-		compare_003.inputs[7].default_value = (0.0, 0.0, 0.0, 0.0)
+		set_node_input_default(compare_003, 7, (0.0, 0.0, 0.0, 0.0))
 		#A_STR
-		compare_003.inputs[8].default_value = ""
+		set_node_input_default(compare_003, 8, "")
 		#B_STR
-		compare_003.inputs[9].default_value = ""
+		set_node_input_default(compare_003, 9, "")
 		#C
-		compare_003.inputs[10].default_value = 0.8999999761581421
+		set_node_input_default(compare_003, 10, 0.8999999761581421)
 		#Angle
-		compare_003.inputs[11].default_value = 0.08726649731397629
+		set_node_input_default(compare_003, 11, 0.08726649731397629)
 		#Epsilon
-		compare_003.inputs[12].default_value = 0.0010000000474974513
+		set_node_input_default(compare_003, 12, 0.0010000000474974513)
 
 		#node Group Input.001
 		group_input_001 = uv_islands_boundaries.nodes.new("NodeGroupInput")
@@ -2467,11 +2511,11 @@ def sharpfromuvislands_node_group():
 		#offset_corner_in_face.Corner Index -> evaluate_at_index_001.Index
 		uv_islands_boundaries.links.new(offset_corner_in_face.outputs[0], evaluate_at_index_001.inputs["Index"])
 		#edge_neighbors_001.Face Count -> compare_003.A
-		uv_islands_boundaries.links.new(edge_neighbors_001.outputs[0], compare_003.inputs[2])
+		uv_islands_boundaries.links.new(edge_neighbors_001.outputs[0], node_input(compare_003, 2))
 		#compare_002.Result -> boolean_math_001.Boolean
 		uv_islands_boundaries.links.new(compare_002.outputs[0], boolean_math_001.inputs[1])
 		#evaluate_at_index_002.Value -> compare_002.A
-		uv_islands_boundaries.links.new(evaluate_at_index_002.outputs[0], compare_002.inputs[4])
+		uv_islands_boundaries.links.new(evaluate_at_index_002.outputs[0], node_input(compare_002, 4))
 		#offset_corner_in_face_001.Corner Index -> evaluate_at_index_002.Index
 		uv_islands_boundaries.links.new(offset_corner_in_face_001.outputs[0], evaluate_at_index_002.inputs["Index"])
 		#corners_of_edge.Corner Index -> evaluate_at_index.Index
@@ -2481,15 +2525,15 @@ def sharpfromuvislands_node_group():
 		#compare.Result -> boolean_math_001.Boolean
 		uv_islands_boundaries.links.new(compare.outputs[0], boolean_math_001.inputs[0])
 		#evaluate_at_index_001.Value -> compare.A
-		uv_islands_boundaries.links.new(evaluate_at_index_001.outputs[0], compare.inputs[4])
+		uv_islands_boundaries.links.new(evaluate_at_index_001.outputs[0], node_input(compare, 4))
 		#evaluate_at_index.Value -> compare.B
-		uv_islands_boundaries.links.new(evaluate_at_index.outputs[0], compare.inputs[5])
+		uv_islands_boundaries.links.new(evaluate_at_index.outputs[0], node_input(compare, 5))
 		#compare_003.Result -> boolean_math_002.Boolean
 		uv_islands_boundaries.links.new(compare_003.outputs[0], boolean_math_002.inputs[0])
 		#corners_of_edge_003.Corner Index -> offset_corner_in_face_001.Corner Index
 		uv_islands_boundaries.links.new(corners_of_edge_003.outputs[0], offset_corner_in_face_001.inputs[0])
 		#evaluate_at_index_003.Value -> compare_002.B
-		uv_islands_boundaries.links.new(evaluate_at_index_003.outputs[0], compare_002.inputs[5])
+		uv_islands_boundaries.links.new(evaluate_at_index_003.outputs[0], node_input(compare_002, 5))
 		#corners_of_edge_001.Corner Index -> offset_corner_in_face.Corner Index
 		uv_islands_boundaries.links.new(corners_of_edge_001.outputs[0], offset_corner_in_face.inputs[0])
 		#group_input_1.UV -> evaluate_at_index_001.Value
@@ -2521,7 +2565,7 @@ def sharpfromuvislands_node_group():
 	#node Switch
 	switch = sharpfromuvislands.nodes.new("GeometryNodeSwitch")
 	switch.name = "Switch"
-	switch.input_type = 'BOOLEAN'
+	set_node_option(switch, "input_type", 'BOOLEAN')
 
 	#Set locations
 	group_input.location = (431.7928161621094, 51.20960998535156)

@@ -1,4 +1,4 @@
-import bpy.types, bmesh
+import bpy.types, bmesh, os
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 from bpy.types import Menu
@@ -84,9 +84,13 @@ def format_length_value(context, value):
     )
 
 
-def AddModCylinder(context, segment_amount, radius, height, align_to_view=False):
-    if bpy.context.mode == 'EDIT_MESH':
+def ensure_object_mode():
+    if bpy.context.mode != 'OBJECT' and bpy.context.active_object is not None:
         bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def AddModCylinder(context, segment_amount, radius, height, align_to_view=False):
+    ensure_object_mode()
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -137,16 +141,14 @@ def AddModCylinder(context, segment_amount, radius, height, align_to_view=False)
 
 def AddQuadSphere(context, scale, use_relative_scale, scale_relative_float, scale_property, sub_amount, use_modifiers):
     if bpy.app.version >= (5, 3, 0):
-        if bpy.context.mode == 'EDIT_MESH':
-            bpy.ops.object.mode_set(mode='OBJECT')
+        ensure_object_mode()
 
         bpy.ops.object.select_all(action='DESELECT')
         scale = calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0) *0.5
         bpy.ops.mesh.primitive_quad_sphere_add(radius=scale, align='WORLD', location=context.scene.cursor.location, segments=sub_amount)
         return
 
-    if bpy.context.mode == 'EDIT_MESH':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    ensure_object_mode()
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -339,6 +341,11 @@ class AddMesh(bpy.types.Operator):
         radius = None
         height = None
 
+        # The pie can be called from any mode. Adding objects from sculpt, paint or other edit modes
+        # fails or can crash Blender, so add them from object mode (mesh edit mode adds into the mesh).
+        if context.mode not in {'OBJECT', 'EDIT_MESH'}:
+            ensure_object_mode()
+
         if self.mesh_type in {"MODCYLINDER", "CYLINDER"}:
             radius, height = get_cylinder_dimensions(context, self.cylinder_radius, self.cylinder_height, self.use_relative_scale, self.scale_relative_float, self.scale_property)
       
@@ -360,10 +367,14 @@ class AddMesh(bpy.types.Operator):
         elif self.mesh_type == "CYLINDER":
             AddCylinder(context, self.segment_amount, radius, height)
         elif self.mesh_type == "EMPTY":
-            if context.mode == 'EDIT_MESH':
-                bpy.ops.object.editmode_toggle()
+            ensure_object_mode()
             AddEmpty(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         elif self.mesh_type == "BLEND":
+            blendpath = get_keyops_prefs().add_object_pie_blend_file_path
+            if not blendpath or not os.path.isfile(bpy.path.abspath(blendpath)):
+                self.report({'WARNING'}, "Set a valid .blend file path in the Add Objects Pie preferences")
+                return {'CANCELLED'}
+            ensure_object_mode()
             Add_Blend(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         return {'FINISHED'}
     
