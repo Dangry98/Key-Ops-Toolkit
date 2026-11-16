@@ -124,6 +124,11 @@ def run():
     p.pie_slot = 0
     bpy.ops.keyops.pie_set_icon(icon="MONKEY", slot=0)
     check("icon palette sets the slot icon", it.icon == "MONKEY")
+    cats = {c for c in PM._ICON_CAT.values()}
+    check("icon palette has category tabs", {"OBJECTS", "MODIFIERS", "EDITING", "VIEW", "ARROWS", "KEYS"} <= cats, str(sorted(cats)))
+    check("Modifier icons land in the Modifiers tab", PM._ICON_CAT.get("MOD_ARRAY") == "MODIFIERS" and PM._ICON_CAT.get("MESH_CUBE") == "OBJECTS")
+    bpy.ops.keyops.icon_palette_tab(category="MODIFIERS")
+    check("clicking a tab switches the palette category", bpy.context.window_manager.keyops_icon_category == "MODIFIERS")
     check("operator search list includes Blender operators", any(i[0] == "O:mesh.primitive_monkey_add" for i in PM._all_operator_items()))
     PM.apply_action(it, "EMPTY")
     check("search: Empty clears a slot", it.kind == "NONE" and it.idname == "")
