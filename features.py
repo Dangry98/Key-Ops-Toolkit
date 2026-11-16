@@ -11,7 +11,6 @@ tracked here, and switched on/off with ``kmi.active``. The user's keymap is
 never edited.
 """
 
-import importlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -290,11 +289,73 @@ def _legacy_unregister():
         unregister_legacy_collection_shortcuts()
 
 
+def _module(path):
+    """Import a feature module by its dotted path, with plain explicit imports (no dynamic loading)."""
+    if path == "operators.atri_op":
+        from .operators import atri_op as mod
+    elif path == "operators.auto_delete":
+        from .operators import auto_delete as mod
+    elif path == "operators.auto_lod":
+        from .operators import auto_lod as mod
+    elif path == "operators.cad_decimate":
+        from .operators import cad_decimate as mod
+    elif path == "operators.double_click_select_island":
+        from .operators import double_click_select_island as mod
+    elif path == "operators.fast_merge":
+        from .operators import fast_merge as mod
+    elif path == "operators.looptools_menu":
+        from .operators import looptools_menu as mod
+    elif path == "operators.material_index":
+        from .operators import material_index as mod
+    elif path == "operators.maya_navigation":
+        from .operators import maya_navigation as mod
+    elif path == "operators.maya_pivot":
+        from .operators import maya_pivot as mod
+    elif path == "operators.modi_key":
+        from .operators import modi_key as mod
+    elif path == "operators.optional_keys":
+        from .operators import optional_keys as mod
+    elif path == "operators.outliner_options":
+        from .operators import outliner_options as mod
+    elif path == "operators.poly_count_list":
+        from .operators import poly_count_list as mod
+    elif path == "operators.quick_bake_name":
+        from .operators import quick_bake_name as mod
+    elif path == "operators.quick_export":
+        from .operators import quick_export as mod
+    elif path == "operators.toggle_retopology":
+        from .operators import toggle_retopology as mod
+    elif path == "operators.toolkit_panel":
+        from .operators import toolkit_panel as mod
+    elif path == "operators.uv_tools":
+        from .operators import uv_tools as mod
+    elif path == "operators.viewport_menu":
+        from .operators import viewport_menu as mod
+    elif path == "tools.cutter_tool":
+        from .tools import cutter_tool as mod
+    elif path == "tools.fast_loop_cut":
+        from .tools import fast_loop_cut as mod
+    elif path == "tools.merge_tool":
+        from .tools import merge_tool as mod
+    elif path == "operators.add_mesh":
+        from .operators import add_mesh as mod
+    elif path == "operators.add_modifier":
+        from .operators import add_modifier as mod
+    elif path == "operators.origin_to_selection":
+        from .operators import origin_to_selection as mod
+    elif path == "operators.flatten":
+        from .operators import flatten as mod
+    elif path == "menu.pies":
+        from .menu import pies as mod
+    else:
+        raise KeyError(path)
+    return mod
+
+
 def _call(f, which):
     if f.id == "legacy_shortcuts":
         return (_legacy_register if which == "register" else _legacy_unregister)()
-    mod = importlib.import_module("." + f.module, __package__)
-    getattr(mod, getattr(f, which))()
+    getattr(_module(f.module), getattr(f, which))()
 
 
 def register_feature(f):
@@ -440,9 +501,10 @@ def migrate():
     if p.prefs_version >= PREFS_VERSION:
         return
     legacy_names = [f"enable_{f.id}" for f in FEATURES] + [
+        "enable_add_objects_pie", "enable_cursor_pie", "enable_workspace_pie",
         "auto_delete_dissolv_edge", "maya_pivot_behavior", "fast_merge_merge_options",
         "add_object_pie_use_relative", "material_list_type", "experimental"]
-    upgrading = any(p.is_property_set(n) for n in legacy_names if hasattr(p, n))
+    upgrading = any((p.is_property_set(n) if hasattr(p, n) else p.get(n) is not None) for n in legacy_names)
     with suspended():
         if upgrading:
             # Keep every feature and shortcut exactly as it was in 0.2.x
@@ -456,6 +518,16 @@ def migrate():
     if upgrading:
         from . import pie_menus
         pie_menus.install_presets(p, "INDUSTRY")  # the pies 0.2 had on by default
+        # 0.2 stored one switch per pie; carry over any the user changed
+        old_switches = {"add_objects": "enable_add_objects_pie", "add_modifier": "enable_add_modifier_pie",
+                        "flatten": "enable_flatten_pie", "cursor": "enable_cursor_pie",
+                        "workspace": "enable_workspace_pie", "utility": "enable_utility_pie",
+                        "uv_space": "enable_uv_pies", "uv_islands": "enable_uv_pies"}
+        for pie in p.pies:
+            saved = p.get(old_switches.get(pie.preset, ""))
+            if saved is not None:
+                pie["enabled"] = bool(saved)
+        pie_menus.sync_keymaps()
     if not upgrading:
         # Quiet until the welcome screen's choice: no shortcuts, no pies
         apply_style("ESSENTIALS")

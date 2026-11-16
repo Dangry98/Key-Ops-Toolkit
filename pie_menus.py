@@ -793,7 +793,7 @@ _SUPPORT = (
 def _register_support():
     """Register the operators the preset pies call. The old modules also add their
     fixed keys; those are removed again, since keys now come from the pie list."""
-    import importlib
+    from .features import _module
     kc = bpy.context.window_manager.keyconfigs.addon
 
     def items():
@@ -803,17 +803,17 @@ def _register_support():
 
     for module, reg, _unreg in _SUPPORT:
         before = set(items())
-        getattr(importlib.import_module("." + module, __package__), reg)()
+        getattr(_module(module), reg)()
         for ptr, (km, kmi) in items().items():
             if ptr not in before and " Tool: " not in km.name:
                 km.keymap_items.remove(kmi)
 
 
 def _unregister_support():
-    import importlib
+    from .features import _module
     for module, _reg, unreg in reversed(_SUPPORT):
         try:
-            getattr(importlib.import_module("." + module, __package__), unreg)()
+            getattr(_module(module), unreg)()
         except Exception:
             pass
 
