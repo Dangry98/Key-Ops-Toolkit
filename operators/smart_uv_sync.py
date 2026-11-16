@@ -113,16 +113,6 @@ class SmartUVSync(bpy.types.Operator):
         
             bmesh.update_edit_mesh(me)
 
-    def register():
-        bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Smart UV Sync (Slower)", default=True, description="Right Click to Toggle Sync Mode and UV Selection")
-    
-
-    def unregister():
-        bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
-        del bpy.types.Scene.smart_uv_sync_enable
-
-
     def execute(self, context):
         tool_settings = context.tool_settings
         uv_sync_enable = not tool_settings.use_uv_select_sync
@@ -154,3 +144,17 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
         row = layout.row()
         row.scale_y = 1.5
         row.prop(context.scene, "smart_uv_sync_enable", toggle=True, icon='UV_SYNC_SELECT')
+
+
+# Registration lives at module level, not inside the operator class.
+# (Smart UV Sync itself is registered by operators/uv_tools.py; this module is kept for reference.)
+def register_smart_uv_sync():
+    bpy.utils.register_class(SmartUVSync)
+    bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
+    bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Smart UV Sync (Slower)", default=True, description="Right Click to Toggle Sync Mode and UV Selection")
+
+
+def unregister_smart_uv_sync():
+    del bpy.types.Scene.smart_uv_sync_enable
+    bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
+    bpy.utils.unregister_class(SmartUVSync)

@@ -26,23 +26,33 @@ def _find_view3d(context):
     return None, None, None
 
 
-def _invoke_welcome():
+def _invoke_welcome(whats_new=False):
     window, area, region = _find_view3d(bpy.context)
     if window is None:
         return None
     with bpy.context.temp_override(window=window, area=area, region=region):
-        bpy.ops.keyops.welcome('INVOKE_DEFAULT')
+        bpy.ops.keyops.welcome('INVOKE_DEFAULT', whats_new=whats_new)
+    return None
+
+
+def first_screen(p):
+    """'WELCOME' for a new install, 'WHATS_NEW' once after each update, otherwise None."""
+    from .branding import version_text
+    if p.welcome_version < F.WELCOME_VERSION and not p.show_whats_new:
+        return 'WELCOME'
+    if p.show_whats_new or p.last_seen_version != version_text():
+        return 'WHATS_NEW'
     return None
 
 
 def schedule_welcome():
-    """Show the welcome screen once, after the UI has loaded."""
     if bpy.app.background:
         return
-    p = get_keyops_prefs()
-    if p.welcome_version >= F.WELCOME_VERSION or p.show_whats_new:
-        return
-    bpy.app.timers.register(_invoke_welcome, first_interval=1.0)
+    kind = first_screen(get_keyops_prefs())
+    if kind == 'WELCOME':
+        bpy.app.timers.register(_invoke_welcome, first_interval=1.0)
+    elif kind == 'WHATS_NEW':
+        bpy.app.timers.register(lambda: _invoke_welcome(True), first_interval=1.0)
 
 
 class KEYOPS_OT_toggle_feature_card(bpy.types.Operator):

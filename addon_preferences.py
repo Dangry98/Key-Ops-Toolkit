@@ -139,6 +139,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     prefs_version: IntProperty(default=0) # type: ignore
     welcome_version: IntProperty(default=0) # type: ignore
     show_whats_new: BoolProperty(default=False) # type: ignore
+    last_seen_version: StringProperty(default="") # type: ignore
 
     # ---------------- feature switches, generated from the registry
     for _f in F.FEATURES:

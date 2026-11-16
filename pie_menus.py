@@ -556,36 +556,58 @@ class KEYOPS_PT_icon_palette(bpy.types.Panel):
     bl_label = "Pick an Icon"
     bl_space_type = 'TOPBAR'
     bl_region_type = 'HEADER'
-    bl_ui_units_x = 22
+    bl_ui_units_x = 24
 
     def draw(self, context):
         wm = context.window_manager
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, prefs.pie_slot)
+        current = item.icon if item is not None else ""
         layout = self.layout
-        layout.label(text="Pick an Icon")
-        row = layout.row(align=True)
-        row.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
-        row.operator("keyops.pie_set_icon", text="No Icon").icon = ""
+
+        head = layout.row()
+        head.label(text="Icons")
+        right = head.row(align=True)
+        right.alignment = 'RIGHT'
+        if current:
+            cur = right.row()
+            cur.active = False
+            cur.label(text=current.replace("_", " ").title(), icon=_icon(current))
+        right.operator("keyops.pie_set_icon", text="No Icon", icon='X', emboss=False).icon = ""
+
+        search = layout.row()
+        search.scale_y = 1.2
+        search.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM', placeholder="Search icons and press Enter") \
+            if bpy.app.version >= (4, 1, 0) else search.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
+
         tabs = layout.row(align=True)
+        tabs.scale_y = 1.1
         for cid, label in [(c[0], c[1]) for c in ICON_CATEGORIES] + [("OTHER", "Other")]:
             tabs.operator("keyops.icon_palette_tab", text=label, depress=(wm.keyops_icon_category == cid)).category = cid
+        layout.separator(factor=0.6)
+
         q = wm.keyops_icon_filter.strip().upper().replace(" ", "_")
         cat = wm.keyops_icon_category
         matches = [n for n in _ICON_LIST if q in n and (cat == "ALL" or _ICON_CAT.get(n) == cat)]
-        cols = 16
-        names = matches[:cols * 12]  # keeps the popup on screen; search finds the rest
-        grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=True)
-        grid.scale_y = 1.15
+        cols = 14
+        names = matches[:cols * 10]  # keeps the popup on screen; search finds the rest
+        grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=False)
+        grid.scale_x = 1.35
+        grid.scale_y = 1.35
         for name in names:
-            # no button background: icons sit on the dark popup, like the Icon Viewer add-on
-            grid.operator("keyops.pie_set_icon", text="", icon=name, emboss=False).icon = name
+            # icons sit on the dark popup without frames; the current one is highlighted
+            is_current = name == current
+            grid.operator("keyops.pie_set_icon", text="", icon=name, emboss=is_current, depress=is_current).icon = name
         for _ in range(max(0, cols - len(names))):
             grid.label(text="")  # keep icons the same size when only a few match
+
+        foot = layout.row()
+        foot.active = False
         if not names:
-            layout.label(text="No icons match.")
-        elif len(matches) > len(names):
-            hint = layout.row()
-            hint.active = False
-            hint.label(text=f"Showing {len(names)} of {len(matches)}. Type to search, e.g. mesh, arrow, modifier.")
+            foot.label(text="No icons match. Try another word or the All tab.")
+        else:
+            more = f"  ·  search to see the other {len(matches) - len(names)}" if len(matches) > len(names) else ""
+            foot.label(text=f"{len(matches)} icons{more}")
 
 
 def _open_palette():
@@ -691,7 +713,7 @@ SLOT_W = 7.0  # units
 def _slot_button(row, pie, index, prefs):
     cell = row.row(align=True)
     cell.ui_units_x = SLOT_W
-    cell.scale_y = 1.4
+    cell.scale_y = 1.25
     if index >= len(pie.items):
         cell.label(text="")
         return
@@ -699,15 +721,19 @@ def _slot_button(row, pie, index, prefs):
     empty = item.kind == N or not item.idname.strip()
     text = "Empty" if empty else (item.label or item.idname)
     selected = prefs.pie_customize and prefs.pie_slot == index
-    # icon part: opens the icon palette for this slot
-    cell.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'BLANK1',
-                  depress=selected).slot = index
-    # label part: search for an action, or select the slot to edit it
+    # One rounded item, like an entry in a real pie: the icon and the label are two
+    # frameless click zones inside it (icon opens the palette, label picks the action).
+    item_box = cell.box() if not selected else cell.column()
+    r = item_box.row(align=True)
+    r.scale_y = 0.85 if not selected else 1.0
+    emboss = selected
+    r.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'BLANK1',
+               emboss=emboss, depress=selected).slot = index
     if prefs.pie_customize:
-        op = cell.operator("keyops.pie_slot_select", text=text, depress=selected)
+        op = r.operator("keyops.pie_slot_select", text=text, emboss=emboss, depress=selected)
         op.slot = index
     else:
-        op = cell.operator("keyops.pie_slot_search", text=text)
+        op = r.operator("keyops.pie_slot_search", text=text, emboss=emboss)
         op.slot = index
         op.scope = "KEYOPS"
 

@@ -33,6 +33,15 @@ PRESETS = (
     ("BLENDER_PLUS", "Blender+", "Shortcuts and pies only on", "keys Blender leaves free.", ""),
     ("INDUSTRY", "Industry", "Maya-style keys: Alt navigation,", "D pivot, Delete. Like Key Ops 0.2.", ""),
 )
+# Shown once after each update. Keep it to a handful of short, user-facing highlights.
+WHATS_NEW = (
+    ("Quiet by default", "Turn each feature and its shortcuts on or off. Nothing takes over your keys unless you choose."),
+    ("Editable pie menus", "Every pie is a preset you can change: search actions, pick icons, set keys, or make your own."),
+    ("Cleaner preferences", "Features, Pie Menus and Shortcuts tabs, with a Docs link on every feature."),
+    ("Shortcut cheat sheet", "The ? button in the Toolkit panel lists the Key Ops shortcuts active in your mode."),
+    ("Rebind is now opt-in", "The old Rebind options are Key Ops shortcuts that never edit your own keymap."),
+)
+
 HIGHLIGHTS = (
     ("Modeling tools", "Merge, fast loop cut, cutter,", "bevel, mirror and more."),
     ("Pie menus", "Add objects, modifiers, cursor.", "Every pie is editable."),
@@ -100,10 +109,14 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
     bl_description = "Welcome screen: pick which shortcuts Key Ops starts with"
     bl_options = {'INTERNAL'}
 
+    whats_new: bpy.props.BoolProperty(options={'SKIP_SAVE'}) # type: ignore
+
     def invoke(self, context, event):
         if context.area is None or context.area.type != 'VIEW_3D':
             return {'CANCELLED'}
-        get_keyops_prefs().welcome_version = F.WELCOME_VERSION  # shown once
+        p = get_keyops_prefs()
+        p.welcome_version = F.WELCOME_VERSION  # shown once
+        p.last_seen_version = version_text()   # the What's New for this version is seen too
         self.area = context.area
         self.region = next(r for r in context.area.regions if r.type == 'WINDOW')
         self.choice = "ESSENTIALS"
@@ -136,7 +149,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if self.hover == "START":
                 return self.finish(context)
-            if self.hover in {p[0] for p in PRESETS}:
+            if not self.whats_new and self.hover in {p[0] for p in PRESETS}:
                 self.choice = self.hover
                 self.area.tag_redraw()
         elif event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
@@ -149,6 +162,9 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
             bpy.data.images.remove(self.image)
         self.area.tag_redraw()
         p = get_keyops_prefs()
+        if self.whats_new:
+            p.show_whats_new = False
+            return {'FINISHED'}
         p.shortcut_style = self.choice
         F.apply_style(self.choice)
 
@@ -165,6 +181,8 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
     def draw_overlay(self):
         if bpy.context.area != self.area:
             return
+        if self.whats_new:
+            return self.draw_whats_new()
         s = bpy.context.preferences.system.ui_scale
         # corner radius follows the user's theme, like Blender's own popups and buttons
         ui = bpy.context.preferences.themes[0].user_interface
@@ -243,4 +261,48 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         self.hit["START"] = (bx, by, bw, bh)
 
         _text(x0 + 18 * s, y0 + 12 * s, f"v{version_text()}", 11 * s, DIM)
+        gpu.state.blend_set('NONE')
+
+    def draw_whats_new(self):
+        s = bpy.context.preferences.system.ui_scale
+        ui = bpy.context.preferences.themes[0].user_interface
+        unit = 20 * s
+        r_card = ui.wcol_menu_back.roundness * unit
+        r_tile = ui.wcol_regular.roundness * unit * 0.75
+        rw, rh = self.region.width, self.region.height
+        gpu.state.blend_set('ALPHA')
+        _rounded(0, 0, rw, rh, 0, (0.0, 0.0, 0.0, 0.55))
+
+        row_h = 50 * s
+        w, h = 640 * s, (250 + 0) * s + row_h * len(WHATS_NEW)
+        x0, y0 = (rw - w) / 2, (rh - h) / 2
+        _rounded(x0 - 1, y0 - 1, w + 2, h + 2, r_card + 1, CARD_EDGE)
+        _rounded(x0, y0, w, h, r_card, CARD)
+        cx, top = x0 + w / 2, y0 + h
+
+        lw, lh = 240 * s, 80 * s
+        ly = top - 28 * s - lh
+        if self.texture is not None:
+            sh = gpu.shader.from_builtin('IMAGE')
+            batch = batch_for_shader(sh, 'TRI_FAN', {
+                "pos": ((cx - lw / 2, ly), (cx + lw / 2, ly), (cx + lw / 2, ly + lh), (cx - lw / 2, ly + lh)),
+                "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1))})
+            sh.bind()
+            sh.uniform_sampler("image", self.texture)
+            batch.draw(sh)
+        y = ly - 30 * s
+        _text(cx, y, f"What's new in Key Ops {version_text()}", 16 * s, TEXT, center=True)
+
+        y -= 26 * s
+        for title, desc in WHATS_NEW:
+            y -= row_h
+            _rounded(x0 + 44 * s, y + 31 * s, 6 * s, 6 * s, 3 * s, ACCENT)
+            _text(x0 + 60 * s, y + 28 * s, title, 14 * s, TEXT)
+            _text(x0 + 60 * s, y + 9 * s, desc, 12 * s, DIM)
+
+        bw, bh = 180 * s, 40 * s
+        bx, by = cx - bw / 2, y0 + 26 * s
+        _rounded(bx, by, bw, bh, r_tile, BUTTON_HOVER if self.hover == "START" else BUTTON)
+        _text(cx, by + bh / 2 - 6 * s, "Got It", 15 * s, (1, 1, 1, 1), center=True)
+        self.hit = {"START": (bx, by, bw, bh)}
         gpu.state.blend_set('NONE')
