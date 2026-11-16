@@ -47,7 +47,7 @@ def _rect_shader():
     return _shader
 
 
-def _outline(x, y, w, h, r, color, width=2.0, segments=6):
+def _outline(x, y, w, h, r, color, width=2.0, segments=10):
     import math
     r = min(r, w / 2, h / 2)
     pts = []
@@ -64,7 +64,7 @@ def _outline(x, y, w, h, r, color, width=2.0, segments=6):
     gpu.state.line_width_set(1.0)
 
 
-def _rounded(x, y, w, h, r, color, segments=6):
+def _rounded(x, y, w, h, r, color, segments=10):
     import math
     r = min(r, w / 2, h / 2)
     corners = ((x + w - r, y + h - r, 0), (x + r, y + h - r, 90), (x + r, y + r, 180), (x + w - r, y + r, 270))
@@ -164,14 +164,19 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         if bpy.context.area != self.area:
             return
         s = bpy.context.preferences.system.ui_scale
+        # corner radius follows the user's theme, like Blender's own popups and buttons
+        ui = bpy.context.preferences.themes[0].user_interface
+        unit = 20 * s  # one widget unit
+        r_card = ui.wcol_menu_back.roundness * unit
+        r_tile = ui.wcol_regular.roundness * unit * 0.75
         rw, rh = self.region.width, self.region.height
         gpu.state.blend_set('ALPHA')
         _rounded(0, 0, rw, rh, 0, (0.0, 0.0, 0.0, 0.55))
 
         w, h = 700 * s, 560 * s
         x0, y0 = (rw - w) / 2, (rh - h) / 2
-        _rounded(x0 - 1, y0 - 1, w + 2, h + 2, 14 * s, CARD_EDGE)
-        _rounded(x0, y0, w, h, 14 * s, CARD)
+        _rounded(x0 - 1, y0 - 1, w + 2, h + 2, r_card + 1, CARD_EDGE)
+        _rounded(x0, y0, w, h, r_card, CARD)
         top = y0 + h
         cx = x0 + w / 2
 
@@ -214,9 +219,9 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
             ty = y - tile_h
             selected = sid == self.choice
             fill = (0.25, 0.14, 0.165, 1.0) if selected else (TILE_HOVER if self.hover == sid else TILE)
-            _rounded(tx, ty, tile_w, tile_h, 9 * s, fill)
+            _rounded(tx, ty, tile_w, tile_h, r_tile, fill)
             if selected:
-                _outline(tx, ty, tile_w, tile_h, 9 * s, ACCENT, width=2.0 * s)
+                _outline(tx, ty, tile_w, tile_h, r_tile, ACCENT, width=2.0 * s)
             _text(tx + 14 * s, ty + tile_h - 28 * s, name, 15 * s, TEXT)
             if badge:
                 blf.size(0, 11 * s)
@@ -231,7 +236,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         # Get Started
         bw, bh = 220 * s, 44 * s
         bx, by = cx - bw / 2, y0 + 30 * s
-        _rounded(bx, by, bw, bh, 8 * s, (1.0, 0.42, 0.5, 1.0) if self.hover == "START" else ACCENT)
+        _rounded(bx, by, bw, bh, r_tile, (1.0, 0.42, 0.5, 1.0) if self.hover == "START" else ACCENT)
         _text(cx, by + bh / 2 - 6 * s, "Get Started", 16 * s, (1, 1, 1, 1), center=True)
         self.hit["START"] = (bx, by, bw, bh)
 

@@ -117,6 +117,17 @@ def run():
     bpy.ops.keyops.pie_reset()
     check("reset to preset restores slots and key", pie.items[1].label == "Cube" and pie.alt)
 
+    # ---- searchable pickers and icon palette
+    it = pie.items[0]
+    PM.apply_action(it, "O:mesh.primitive_monkey_add")
+    check("search: any Blender operator fills a slot", it.idname == "mesh.primitive_monkey_add" and it.label == "Add Monkey" and it.icon == "")
+    p.pie_slot = 0
+    bpy.ops.keyops.pie_set_icon(icon="MONKEY", slot=0)
+    check("icon palette sets the slot icon", it.icon == "MONKEY")
+    check("operator search list includes Blender operators", any(i[0] == "O:mesh.primitive_monkey_add" for i in PM._all_operator_items()))
+    PM.apply_action(it, "EMPTY")
+    check("search: Empty clears a slot", it.kind == "NONE" and it.idname == "")
+
     # ---- users can add their own pie
     n = len(p.pies)
     bpy.ops.keyops.pie_add()
