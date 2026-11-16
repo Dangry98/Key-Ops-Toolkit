@@ -455,50 +455,203 @@ class KEYOPS_MT_pie_presets(bpy.types.Menu):
 
 # ---------------------------------------------------------------- preferences tab
 
-def _slot(row, item, enabled, width=9.0):
+# ---------------------------------------------------------------- searchable pickers
+
+_op_items_cache = []
+
+
+def _all_operator_items():
+    """Every registered operator, for the 'All of Blender' search. Built once, on first use."""
+    if not _op_items_cache:
+        n = 20000
+        for mod_name in dir(bpy.ops):
+            mod = getattr(bpy.ops, mod_name)
+            for op_name in dir(mod):
+                idname = f"{mod_name}.{op_name}"
+                try:
+                    rna = getattr(mod, op_name).get_rna_type()
+                    name = rna.name or op_name
+                    desc = (rna.description or "").split("\n")[0][:120]
+                except Exception:
+                    continue
+                _op_items_cache.append((f"O:{idname}", f"{name}  ·  {idname}", desc, 'NONE', n))
+                n += 1
+    return _op_items_cache
+
+
+_KEYOPS_SEARCH = [("EMPTY", "Empty slot", "Leave this slot empty", 'X', 0)] + [
+    (f"C{i}", f"{label}  ·  {group}", f"{idname}  {props}".strip(), icon if icon in _ICONS else 'NONE', i + 1)
+    for i, (group, _kind, label, icon, idname, props) in enumerate(_CATALOG)]
+
+
+def _search_items(self, context):
+    return _KEYOPS_SEARCH if self.scope == "KEYOPS" else _KEYOPS_SEARCH + _all_operator_items()
+
+
+def _active_item(prefs, slot):
+    pie = prefs.pies[max(0, min(prefs.active_pie, len(prefs.pies) - 1))]
+    return pie.items[slot] if 0 <= slot < len(pie.items) else None
+
+
+class KEYOPS_OT_pie_slot_search(Operator):
+    bl_idname = "keyops.pie_slot_search"
+    bl_label = "Pick an Action"
+    bl_description = "Search for what this slot should do"
+    bl_options = {'INTERNAL'}
+    bl_property = "action"
+
+    slot: IntProperty() # type: ignore
+    scope: EnumProperty(items=(("KEYOPS", "Key Ops", ""), ("ALL", "All of Blender", ""))) # type: ignore
+    action: EnumProperty(items=_search_items) # type: ignore
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        item = _active_item(get_keyops_prefs(), self.slot)
+        if item is None:
+            return {'CANCELLED'}
+        apply_action(item, self.action)
+        _redraw_all(context)
+        return {'FINISHED'}
+
+
+def apply_action(item, action):
+    if action == "EMPTY":
+        item.kind, item.label, item.icon, item.idname, item.props = N, "", "", "", ""
+    elif action.startswith("C"):
+        _g, item.kind, item.label, item.icon, item.idname, item.props = _CATALOG[int(action[1:])]
+    elif action.startswith("O:"):
+        idname = action[2:]
+        mod, op = idname.split(".", 1)
+        try:
+            name = getattr(getattr(bpy.ops, mod), op).get_rna_type().name
+        except Exception:
+            name = op.replace("_", " ").title()
+        item.kind, item.idname, item.props, item.label, item.icon = O, idname, "", name, ""
+
+
+def _redraw_all(context):
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
+class KEYOPS_OT_pie_slot_select(Operator):
+    bl_idname = "keyops.pie_slot_select"
+    bl_label = "Edit Slot"
+    bl_description = "Edit this slot below"
+    bl_options = {'INTERNAL'}
+    slot: IntProperty() # type: ignore
+
+    def execute(self, context):
+        get_keyops_prefs().pie_slot = self.slot
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_pie_icon_picker(Operator):
+    bl_idname = "keyops.pie_icon_picker"
+    bl_label = "Pick an Icon"
+    bl_description = "Choose this slot's icon from all of Blender's icons"
+    bl_options = {'INTERNAL'}
+    slot: IntProperty() # type: ignore
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=470, title="Pick an Icon", confirm_text="Done")
+
+    def draw(self, context):
+        wm = context.window_manager
+        layout = self.layout
+        row = layout.row(align=True)
+        row.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
+        row.operator("keyops.pie_set_icon", text="No Icon").icon = ""
+        q = wm.keyops_icon_filter.strip().upper().replace(" ", "_")
+        names = [n for n in _ICON_LIST if q in n][:360]
+        cols = 16
+        grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=True)
+        for name in names:
+            op = grid.operator("keyops.pie_set_icon", text="", icon=name)
+            op.icon = name
+            op.slot = self.slot
+        for _ in range(max(0, cols - len(names))):
+            grid.label(text="")  # keep icons the same size when only a few match
+        if not names:
+            layout.label(text="No icons match.")
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_pie_set_icon(Operator):
+    bl_idname = "keyops.pie_set_icon"
+    bl_label = "Use Icon"
+    bl_options = {'INTERNAL'}
+    icon: StringProperty() # type: ignore
+    slot: IntProperty(default=-1) # type: ignore
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.icon or "No icon"
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, self.slot if self.slot >= 0 else prefs.pie_slot)
+        if item is not None:
+            item.icon = self.icon
+        _redraw_all(context)
+        return {'FINISHED'}
+
+
+_ICON_LIST = sorted(n for n in _ICONS if n not in {"NONE", "BLANK1"} and not n.startswith(("BRUSH_", "MATPLANE", "COLORSET_")))
+
+
+# ---------------------------------------------------------------- pie overview (ND Primitives style)
+
+SLOT_W = 7.0  # units
+
+
+def _slot_button(row, pie, index, prefs):
     cell = row.row(align=True)
-    cell.ui_units_x = width
-    cell.scale_y = 1.45
-    cell.active = True  # always readable: the overview shows what the pie does even while it is off
-    if item is None:
+    cell.ui_units_x = SLOT_W
+    cell.scale_y = 1.4
+    if index >= len(pie.items):
         cell.label(text="")
+        return
+    item = pie.items[index]
+    empty = item.kind == N or not item.idname.strip()
+    text = "Empty" if empty else (item.label or item.idname)
+    icon = 'NONE' if empty else _icon(item.icon)
+    if prefs.pie_customize:
+        op = cell.operator("keyops.pie_slot_select", text=text, icon=icon, depress=(prefs.pie_slot == index))
+        op.slot = index
     else:
-        cell.prop(item, "choice", text="")
+        op = cell.operator("keyops.pie_slot_search", text=text, icon=icon)
+        op.slot = index
+        op.scope = "KEYOPS"
 
 
-def _spacer(row, width):
-    sp = row.row()
-    sp.ui_units_x = width
-    sp.label(text="")
-
-
-def draw_pie_overview(layout, pie):
-    """The pie drawn as buttons in pie shape, like ND Primitives. Each button is a dropdown."""
-    items = {pos: (pie.items[i] if i < len(pie.items) else None) for i, pos in enumerate(ORDER)}
-    on = pie.enabled
+def draw_pie_overview(layout, pie, prefs):
+    """The pie drawn as buttons, in roughly the proportions Blender draws it."""
     col = layout.column(align=False)
-    for spec, gap in ((("N",), 0), (("NW", "NE"), 6), (("W", "E"), 12), (("SW", "SE"), 6), (("S",), 0)):
+    rows = ((("N",), 0.0), (("NW", "NE"), 1.5), (("W", "E"), 5.0), (("SW", "SE"), 1.5), (("S",), 0.0))
+    for spec, gap in rows:
         row = col.row()
         row.alignment = 'CENTER'
-        if len(spec) == 1:
-            _slot(row, items[spec[0]], on)
-        else:
-            _slot(row, items[spec[0]], on)
+        _slot_button(row, pie, ORDER.index(spec[0]), prefs)
+        if len(spec) == 2:
+            mid = row.column(align=True)
+            mid.ui_units_x = gap
             if spec == ("W", "E"):
-                mid = row.column(align=True)
-                mid.ui_units_x = gap
-                mid.alignment = 'CENTER'
-                t = mid.row()
-                t.alignment = 'CENTER'
-                t.label(text=pie.name)
-                k = mid.row()
-                k.alignment = 'CENTER'
-                k.active = False
-                k.label(text=key_text(pie) if on else "Off")
+                for text, dim in ((pie.name, False), (key_text(pie) if pie.enabled else "Off", True)):
+                    t = mid.row()
+                    t.alignment = 'CENTER'
+                    t.active = not dim
+                    t.label(text=text)
             else:
-                _spacer(row, gap)
-            _slot(row, items[spec[1]], on)
-        col.separator(factor=0.6)
+                mid.label(text="")
+            _slot_button(row, pie, ORDER.index(spec[1]), prefs)
+        col.separator(factor=0.35)
 
 
 def draw_pies_tab(prefs, context, layout):
@@ -508,7 +661,6 @@ def draw_pies_tab(prefs, context, layout):
         return
     active = max(0, min(prefs.active_pie, len(prefs.pies) - 1))
 
-    # pie picker
     grid = layout.grid_flow(row_major=True, columns=5, even_columns=True, align=True)
     for i, pie in enumerate(prefs.pies):
         b = grid.row(align=True)
@@ -532,70 +684,86 @@ def draw_pies_tab(prefs, context, layout):
     head.separator()
     head.prop(prefs, "pie_customize", text="Customize", toggle=True)
 
-    box.separator(factor=0.5)
-    draw_pie_overview(box, pie)
-    if not prefs.pie_customize:
+    box.separator(factor=0.4)
+    split = box.split(factor=0.58) if prefs.pie_customize else box.column()
+    draw_pie_overview(split.column() if prefs.pie_customize else split, pie, prefs)
+    if prefs.pie_customize:
+        draw_slot_editor(prefs, split.column(), pie)
+    else:
         tip = box.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text="Click any slot to pick a different action. Customize to add your own commands or make new pies.")
-    else:
-        draw_customize(prefs, box, pie)
+        tip.label(text="Click a slot to search for a different action. Customize for labels, icons and your own pies.")
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
-        sbox.label(text="Add Objects size")
         r = sbox.row()
+        r.label(text="Add Objects size")
         r.prop(prefs, "add_object_pie_use_relative")
         sub = r.row()
         sub.active = prefs.add_object_pie_use_relative
         sub.prop(prefs, "add_object_pie_relative_scale")
-        r.prop(prefs, "add_object_pie_min_scale")
         r.prop(prefs, "add_object_pie_default_scale")
 
 
-def draw_customize(prefs, layout, pie):
-    """Full editing, PME-style: one row per slot."""
-    layout.separator()
-    row = layout.row(align=True)
-    row.prop(pie, "name", text="Name")
-    row.prop(pie, "editor", text="")
-    row = layout.row(align=True)
-    row.operator("keyops.pie_add", text="New Pie")
-    row.menu("KEYOPS_MT_pie_presets", text="Add Preset")
-    if pie.preset in PRESET_BY_ID:
-        row.operator("keyops.pie_reset", text="Reset to Preset")
-    row.operator("keyops.pie_remove", text="Delete Pie")
+def draw_slot_editor(prefs, layout, pie):
+    """Customize: edit the selected slot. Advanced fields fold away."""
+    slot = max(0, min(prefs.pie_slot, len(pie.items) - 1))
+    item = pie.items[slot]
+    box = layout.box()
+    head = box.row()
+    head.label(text=f"{POSITION_NAMES[ORDER[slot]]} slot")
+    sub = head.row()
+    sub.alignment = 'RIGHT'
+    sub.active = False
+    sub.label(text="Click a slot on the left to edit it")
 
-    table = layout.column(align=True)
-    head = table.row(align=True)
-    head.active = False
-    for text, f in (("Slot", 0.11), ("Type", 0.12), ("Label", 0.19), ("Command", 0.27), ("Options", 0.19), ("Icon", 0.12)):
-        c = head.row()
-        c.ui_units_x = f * 60
-        c.label(text=text)
-    for i, pos in enumerate(ORDER):
-        if i >= len(pie.items):
-            break
-        item = pie.items[i]
-        r = table.row(align=True)
-        c = r.row()
-        c.ui_units_x = 0.11 * 60
-        c.label(text=POSITION_NAMES[pos])
-        c = r.row(align=True)
-        c.ui_units_x = 0.12 * 60
-        c.prop(item, "kind", text="")
-        sub = r.row(align=True)
-        sub.enabled = item.kind != N
-        for prop, f in (("label", 0.19), ("idname", 0.27), ("props", 0.19), ("icon", 0.12)):
-            c = sub.row(align=True)
-            c.ui_units_x = f * 60
-            c.enabled = prop != "props" or item.kind == O
-            c.prop(item, prop, text="")
-    tip = layout.row()
-    tip.active = False
-    tip.label(text="Command: operator (mesh.primitive_cube_add), menu (VIEW3D_MT_add) or setting (scene.tool_settings.use_snap). "
-                   "Turn on Python Tooltips to see any button's command.")
+    col = box.column()
+    empty = item.kind == N or not item.idname.strip()
+    row = col.row(align=True)
+    row.scale_y = 1.3
+    op = row.operator("keyops.pie_slot_search", text="Empty" if empty else (item.label or item.idname),
+                      icon='VIEWZOOM')
+    op.slot, op.scope = slot, "KEYOPS"
+    op = row.operator("keyops.pie_slot_search", text="Any Blender Operator")
+    op.slot, op.scope = slot, "ALL"
+    if not empty:
+        row = col.row(align=True)
+        row.prop(item, "label", text="Label")
+        ic = row.row(align=True)
+        ic.ui_units_x = 4.5
+        ic.operator("keyops.pie_icon_picker", text="Icon", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
+
+        more = col.row()
+        more.alignment = 'LEFT'
+        more.prop(prefs, "pie_show_more", text="More Options", icon='DOWNARROW_HLT' if prefs.pie_show_more else 'RIGHTARROW',
+                  emboss=False)
+        if prefs.pie_show_more:
+            adv = col.box().column()
+            adv.row().prop(item, "kind", expand=True)
+            adv.prop(item, "idname", text={O: "Operator", M: "Menu", P: "Setting"}.get(item.kind, "Command"))
+            if item.kind == O:
+                adv.prop(item, "props", text="Options")
+            note = adv.row()
+            note.active = False
+            note.label(text="Options look like type='WELD', segments=4")
+
+    pbox = layout.box()
+    prow = pbox.row()
+    prow.alignment = 'LEFT'
+    prow.prop(prefs, "pie_show_settings", text="Pie Settings", icon='DOWNARROW_HLT' if prefs.pie_show_settings else 'RIGHTARROW',
+              emboss=False)
+    if prefs.pie_show_settings:
+        c = pbox.column()
+        c.prop(pie, "name", text="Name")
+        c.prop(pie, "editor", text="Works In")
+        r = c.row(align=True)
+        if pie.preset in PRESET_BY_ID:
+            r.operator("keyops.pie_reset", text="Reset to Preset")
+        r.operator("keyops.pie_remove", text="Delete Pie")
+    r = layout.row(align=True)
+    r.operator("keyops.pie_add", text="New Pie", icon='ADD')
+    r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
 
 
 # ---------------------------------------------------------------- operators the presets use
@@ -641,7 +809,8 @@ def _unregister_support():
 
 property_classes = (KeyOpsPieItem, KeyOpsPie)
 classes = (WM_OT_keyops_call_pie, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
-           KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets)
+           KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
+           KEYOPS_OT_pie_slot_select, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
 
 
 def register_properties():
@@ -657,6 +826,7 @@ def unregister_properties():
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.types.WindowManager.keyops_icon_filter = StringProperty(name="Search Icons", options={'TEXTEDIT_UPDATE'})
     _register_support()
     sync_keymaps()
 
@@ -669,5 +839,6 @@ def unregister():
             pass
     _pie_keymaps.clear()
     _unregister_support()
+    del bpy.types.WindowManager.keyops_icon_filter
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
