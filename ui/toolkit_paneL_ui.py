@@ -50,7 +50,6 @@ def draw_object_panel(self, context):
     wm = context.window_manager
     
     box = layout.box()
-    box.label(text="Object Toolkit", icon_value=get_icon("mesh_cube"))
     col = box.column(align=False) 
 
     # row = col.row(align=True)
@@ -131,202 +130,233 @@ def draw_object_panel(self, context):
 
 
 
-def redraw_ui(self, context):
-    for area in bpy.context.screen.areas:
-        if area.type == 'VIEW_3D':
-            for region in area.regions:
-                if region.type == 'UI' and area.ui_type == 'Toolkit':
-                    area.tag_redraw()
-                    break
 
-def update_ui(self, context):
-    global show_object_panel
-    show_object_panel = self.show_object_panel
-    # update the UI when properties change
-    # This function can be used to refresh the UI or perform other actions
-    bpy.app.timers.register(redraw_ui, persistent=True, first_interval=0.01)
-    print("UI updated with new properties")
+# ---------------------------------------------------------------- 1.0 N-panel
+# One "Key Ops" tab with native subpanels: Blender handles collapse, reordering
+# and pinning. Sections follow the mode, and pipeline tools sit in one closed group.
+
+TAB = "Key Ops"
 
 
-    # Add a Blender timer to periodically refresh the UI
-
-ev = []
-
-class ToggleToolkitPanelEnum(bpy.types.Operator):
-    bl_idname = "keyops.toggle_toolkit_panel_enum"
-    bl_label = "Toggle Toolkit Panel Enum"
-    bl_description = "Toggle the visibility of the toolkit panel enum"
-
-    type: bpy.props.StringProperty(
-        name="ID",
-        description="ID of the panel to toggle",
-        default="toolkit_panel_mode"
-    )
-
-    def invoke(self, context, event):
-        if event.shift:
-            ev.append("shift")
-        return self.execute(context)
-
-    def execute(self, context):
-        wm = context.window_manager
-        global ev
-        if "shift" in ev:
-            wm.toolkit_panel_mode ^= {self.type}
-        else:
-            wm.toolkit_panel_mode = {self.type}
-
-        ev = []
-        return {'FINISHED'}
+def _modeling_mode(context):
+    return context.mode in {'OBJECT', 'EDIT_MESH'}
 
 
-class NewToolkitPanel(bpy.types.Panel):
-    bl_description = "KeyOps Toolkit Panel"
-    bl_label = "Toolkit"
-    bl_idname = "KEYOPS_PT_new_toolkit_panel"
+class KEYOPS_PT_main(bpy.types.Panel):
+    bl_label = "Key Ops"
+    bl_idname = "KEYOPS_PT_main"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Toolkit'
-    if BLENDER_VERSION >= (5,2,0):
-        bl_icon_value = get_icon("K")
+    bl_category = TAB
+    bl_order = 0
+
+    def draw_header(self, context):
+        row = self.layout.row(align=True)
+        row.scale_x = 0.94
+        for name in ("K", "ey", "Op", "s"):
+            row.label(text="", icon_value=get_icon(name))
+
+    def draw_header_preset(self, context):
+        row = self.layout.row(align=True)
+        row.operator("keyops.shortcut_cheatsheet", text="", icon='QUESTION', emboss=False)
+        row.menu("KEYOPS_MT_panel_menu", text="", icon='COLLAPSEMENU')
+
+    def draw(self, context):
+        prefs = get_keyops_prefs()
+        layout = self.layout
+        row = layout.row(align=True)
+        mode = {'OBJECT': "Object Mode", 'EDIT_MESH': "Edit Mode"}.get(context.mode, context.mode.replace("_", " ").title())
+        row.label(text=mode, icon='OBJECT_DATAMODE' if context.mode == 'OBJECT' else 'EDITMODE_HLT')
+        if prefs.pause_shortcuts:
+            sub = layout.row(align=True)
+            sub.alert = True
+            sub.prop(prefs, "pause_shortcuts", text="Shortcuts Paused - Resume", icon='PLAY', toggle=True)
+        if not _modeling_mode(context):
+            sub = layout.column()
+            sub.active = False
+            sub.label(text="Key Ops tools show in Object and Edit Mode.")
+
+
+class _KeyOpsSubPanel:
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = TAB
+    bl_parent_id = "KEYOPS_PT_main"
+
+
+class KEYOPS_PT_object(_KeyOpsSubPanel, bpy.types.Panel):
+    bl_label = "Object"
+    bl_idname = "KEYOPS_PT_object"
+    bl_order = 1
 
     @classmethod
     def poll(cls, context):
-        return get_toolkit_panel_items(context.scene, context)
+        return context.mode == 'OBJECT' and get_keyops_prefs().enable_toolkit_panel
 
     def draw_header(self, context):
-        if not context.window_manager.toolkit_panel_mode:
-            set_default_panels()
-
-        layout = self.layout
-        row = layout.row(align=True)
-        row.scale_x = 0.94
-        row.label(text="", icon_value=get_icon("K"))
-        row.label(text="", icon_value=get_icon("ey"))
-        row.label(text="", icon_value=get_icon("Op"))
-        row.label(text="", icon_value=get_icon("s"))
-
-    def draw_header_preset(self, context):
-        layout = self.layout
-        row = layout.row(align=True)
-        row.operator("preferences.addon_show", text="Prefs", icon='PREFERENCES', emboss=True).module = get_addon_name()
+        self.layout.label(text="", icon_value=get_icon("mesh_cube"))
 
     def draw(self, context):
-        global show_object_panel
-        wm = context.window_manager
-        layout = self.layout
-        # layout.prop_tabs_enum(scene, "toolkit_panel_mode", icon_only=False)
-        row = layout.row(align=True)
-        layout = self.layout
-        row = layout.row(align=True)
-        row.scale_x = 12
-        row.scale_y = 1.4
-        row.alignment = 'EXPAND'
-        row.prop(wm, "toolkit_panel_mode", emboss=True)
+        draw_object_panel(self, context)
+
+
+class KEYOPS_PT_edit_mesh(_KeyOpsSubPanel, bpy.types.Panel):
+    bl_label = "Mesh"
+    bl_idname = "KEYOPS_PT_edit_mesh"
+    bl_order = 1
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH' and get_keyops_prefs().enable_toolkit_panel
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("editmode"))
+
+    def draw_header_preset(self, context):
+        self.layout.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
+
+    def draw(self, context):
+        draw_edit_mode_panel(self, context, draw_header=False)
+
+
+class KEYOPS_PT_modifiers(_KeyOpsSubPanel, bpy.types.Panel):
+    bl_label = "Modifiers"
+    bl_idname = "KEYOPS_PT_modifiers"
+    bl_order = 2
+
+    @classmethod
+    def poll(cls, context):
+        return _modeling_mode(context) and get_keyops_prefs().enable_toolkit_panel
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("modifier"))
+
+    def draw(self, context):
+        draw_modifier_panel(self, context, draw_header=False)
+
+
+class KEYOPS_PT_retopology(_KeyOpsSubPanel, bpy.types.Panel):
+    bl_label = "Retopology"
+    bl_idname = "KEYOPS_PT_retopology"
+    bl_order = 3
+
+    @classmethod
+    def poll(cls, context):
+        return _modeling_mode(context) and get_keyops_prefs().enable_toggle_retopology
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("retopo"))
+
+    def draw(self, context):
+        draw_retopology_panel(self, context, draw_header=False)
+
+
+_PIPELINE = ("quick_bake_name", "auto_lod", "cad_decimate", "polycount_list")
+
+
+class KEYOPS_PT_pipeline(_KeyOpsSubPanel, bpy.types.Panel):
+    bl_label = "Pipeline"
+    bl_idname = "KEYOPS_PT_pipeline"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 4
+
+    @classmethod
+    def poll(cls, context):
         prefs = get_keyops_prefs()
-        # row = layout.row(align=True)
-        # row.scale_x = 12
-        # row.scale_y = 1.25
+        return context.mode == 'OBJECT' and any(getattr(prefs, "enable_" + f) for f in _PIPELINE)
 
-        object = 'OBJECT' in wm.toolkit_panel_mode
-        modifiers = 'MODIFIERS' in wm.toolkit_panel_mode
-        lod = 'LOD' in wm.toolkit_panel_mode
-        cad_decimate = 'CAD_DECIMATE' in wm.toolkit_panel_mode
-        polycount_list = 'POLYCOUNT_LIST' in wm.toolkit_panel_mode
+    def draw_header(self, context):
+        self.layout.label(text="", icon='EXPORT')
 
-        # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("mesh_cube"), depress=object, emboss=object).type = "OBJECT"
-        # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("modifier"), depress=modifiers, emboss=modifiers).type = "MODIFIERS"
-        # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("mesh_icosphere2"), depress=lod, emboss=lod).type = "LOD"
-        # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("mod_decim"), depress=cad_decimate, emboss=cad_decimate).type = "CAD_DECIMATE"
-        # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon="SORTSIZE", depress=polycount_list, emboss=polycount_list).type = "POLYCOUNT_LIST"
-        
-        if object:
-            prefs = get_keyops_prefs()
-            draw_retopology_panel(self, context, draw_header=True)
-            if context.mode == 'OBJECT':
-                if prefs.enable_toolkit_panel:
-                    draw_object_panel(self, context)
-                draw_quick_bake_name(self, context, draw_header=True)
-            elif context.mode == 'EDIT_MESH':
-                if prefs.enable_toolkit_panel:
-                    draw_edit_mode_panel(self, context, draw_header=True)
-        if modifiers:
-            draw_modifier_panel(self, context, draw_header=True)
-        if lod:
-            draw_lod_panel(self, context, draw_header=True)
-        if cad_decimate:
-            draw_cad_decimate_panel(self, context, draw_header=True)
-        if polycount_list:
-            draw_polycount_list_ui(self, context)
-    
-        # row = layout.row(align=True)
-        # row.scale_x = 12
-        # row.scale_y = 1.25
-        # object_emboss = show_object_panel
-        # icoon = get_icon("mesh_cube_selected")
-        # if not object_emboss:
-        #     icoon = get_icon("mesh_cube")
-        # print(object_emboss)
- 
-        # row.prop(context.scene, "show_object_panel", text="", icon_value=icoon, emboss= object_emboss)
-        # row.prop(context.scene, "show_modifiers_panel", text="", icon_value=get_icon("modifier"), emboss=scene.show_modifiers_panel)
-        # row.prop(context.scene, "show_lod_panel", text="", icon_value=get_icon("mesh_icosphere2"), emboss=scene.show_lod_panel)
-        # row.prop(context.scene, "show_cad_decimate_panel", text="", icon_value=get_icon("mod_decim"), emboss=scene.show_cad_decimate_panel)
+    def draw(self, context):
+        sub = self.layout.row()
+        sub.active = False
+        sub.label(text="Bake names, LODs, decimation, poly counts")
 
-    def register():
 
-        # You can add a toggle to demonstrate dynamic change
-        bpy.types.Scene.some_toggle = bpy.props.BoolProperty(
-            name="Toggle Icon Change",
-            description="Change enum icon dynamically",
-            default=False
-        )
-        
-        bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
-            name="Toolkit Panel Mode",
-            description="Manage which panels should show",
-            items=get_toolkit_panel_items,
-            options={'ENUM_FLAG'},
-        )
+class _PipelineChild(_KeyOpsSubPanel):
+    bl_parent_id = "KEYOPS_PT_pipeline"
+    bl_options = {'DEFAULT_CLOSED'}
+    feature = ""
 
-        bpy.types.Scene.show_object_panel = bpy.props.BoolProperty(
-            name="Show Object Panel",
-            description="Toggle visibility of the Object panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_modifiers_panel = bpy.props.BoolProperty(
-            name="Show Modifiers Panel",
-            description="Toggle visibility of the Modifiers panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_lod_panel = bpy.props.BoolProperty(
-            name="Show LOD Panel",
-            description="Toggle visibility of the LOD panel",
-            default=True,
-            update=update_ui
-        )
-        bpy.types.Scene.show_cad_decimate_panel = bpy.props.BoolProperty(
-            name="Show CAD Decimate Panel",
-            description="Toggle visibility of the CAD Decimate panel",
-            default=True,
-            update=update_ui
-        )
-        
-        bpy.utils.register_class(ToggleToolkitPanelEnum)
-        from ..operators.select_similar import register_select_similar
-        register_select_similar()
-        
-    def unregister():
-        del bpy.types.Scene.some_toggle
-        del bpy.types.WindowManager.toolkit_panel_mode
-        del bpy.types.Scene.show_object_panel
-        del bpy.types.Scene.show_modifiers_panel
-        del bpy.types.Scene.show_lod_panel
-        del bpy.types.Scene.show_cad_decimate_panel
+    @classmethod
+    def poll(cls, context):
+        return getattr(get_keyops_prefs(), "enable_" + cls.feature)
 
-        bpy.utils.unregister_class(ToggleToolkitPanelEnum)
-        from ..operators.select_similar import unregister_select_similar
-        unregister_select_similar()
 
+class KEYOPS_PT_bake_names(_PipelineChild, bpy.types.Panel):
+    bl_label = "Bake Names"
+    bl_idname = "KEYOPS_PT_bake_names"
+    feature = "quick_bake_name"
+
+    def draw(self, context):
+        draw_quick_bake_name(self, context, draw_header=False)
+
+
+class KEYOPS_PT_lod(_PipelineChild, bpy.types.Panel):
+    bl_label = "Auto LOD"
+    bl_idname = "KEYOPS_PT_lod"
+    feature = "auto_lod"
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("mesh_icosphere2"))
+
+    def draw(self, context):
+        draw_lod_panel(self, context, draw_header=False)
+
+
+class KEYOPS_PT_cad_decimate(_PipelineChild, bpy.types.Panel):
+    bl_label = "CAD Decimate"
+    bl_idname = "KEYOPS_PT_cad_decimate"
+    feature = "cad_decimate"
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("mod_decim"))
+
+    def draw(self, context):
+        draw_cad_decimate_panel(self, context, draw_header=False)
+
+
+class KEYOPS_PT_polycount(_PipelineChild, bpy.types.Panel):
+    bl_label = "Polycount"
+    bl_idname = "KEYOPS_PT_polycount"
+    feature = "polycount_list"
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon_value=get_icon("polycount"))
+
+    def draw(self, context):
+        from ..operators import poly_count_list
+        import time
+        poly_count_list.npanel_last_draw = time.time()
+        draw_polycount_list_ui(self, context)
+
+
+def _register_panel_props():
+    bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
+        name="Toolkit Panel Mode", items=get_toolkit_panel_items, options={'ENUM_FLAG'})
+    from ..operators.select_similar import register_select_similar
+    register_select_similar()
+
+
+def _unregister_panel_props():
+    del bpy.types.WindowManager.toolkit_panel_mode
+    from ..operators.select_similar import unregister_select_similar
+    unregister_select_similar()
+
+
+KEYOPS_PT_main.register = staticmethod(_register_panel_props)
+KEYOPS_PT_main.unregister = staticmethod(_unregister_panel_props)
+
+panel_classes = (
+    KEYOPS_PT_main,
+    KEYOPS_PT_object,
+    KEYOPS_PT_edit_mesh,
+    KEYOPS_PT_modifiers,
+    KEYOPS_PT_retopology,
+    KEYOPS_PT_pipeline,
+    KEYOPS_PT_bake_names,
+    KEYOPS_PT_lod,
+    KEYOPS_PT_cad_decimate,
+    KEYOPS_PT_polycount,
+)

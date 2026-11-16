@@ -30,4 +30,5 @@ paths_exclude_pattern = [
   "/.vscode/",
   "/docs/",
   "/*.zip",
+  "/tests/",
 ]
