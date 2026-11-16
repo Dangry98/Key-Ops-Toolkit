@@ -42,6 +42,11 @@ def active_addon_items():
 
 
 def run():
+    import os, shutil
+    # start like a fresh install: no settings files from an earlier run
+    user_dir = bpy.utils.extension_path_user(MOD)
+    if os.path.isdir(user_dir):
+        shutil.rmtree(user_dir)
     before = user_keymap_snapshot()
     addon_utils.enable(MOD, default_set=True)
     pkg = sys.modules[MOD]
@@ -164,6 +169,46 @@ def run():
     bpy.ops.keyops.pie_remove()
     check("user can delete a pie", len(p.pies) == n)
 
+    # ---- settings files in the add-on's user folder, export / import
+    import json, os, tempfile
+    S = sys.modules[MOD + ".settings_store"]
+    S.flush_now()
+    pie_file = S.section_path("pie_menus")
+    user_dir = bpy.utils.extension_path_user(MOD)
+    check("pie menus are saved as JSON in the add-on's user folder",
+          os.path.isfile(pie_file) and os.path.dirname(pie_file) == os.path.normpath(user_dir), pie_file)
+    p.pies[0].name = "Renamed Pie"
+    S.flush_now()
+    saved = json.load(open(pie_file))
+    check("a change is written to pie_menus.json", saved["data"]["pies"][0]["name"] == "Renamed Pie")
+    p.pies.clear()
+    PM.load_from_disk()
+    check("pies come back from the file (e.g. after reinstalling)", len(p.pies) >= 8 and p.pies[0].name == "Renamed Pie")
+    tmp = os.path.join(tempfile.mkdtemp(), "keyops.json")
+    bpy.ops.keyops.settings_export(filepath=tmp, scope="ALL")
+    bundle = json.load(open(tmp))
+    check("export writes every section", {"preferences", "pie_menus"} <= set(bundle["sections"]), str(list(bundle["sections"])))
+    check("export includes feature switches automatically", "enable_auto_delete" in bundle["sections"]["preferences"])
+    cad_before = p.enable_cad_decimate
+    p.enable_cad_decimate = not cad_before
+    p.pies[0].name = "Changed"
+    bpy.ops.keyops.settings_import(filepath=tmp, scope="ALL", mode="REPLACE")
+    check("import restores feature settings", p.enable_cad_decimate == cad_before)
+    check("import restores pie menus", p.pies[0].name == "Renamed Pie")
+    n_pies = len(p.pies)
+    bundle["sections"]["pie_menus"]["pies"][0]["uid"] = "imported01"
+    bundle["sections"]["pie_menus"]["pies"][0]["name"] = "Shared Pie"
+    json.dump(bundle, open(tmp, "w"))
+    bpy.ops.keyops.settings_import(filepath=tmp, scope="PIES", mode="ADD")
+    check("import with Add keeps your pies and adds new ones", len(p.pies) == n_pies + 1 and p.pies[-1].name == "Shared Pie")
+    bad = os.path.join(os.path.dirname(tmp), "bad.json")
+    json.dump({"hello": 1}, open(bad, "w"))
+    try:
+        res = bpy.ops.keyops.settings_import(filepath=bad, scope="ALL")
+    except RuntimeError as e:
+        res = str(e)
+    check("importing a wrong file is refused with a clear message", "not a Key Ops settings file" in str(res), str(res))
+
     # ---- disable: Blender's own keymap untouched, our items gone
     addon_utils.disable(MOD, default_set=True)
     after = user_keymap_snapshot()
@@ -177,6 +222,11 @@ def run():
     F = sys.modules[MOD].features
     p = bpy.context.preferences.addons[MOD].preferences
     p.prefs_version = 0
+    # a real 0.2 user has no pie_menus.json yet
+    S2 = sys.modules[MOD + ".settings_store"]
+    if os.path.isfile(S2.section_path("pie_menus")):
+        os.remove(S2.section_path("pie_menus"))
+    PM.loaded_from_disk = False
     with F.suspended():
         p.enable_auto_delete = True   # an explicitly saved 0.2 setting
     p["enable_cursor_pie"] = 0        # a 0.2 user who had switched the Cursor pie off

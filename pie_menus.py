@@ -113,6 +113,16 @@ _KEY_NAMES = {i.identifier: i.name for i in bpy.types.KeyMapItem.bl_rna.properti
 _MODIFIER_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}
 
 
+_loading = False  # True while pies are read from disk, so reading doesn't trigger a save
+loaded_from_disk = False
+
+
+def _changed(self=None, context=None):
+    if not _loading:
+        from . import settings_store
+        settings_store.save_soon("pie_menus")
+
+
 def _sync_update(self, context):
     sync_keymaps()
 
@@ -177,25 +187,25 @@ class KeyOpsPieItem(PropertyGroup):
         (N, "Empty", "Leave this slot empty"),
         (O, "Operator", "Run an operator, e.g. mesh.primitive_cube_add"),
         (M, "Menu", "Open a menu, e.g. VIEW3D_MT_add"),
-        (P, "Toggle", "Toggle a setting, e.g. scene.tool_settings.use_snap"))) # type: ignore
-    label: StringProperty(name="Label") # type: ignore
-    icon: StringProperty(name="Icon", description="Blender icon name, e.g. MESH_CUBE. Leave empty for no icon") # type: ignore
-    idname: StringProperty(name="Command", description="Operator id, menu id or setting path") # type: ignore
-    props: StringProperty(name="Options", description="Operator options, e.g. type='WELD', segments=4") # type: ignore
+        (P, "Toggle", "Toggle a setting, e.g. scene.tool_settings.use_snap")), update=_changed) # type: ignore
+    label: StringProperty(name="Label", update=_changed) # type: ignore
+    icon: StringProperty(name="Icon", description="Blender icon name, e.g. MESH_CUBE. Leave empty for no icon", update=_changed) # type: ignore
+    idname: StringProperty(name="Command", description="Operator id, menu id or setting path", update=_changed) # type: ignore
+    props: StringProperty(name="Options", description="Operator options, e.g. type='WELD', segments=4", update=_changed) # type: ignore
     choice: EnumProperty(name="Action", description="What this slot does. Pick any Key Ops action",
                          items=_choice_items, get=_choice_get, set=_choice_set) # type: ignore
 
 
 class KeyOpsPie(PropertyGroup):
     uid: StringProperty() # type: ignore
-    name: StringProperty(name="Name", default="New Pie") # type: ignore
+    name: StringProperty(name="Name", default="New Pie", update=_changed) # type: ignore
     preset: StringProperty(description="Preset this pie was made from") # type: ignore
     enabled: BoolProperty(name="Enabled", default=True, update=_sync_update) # type: ignore
     editor: EnumProperty(name="Works In", items=EDITORS, update=_sync_update) # type: ignore
-    key: StringProperty(name="Key", default="NONE") # type: ignore
-    ctrl: BoolProperty(name="Ctrl") # type: ignore
-    shift: BoolProperty(name="Shift") # type: ignore
-    alt: BoolProperty(name="Alt") # type: ignore
+    key: StringProperty(name="Key", default="NONE", update=_changed) # type: ignore
+    ctrl: BoolProperty(name="Ctrl", update=_changed) # type: ignore
+    shift: BoolProperty(name="Shift", update=_changed) # type: ignore
+    alt: BoolProperty(name="Alt", update=_changed) # type: ignore
     items: CollectionProperty(type=KeyOpsPieItem) # type: ignore
 
 
@@ -237,6 +247,64 @@ def install_presets(prefs, style):
     sync_keymaps()
 
 
+# ---------------------------------------------------------------- saving to pie_menus.json
+
+PIE_FIELDS = ("uid", "name", "preset", "enabled", "editor", "key", "ctrl", "shift", "alt")
+ITEM_FIELDS = ("kind", "label", "icon", "idname", "props")
+
+
+def pies_to_data(prefs):
+    return {"pies": [dict({f: getattr(p, f) for f in PIE_FIELDS},
+                          items=[{f: getattr(it, f) for f in ITEM_FIELDS} for it in p.items])
+                     for p in prefs.pies]}
+
+
+def pies_from_data(prefs, data, merge):
+    """Replace the pie list (or, with merge, add/update pies by id) from saved data."""
+    global _loading
+    _loading = True
+    try:
+        if not merge:
+            prefs.pies.clear()
+        by_uid = {p.uid: p for p in prefs.pies}
+        for entry in data.get("pies", []):
+            uid = entry.get("uid") or uuid.uuid4().hex[:12]
+            pie = by_uid.get(uid)
+            if pie is None:
+                pie = prefs.pies.add()
+            pie.uid = uid
+            for f in PIE_FIELDS[1:]:
+                if f in entry:
+                    try:
+                        setattr(pie, f, entry[f])
+                    except (TypeError, ValueError):
+                        pass  # unknown editor etc. from another version: keep the default
+            pie.items.clear()
+            for it_data in entry.get("items", [])[:8]:
+                it = pie.items.add()
+                for f in ITEM_FIELDS:
+                    if f in it_data:
+                        try:
+                            setattr(it, f, it_data[f])
+                        except (TypeError, ValueError):
+                            pass
+            while len(pie.items) < 8:
+                pie.items.add()
+        prefs.pies_installed = True
+        prefs.active_pie = min(prefs.active_pie, max(0, len(prefs.pies) - 1))
+    finally:
+        _loading = False
+    sync_keymaps()
+
+
+def load_from_disk():
+    """Read pie_menus.json if it exists. Returns True when pies came from the file."""
+    global loaded_from_disk
+    from . import settings_store
+    loaded_from_disk = settings_store.load_section("pie_menus")
+    return loaded_from_disk
+
+
 def find_pie(uid):
     for pie in get_keyops_prefs().pies:
         if pie.uid == uid:
@@ -272,6 +340,7 @@ def sync_keymaps():
             kmi = km.keymap_items.new("wm.keyops_call_pie", pie.key, 'PRESS', ctrl=pie.ctrl, shift=pie.shift, alt=pie.alt)
             kmi.properties.pie = pie.uid
             _pie_keymaps.append((km, kmi))
+    _changed()  # every structural change ends here, so this keeps pie_menus.json up to date
 
 
 def live_count():
@@ -442,6 +511,62 @@ class KEYOPS_OT_pie_set_key(Operator):
         for window in context.window_manager.windows:
             for area in window.screen.areas:
                 area.tag_redraw()
+
+
+from bpy_extras.io_utils import ExportHelper, ImportHelper  # noqa: E402
+
+_SCOPES = (("ALL", "All Settings", "Features, shortcuts, settings and pie menus"),
+           ("PIES", "Pie Menus", "Only the pie menus"))
+
+
+class KEYOPS_OT_settings_export(Operator, ExportHelper):
+    bl_idname = "keyops.settings_export"
+    bl_label = "Export Key Ops Settings"
+    bl_description = "Save Key Ops settings to a .json file, to back them up or use them on another computer"
+    bl_options = {'INTERNAL'}
+    filename_ext = ".json"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'}) # type: ignore
+    scope: EnumProperty(name="Export", items=_SCOPES) # type: ignore
+
+    def invoke(self, context, event):
+        self.filepath = "key_ops_pie_menus.json" if self.scope == "PIES" else "key_ops_settings.json"
+        return super().invoke(context, event)
+
+    def execute(self, context):
+        from . import settings_store
+        settings_store.flush_now()
+        names = ["pie_menus"] if self.scope == "PIES" else None
+        settings_store.export_file(self.filepath, names)
+        self.report({'INFO'}, f"Exported Key Ops settings to {self.filepath}")
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_settings_import(Operator, ImportHelper):
+    bl_idname = "keyops.settings_import"
+    bl_label = "Import Key Ops Settings"
+    bl_description = "Load Key Ops settings from a .json file made with Export"
+    bl_options = {'INTERNAL'}
+    filename_ext = ".json"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'}) # type: ignore
+    scope: EnumProperty(name="Import", items=_SCOPES) # type: ignore
+    mode: EnumProperty(name="Pie Menus", items=(
+        ("REPLACE", "Replace", "Use the pies from the file instead of the current ones"),
+        ("ADD", "Add", "Add the pies from the file and update ones with the same id"))) # type: ignore
+
+    def execute(self, context):
+        from . import settings_store
+        names = ["pie_menus"] if self.scope == "PIES" else None
+        try:
+            done = settings_store.import_file(self.filepath, merge=(self.mode == "ADD"), names=names)
+        except (OSError, ValueError) as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        if not done:
+            self.report({'WARNING'}, "Nothing to import in that file")
+            return {'CANCELLED'}
+        self.report({'INFO'}, "Imported " + ", ".join(n.replace("_", " ") for n in done))
+        _redraw_all(context)
+        return {'FINISHED'}
 
 
 class KEYOPS_MT_pie_presets(bpy.types.Menu):
@@ -787,6 +912,9 @@ def draw_pies_tab(prefs, context, layout):
     r = side.row(align=True)
     r.operator("keyops.pie_add", text="New Pie", icon='ADD')
     r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
+    r = side.row(align=True)
+    r.operator("keyops.settings_import", text="Import", icon='IMPORT').scope = "PIES"
+    r.operator("keyops.settings_export", text="Export", icon='EXPORT').scope = "PIES"
     layout = outer.column()
 
     pie = prefs.pies[active]
@@ -928,7 +1056,8 @@ def _unregister_support():
 property_classes = (KeyOpsPieItem, KeyOpsPie)
 classes = (WM_OT_keyops_call_pie, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
-           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
+           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon,
+           KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
 
 
 def register_properties():
@@ -954,6 +1083,8 @@ def register():
 
 
 def unregister():
+    from . import settings_store
+    settings_store.flush_now()  # don't lose a change made just before disabling
     for km, kmi in _pie_keymaps:
         try:
             km.keymap_items.remove(kmi)
@@ -965,3 +1096,11 @@ def unregister():
     del bpy.types.WindowManager.keyops_icon_category
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+
+
+def _register_section():
+    from . import settings_store
+    settings_store.register_section("pie_menus", pies_to_data, pies_from_data, own_file=True)
+
+
+_register_section()
