@@ -661,12 +661,26 @@ def draw_pies_tab(prefs, context, layout):
         return
     active = max(0, min(prefs.active_pie, len(prefs.pies) - 1))
 
-    grid = layout.grid_flow(row_major=True, columns=5, even_columns=True, align=True)
-    for i, pie in enumerate(prefs.pies):
-        b = grid.row(align=True)
-        b.scale_y = 1.25
-        b.active = pie.enabled or i == active
-        b.operator("keyops.pie_select", text=pie.name, depress=(i == active)).index = i
+    # pie list on the side: on/off, name, key
+    outer = layout.split(factor=0.22)
+    side = outer.column()
+    lbox = side.box()
+    col = lbox.column(align=True)
+    for i, p in enumerate(prefs.pies):
+        row = col.row(align=True)
+        row.prop(p, "enabled", text="")
+        name = row.row(align=True)
+        name.active = p.enabled or i == active
+        name.operator("keyops.pie_select", text=p.name, depress=(i == active)).index = i
+        k = row.row(align=True)
+        k.ui_units_x = 4.2
+        k.alignment = 'RIGHT'
+        k.active = False
+        k.label(text=key_text(p))
+    r = side.row(align=True)
+    r.operator("keyops.pie_add", text="New Pie", icon='ADD')
+    r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
+    layout = outer.column()
 
     pie = prefs.pies[active]
     box = layout.box()
@@ -761,9 +775,6 @@ def draw_slot_editor(prefs, layout, pie):
         if pie.preset in PRESET_BY_ID:
             r.operator("keyops.pie_reset", text="Reset to Preset")
         r.operator("keyops.pie_remove", text="Delete Pie")
-    r = layout.row(align=True)
-    r.operator("keyops.pie_add", text="New Pie", icon='ADD')
-    r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
 
 
 # ---------------------------------------------------------------- operators the presets use
