@@ -114,8 +114,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     # ---------------- 1.0 state
     ui_tab: EnumProperty(name="Tab", items=[
         ("FEATURES", "Features", "Turn features on and off, and change their settings"),
-        ("SHORTCUTS", "Shortcuts", "Every Key Ops shortcut, grouped by feature"),
-        ("PIES", "Pie Menus", "Edit the pie menus, their keys, or make your own")]) # type: ignore
+        ("PIES", "Pie Menus", "See what each pie menu does, change it or make your own"),
+        ("SHORTCUTS", "Shortcuts", "Every Key Ops shortcut, grouped by feature")]) # type: ignore
     ui_category: EnumProperty(name="Category", items=_category_enum_items) # type: ignore
     ui_search: StringProperty(name="Search", description="Search features by name or description", options={'TEXTEDIT_UPDATE'}) # type: ignore
     ui_filter: EnumProperty(name="Show", items=[
@@ -129,6 +129,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     pies: CollectionProperty(type=pie_menus.KeyOpsPie) # type: ignore
     active_pie: IntProperty(default=0) # type: ignore
     pies_installed: BoolProperty(default=False) # type: ignore
+    pie_customize: BoolProperty(name="Customize", default=False,
+                                description="Edit labels and commands, add your own pies, change where a pie works") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
                                   description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
     prefs_version: IntProperty(default=0) # type: ignore
@@ -232,6 +234,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
+        from .ui import branding
+        branding.draw_header(layout)
         if self.show_whats_new:
             box = layout.box()
             row = box.row()
@@ -256,16 +260,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             return False
         if not q and f.category != self.ui_category:
             return False
-        on = getattr(self, f"enable_{f.id}")
-        flt = self.ui_filter
-        if flt == "ON" and not on:
-            return False
-        if flt == "OFF" and on:
-            return False
-        if flt == "KEYS" and not f.keys:
-            return False
-        if flt == "REPLACES" and not f.replaced:
-            return False
         return True
 
     def draw_features(self, context, layout):
@@ -283,13 +277,11 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features")
         else:
             row.prop(self, "ui_search", text="", icon='VIEWZOOM')
-        row = right.row(align=True)
-        row.prop(self, "ui_filter", expand=True)
         right.separator(factor=0.5)
 
         shown = [f for f in F.visible_features(self) if self._feature_matches(f)]
         if not shown:
-            right.box().label(text="No features match. Clear the search or the filter.")
+            right.box().label(text="No features match your search.")
         for f in shown:
             self.draw_card(context, right, f)
 
@@ -319,14 +311,16 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             lab = right.row()
             lab.active = False
             lab.label(text=_impact(f))
-        right.operator("wm.url_open", text="", icon='HELP', emboss=False).url = _docs(f)
+        right.operator("wm.url_open", text="Docs").url = _docs(f)
         right.operator("keyops.toggle_feature_card", text="", icon='DOWNARROW_HLT' if is_open else 'RIGHTARROW',
                        emboss=False).feature_id = f.id
 
-        d = col.row()
-        d.active = False
-        d.separator(factor=2.6)
-        d.label(text=f.description)
+        d = col.row(align=True)
+        d.separator(factor=2.0)
+        link = d.row(align=True)
+        link.alignment = 'LEFT'
+        link.active = False
+        link.operator("wm.url_open", text=f.description, emboss=False).url = _docs(f)  # click to read the docs
         if f.requires and not getattr(self, f"enable_{f.requires}"):
             r = col.row()
             r.separator(factor=2.6)

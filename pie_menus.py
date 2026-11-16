@@ -119,6 +119,59 @@ def _sync_update(self, context):
 
 # ---------------------------------------------------------------- data
 
+
+# ---------------------------------------------------------------- action catalog (simple mode dropdowns)
+
+def _build_catalog():
+    seen, out = set(), []
+    for preset in PRESETS:
+        for kind, label, icon, idname, props in preset["items"]:
+            if kind == N or (kind, idname, props) in seen:
+                continue
+            seen.add((kind, idname, props))
+            out.append((preset["name"], kind, label, icon, idname, props))
+    return out
+
+
+_CATALOG = _build_catalog()
+_BASE_ITEMS = [("EMPTY", "Empty", "Leave this slot empty", 'NONE', 0)]
+_group = None
+for _i, (_g, _kind, _label, _icon, _idname, _props) in enumerate(_CATALOG):
+    if _g != _group:
+        _BASE_ITEMS.append(("", _g, ""))
+        _group = _g
+    _BASE_ITEMS.append((f"C{_i}", _label, f"{_idname}  {_props}".strip(), _icon if _icon in _ICONS else 'NONE', _i + 1))
+del _group, _i, _g, _kind, _label, _icon, _idname, _props
+CUSTOM_VALUE = 9999
+_choice_cache = {}
+
+
+def _choice_items(self, context):
+    if _choice_get(self) != CUSTOM_VALUE:
+        return _BASE_ITEMS  # "Your own" only appears for slots that hold a custom command
+    key = (self.label or self.idname or "Custom", self.icon if self.icon in _ICONS else 'NONE')
+    if key not in _choice_cache:
+        _choice_cache[key] = _BASE_ITEMS + [("", "Your own", ""),
+                                            ("CUSTOM", key[0], "Your own command. Change it with Customize", key[1], CUSTOM_VALUE)]
+    return _choice_cache[key]
+
+
+def _choice_get(self):
+    if self.kind == N or not self.idname.strip():
+        return 0
+    for i, (_g, kind, label, _icon, idname, props) in enumerate(_CATALOG):
+        if (kind, idname, props, label) == (self.kind, self.idname.strip(), self.props.strip(), self.label):
+            return i + 1
+    return CUSTOM_VALUE
+
+
+def _choice_set(self, value):
+    if value == 0:
+        self.kind = N
+    elif value != CUSTOM_VALUE and 0 < value <= len(_CATALOG):
+        _g, self.kind, self.label, self.icon, self.idname, self.props = _CATALOG[value - 1]
+
+
 class KeyOpsPieItem(PropertyGroup):
     kind: EnumProperty(name="Type", items=(
         (N, "Empty", "Leave this slot empty"),
@@ -129,6 +182,8 @@ class KeyOpsPieItem(PropertyGroup):
     icon: StringProperty(name="Icon", description="Blender icon name, e.g. MESH_CUBE. Leave empty for no icon") # type: ignore
     idname: StringProperty(name="Command", description="Operator id, menu id or setting path") # type: ignore
     props: StringProperty(name="Options", description="Operator options, e.g. type='WELD', segments=4") # type: ignore
+    choice: EnumProperty(name="Action", description="What this slot does. Pick any Key Ops action",
+                         items=_choice_items, get=_choice_get, set=_choice_set) # type: ignore
 
 
 class KeyOpsPie(PropertyGroup):
@@ -400,93 +455,147 @@ class KEYOPS_MT_pie_presets(bpy.types.Menu):
 
 # ---------------------------------------------------------------- preferences tab
 
+def _slot(row, item, enabled, width=9.0):
+    cell = row.row(align=True)
+    cell.ui_units_x = width
+    cell.scale_y = 1.45
+    cell.active = True  # always readable: the overview shows what the pie does even while it is off
+    if item is None:
+        cell.label(text="")
+    else:
+        cell.prop(item, "choice", text="")
+
+
+def _spacer(row, width):
+    sp = row.row()
+    sp.ui_units_x = width
+    sp.label(text="")
+
+
+def draw_pie_overview(layout, pie):
+    """The pie drawn as buttons in pie shape, like ND Primitives. Each button is a dropdown."""
+    items = {pos: (pie.items[i] if i < len(pie.items) else None) for i, pos in enumerate(ORDER)}
+    on = pie.enabled
+    col = layout.column(align=False)
+    for spec, gap in ((("N",), 0), (("NW", "NE"), 6), (("W", "E"), 12), (("SW", "SE"), 6), (("S",), 0)):
+        row = col.row()
+        row.alignment = 'CENTER'
+        if len(spec) == 1:
+            _slot(row, items[spec[0]], on)
+        else:
+            _slot(row, items[spec[0]], on)
+            if spec == ("W", "E"):
+                mid = row.column(align=True)
+                mid.ui_units_x = gap
+                mid.alignment = 'CENTER'
+                t = mid.row()
+                t.alignment = 'CENTER'
+                t.label(text=pie.name)
+                k = mid.row()
+                k.alignment = 'CENTER'
+                k.active = False
+                k.label(text=key_text(pie) if on else "Off")
+            else:
+                _spacer(row, gap)
+            _slot(row, items[spec[1]], on)
+        col.separator(factor=0.6)
+
+
 def draw_pies_tab(prefs, context, layout):
-    split = layout.split(factor=0.28)
-    left = split.column()
-    box = left.box()
-    col = box.column(align=True)
-    for i, pie in enumerate(prefs.pies):
-        row = col.row(align=True)
-        row.prop(pie, "enabled", text="")
-        sub = row.row(align=True)
-        sub.active = pie.enabled
-        sub.operator("keyops.pie_select", text=pie.name, depress=(i == prefs.active_pie)).index = i
-        k = row.row(align=True)
-        k.active = False
-        k.ui_units_x = 4.5
-        k.alignment = 'RIGHT'
-        k.label(text=key_text(pie))
     if not prefs.pies:
-        col.label(text="No pie menus. Add one below.")
-    row = left.row(align=True)
-    row.operator("keyops.pie_add", text="New Pie")
-    row.menu("KEYOPS_MT_pie_presets", text="Add Preset")
-
-    right = split.column()
-    if not (0 <= prefs.active_pie < len(prefs.pies)):
-        right.label(text="Pick a pie on the left to edit it.")
+        layout.label(text="No pie menus.")
+        layout.menu("KEYOPS_MT_pie_presets", text="Add Preset")
         return
-    pie = prefs.pies[prefs.active_pie]
-    box = right.box()
-    row = box.row(align=True)
-    row.prop(pie, "enabled", text="")
-    row.prop(pie, "name", text="")
-    row.separator()
-    capturing = KEYOPS_OT_pie_set_key.capturing == prefs.active_pie
-    sub = row.row(align=True)
-    sub.alert = capturing
-    sub.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(pie), depress=capturing)
-    row.prop(pie, "editor", text="")
-    row = box.row(align=True)
-    row.operator("wm.keyops_call_pie", text="Try It").pie = pie.uid
-    if pie.preset in PRESET_BY_ID:
-        row.operator("keyops.pie_reset", text="Reset to Preset")
-    row.operator("keyops.pie_remove", text="Delete")
+    active = max(0, min(prefs.active_pie, len(prefs.pies) - 1))
 
-    grid = right.grid_flow(row_major=True, columns=3, even_columns=True, even_rows=False, align=False)
-    for pos in GRID:
-        cell = grid.box().column(align=True)
-        if pos is None:
-            cell.label(text=pie.name)
-            sub = cell.column(align=True)
-            sub.active = False
-            sub.label(text=key_text(pie))
-            sub.label(text=dict((e[0], e[1]) for e in EDITORS)[pie.editor])
-            continue
-        index = ORDER.index(pos)
-        if index >= len(pie.items):
-            continue
-        item = pie.items[index]
-        head = cell.row()
-        head.active = False
-        head.label(text=POSITION_NAMES[pos])
-        cell.prop(item, "kind", text="")
-        if item.kind != N:
-            cell.prop(item, "label", text="", placeholder="Label") if bpy.app.version >= (4, 1, 0) else cell.prop(item, "label", text="")
-            hint = {O: "mesh.primitive_cube_add", M: "VIEW3D_MT_add", P: "scene.tool_settings.use_snap"}[item.kind]
-            cell.prop(item, "idname", text="", placeholder=hint) if bpy.app.version >= (4, 1, 0) else cell.prop(item, "idname", text="")
-            if item.kind == O:
-                cell.prop(item, "props", text="", placeholder="Options, e.g. type='WELD'") if bpy.app.version >= (4, 1, 0) else cell.prop(item, "props", text="")
-            r = cell.row(align=True)
-            r.prop(item, "icon", text="", placeholder="Icon, e.g. MESH_CUBE") if bpy.app.version >= (4, 1, 0) else r.prop(item, "icon", text="")
-            if item.icon:
-                r.label(text="", icon=_icon(item.icon))
+    # pie picker
+    grid = layout.grid_flow(row_major=True, columns=5, even_columns=True, align=True)
+    for i, pie in enumerate(prefs.pies):
+        b = grid.row(align=True)
+        b.scale_y = 1.25
+        b.active = pie.enabled or i == active
+        b.operator("keyops.pie_select", text=pie.name, depress=(i == active)).index = i
 
-    tip = right.column(align=True)
-    tip.active = False
-    tip.label(text="Tip: turn on Python Tooltips (Preferences > Interface) and hover any button to see its command.")
+    pie = prefs.pies[active]
+    box = layout.box()
+    head = box.row(align=True)
+    head.prop(pie, "enabled", text="On")
+    head.separator()
+    capturing = KEYOPS_OT_pie_set_key.capturing == active
+    keyb = head.row(align=True)
+    keyb.alert = capturing
+    keyb.operator("keyops.pie_set_key", text="Press a key..." if capturing else f"Key: {key_text(pie)}", depress=capturing)
+    where = head.row()
+    where.active = False
+    where.label(text="in " + dict((e[0], e[1]) for e in EDITORS)[pie.editor])
+    head.operator("wm.keyops_call_pie", text="Try It").pie = pie.uid
+    head.separator()
+    head.prop(prefs, "pie_customize", text="Customize", toggle=True)
+
+    box.separator(factor=0.5)
+    draw_pie_overview(box, pie)
+    if not prefs.pie_customize:
+        tip = box.row()
+        tip.alignment = 'CENTER'
+        tip.active = False
+        tip.label(text="Click any slot to pick a different action. Customize to add your own commands or make new pies.")
+    else:
+        draw_customize(prefs, box, pie)
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
-        box = right.box()
-        box.label(text="Add Objects size")
-        r = box.row()
+        sbox = layout.box()
+        sbox.label(text="Add Objects size")
+        r = sbox.row()
         r.prop(prefs, "add_object_pie_use_relative")
-        s = r.row()
-        s.active = prefs.add_object_pie_use_relative
-        s.prop(prefs, "add_object_pie_relative_scale")
-        r = box.row()
+        sub = r.row()
+        sub.active = prefs.add_object_pie_use_relative
+        sub.prop(prefs, "add_object_pie_relative_scale")
         r.prop(prefs, "add_object_pie_min_scale")
         r.prop(prefs, "add_object_pie_default_scale")
+
+
+def draw_customize(prefs, layout, pie):
+    """Full editing, PME-style: one row per slot."""
+    layout.separator()
+    row = layout.row(align=True)
+    row.prop(pie, "name", text="Name")
+    row.prop(pie, "editor", text="")
+    row = layout.row(align=True)
+    row.operator("keyops.pie_add", text="New Pie")
+    row.menu("KEYOPS_MT_pie_presets", text="Add Preset")
+    if pie.preset in PRESET_BY_ID:
+        row.operator("keyops.pie_reset", text="Reset to Preset")
+    row.operator("keyops.pie_remove", text="Delete Pie")
+
+    table = layout.column(align=True)
+    head = table.row(align=True)
+    head.active = False
+    for text, f in (("Slot", 0.11), ("Type", 0.12), ("Label", 0.19), ("Command", 0.27), ("Options", 0.19), ("Icon", 0.12)):
+        c = head.row()
+        c.ui_units_x = f * 60
+        c.label(text=text)
+    for i, pos in enumerate(ORDER):
+        if i >= len(pie.items):
+            break
+        item = pie.items[i]
+        r = table.row(align=True)
+        c = r.row()
+        c.ui_units_x = 0.11 * 60
+        c.label(text=POSITION_NAMES[pos])
+        c = r.row(align=True)
+        c.ui_units_x = 0.12 * 60
+        c.prop(item, "kind", text="")
+        sub = r.row(align=True)
+        sub.enabled = item.kind != N
+        for prop, f in (("label", 0.19), ("idname", 0.27), ("props", 0.19), ("icon", 0.12)):
+            c = sub.row(align=True)
+            c.ui_units_x = f * 60
+            c.enabled = prop != "props" or item.kind == O
+            c.prop(item, prop, text="")
+    tip = layout.row()
+    tip.active = False
+    tip.label(text="Command: operator (mesh.primitive_cube_add), menu (VIEW3D_MT_add) or setting (scene.tool_settings.use_snap). "
+                   "Turn on Python Tooltips to see any button's command.")
 
 
 # ---------------------------------------------------------------- operators the presets use
