@@ -5,6 +5,8 @@ from bpy.props import BoolProperty, IntProperty, StringProperty
 
 from .. import features as F
 from ..utils.pref_utils import get_addon_name, get_keyops_prefs
+from .splash import KEYOPS_OT_welcome
+from . import branding
 
 NPANEL_TAB = "Key Ops"
 
@@ -41,55 +43,6 @@ def schedule_welcome():
     if p.welcome_version >= F.WELCOME_VERSION or p.show_whats_new:
         return
     bpy.app.timers.register(_invoke_welcome, first_interval=1.0)
-
-
-def _open_preferences():
-    try:
-        bpy.ops.preferences.addon_show(module=get_addon_name())
-    except RuntimeError:
-        pass
-    return None
-
-
-class KEYOPS_OT_welcome(bpy.types.Operator):
-    bl_idname = "keyops.welcome"
-    bl_label = "Welcome to Key Ops"
-    bl_description = "Pick which shortcuts Key Ops starts with"
-    bl_options = {'INTERNAL'}
-
-    preset: bpy.props.EnumProperty(name="Keyboard", items=list(F.STYLES), default="ESSENTIALS") # type: ignore
-
-    def invoke(self, context, event):
-        get_keyops_prefs().welcome_version = F.WELCOME_VERSION  # shown once, even if dismissed
-        return context.window_manager.invoke_props_dialog(self, width=580, title="Welcome to Key Ops", confirm_text="Get Started")
-
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.label(text="Key Ops adds modeling tools, pie menus and an N-panel toolkit.")
-        col.label(text="Pick which shortcuts to start with. You can turn any of them on or off later.")
-        layout.separator()
-        col = layout.column(align=True)
-        for sid, name, desc, _icon, _i in F.STYLES:
-            row = col.row(align=True)
-            b = row.row(align=True)
-            b.scale_y = 1.5
-            b.ui_units_x = 6
-            b.prop_enum(self, "preset", sid, text=name)
-            d = row.row()
-            d.active = sid == self.preset
-            d.label(text=desc + ("  (recommended)" if sid == "ESSENTIALS" else ""))
-        layout.separator()
-        sub = layout.row()
-        sub.active = False
-        sub.label(text="Preferences open next so you can fine-tune features, shortcuts and pie menus.")
-
-    def execute(self, context):
-        p = get_keyops_prefs()
-        p.shortcut_style = self.preset
-        F.apply_style(self.preset)
-        bpy.app.timers.register(_open_preferences, first_interval=0.1)
-        return {'FINISHED'}
 
 
 class KEYOPS_OT_toggle_feature_card(bpy.types.Operator):
@@ -192,6 +145,7 @@ def register():
 
 
 def unregister():
+    branding.unregister()
     del bpy.types.WindowManager.keyops_open_feature
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

@@ -56,7 +56,8 @@ def run():
     feats, keys, repl = F.stats(p)
     check("fresh install still turns UI features on", feats >= 10, f"{feats} features")
     check("toolkit N-panel registered (original design)", hasattr(bpy.types, "KEYOPS_PT_new_toolkit_panel"))
-    check("no Home tab", "HOME" not in {i.identifier for i in p.bl_rna.properties["ui_tab"].enum_items})
+    tabs = [i.identifier for i in p.bl_rna.properties["ui_tab"].enum_items]
+    check("tabs: Features, Pie Menus, Shortcuts last", tabs == ["FEATURES", "PIES", "SHORTCUTS"], str(tabs))
     check("pies not in Features", not any(f.category == "PIES" or "pie" in f.id for f in F.FEATURES))
 
     # ---- welcome preset: Blender+
@@ -105,6 +106,13 @@ def run():
           any(kmi.type == "A" and kmi.shift and not kmi.alt and kmi.properties.pie == pie.uid for _km, kmi in PM._pie_keymaps))
     pie.items[1].label = "Big Cube"
     check("pie slots are editable", pie.items[1].label == "Big Cube")
+    check("renamed slot shows as 'your own' in the dropdown", pie.items[1].choice == "CUSTOM")
+    pie.items[1].choice = "EMPTY"
+    check("dropdown can empty a slot", pie.items[1].kind == "NONE")
+    weld = next(f"C{i}" for i, c in enumerate(PM._CATALOG) if c[2] == "Weld")
+    pie.items[1].choice = weld
+    check("dropdown fills a slot from any preset (Weld into Add Objects)",
+          pie.items[1].idname == "keyops.add_modifier" and pie.items[1].props == "type='WELD'" and pie.items[1].choice == weld)
     p.active_pie = list(p.pies).index(pie)
     bpy.ops.keyops.pie_reset()
     check("reset to preset restores slots and key", pie.items[1].label == "Cube" and pie.alt)
