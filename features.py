@@ -24,7 +24,6 @@ WELCOME_VERSION = 1
 CATEGORIES = (
     ("MODELING", "Modeling", "Modeling tools and mesh editing", "EDITMODE_HLT"),
     ("OBJECT", "Object & Modifiers", "Object operations, modifiers and materials", "OBJECT_DATAMODE"),
-    ("PIES", "Pie Menus", "Pie menus", "MESH_CIRCLE"),
     ("NAV", "Navigation & Selection", "Viewport navigation, pivot and selection", "ORIENTATION_GIMBAL"),
     ("UV", "UV", "UV editing", "UV"),
     ("PIPELINE", "Pipeline", "Export, baking, LODs and poly counts", "EXPORT"),
@@ -32,10 +31,9 @@ CATEGORIES = (
 )
 
 STYLES = (
-    ("ESSENTIALS", "Essentials", "Tools, panels and menus. No shortcuts", "CHECKMARK", 0),
-    ("BLENDER_PLUS", "Blender+", "Adds shortcuts only on keys Blender leaves free", "BLENDER", 1),
-    ("INDUSTRY", "Industry", "Maya-style: Alt navigation, D pivot, Delete, 1 merge. Same as Key Ops 0.2", "VIEW3D", 2),
-    ("CUSTOM", "Custom", "Choose each feature and its shortcuts yourself", "PREFERENCES", 3),
+    ("ESSENTIALS", "Essentials", "Tools, panels and menus. No shortcuts", "NONE", 0),
+    ("BLENDER_PLUS", "Blender+", "Shortcuts and pies only on keys Blender leaves free", "NONE", 1),
+    ("INDUSTRY", "Industry", "Maya-style keys: Alt navigation, D pivot, Delete", "NONE", 2),
 )
 
 
@@ -100,10 +98,6 @@ FEATURES = (
             "Delete in Edit Mode removes what you selected, with no menu.",
             "industry-standard.html#auto-delete", "operators.auto_delete", "register_auto_delete", "unregister_auto_delete",
             keys=(_k("Delete", "Mesh", "Context-aware delete", "Delete menu"),), keys_only=True),
-    Feature("flatten_pie", "Flatten Pie", "MODELING",
-            "Flattens the selection left, right, top or bottom from the current view.",
-            "pie-menus.html#flatten-pie", "operators.flatten", "register_flatten_pie", "unregister_flatten_pie",
-            keys=(_k("Alt 3", "Mesh", "Flatten pie"),), keys_only=True, plus=True),
     Feature("atri_op", "Attribute Operations", "MODELING",
             "Select and assign face, edge and vertex attributes in Edit Mode.",
             "extras.html#attribute-operations", "operators.atri_op", "register_atri_op", "unregister_atri_op"),
@@ -133,43 +127,6 @@ FEATURES = (
             "Material list with preview icons and quick assign.",
             "toolkit.html#material-utils", "operators.material_index", "register_material_index", "unregister_material_index",
             keys=(_k("Alt M", "Mesh", "Material menu", "Split menu"),)),
-
-    # ---------------- Pie menus
-    Feature("add_objects_pie", "Add Objects Pie", "PIES",
-            "Add primitives at a size relative to the view, so they are never too big or too small.",
-            "pie-menus.html#add-objects-pie", "operators.add_mesh", "register_add_objects_pie", "unregister_add_objects_pie",
-            keys=(_k("Shift Alt A", "3D View", "Add Objects pie"),), keys_only=True, plus=True),
-    Feature("add_menu_shift_a", "Add Objects Pie on Shift A", "PIES",
-            "Also opens the Add Objects pie on Shift A, in place of Blender's Add menu.",
-            "pie-menus.html#add-objects-pie", "operators.optional_keys", "register_add_menu_shift_a", "unregister_add_menu_shift_a",
-            keys=(_k("Shift A", "Object / Mesh", "Add Objects pie", "Add menu"),), keys_only=True, optional=True,
-            requires="add_objects_pie"),
-    Feature("add_modifier_pie", "Add Modifier Pie", "PIES",
-            "The modifiers you use most, one flick away.",
-            "pie-menus.html#add-modifier-pie", "operators.add_modifier", "register_add_modifier_pie", "unregister_add_modifier_pie",
-            keys=(_k("Shift Q", "Window", "Add Modifier pie"),), keys_only=True, plus=True),
-    Feature("cursor_pie", "Cursor & Origin Pie", "PIES",
-            "A fuller cursor and origin snapping pie.",
-            "pie-menus.html#cursor-pie", "operators.origin_to_selection", "register_cursor_pie", "unregister_cursor_pie",
-            keys=(_k("Shift S", "3D View", "Cursor & Origin pie", "Snap pie"),), keys_only=True),
-    Feature("view_pie_space", "View Pie on Space", "PIES",
-            "Opens Blender's View pie on Space in the 3D View. Play stays on Space everywhere else.",
-            "pie-menus.html", "operators.optional_keys", "register_view_pie_space", "unregister_view_pie_space",
-            keys=(_k("Space", "3D View", "View pie", "Play animation"),), keys_only=True, optional=True),
-    Feature("workspace_pie", "Workspace Pie", "PIES",
-            "Switch workspaces from anywhere.",
-            "pie-menus.html#workspace-pie", "menu.pies", "register_workspace_pie", "unregister_workspace_pie",
-            keys=(_k("Shift \\", "Window", "Workspace pie"),), keys_only=True, default_on=False),
-    Feature("utility_pie", "Utility Pie", "PIES",
-            "Common mesh and UV actions in Object and Edit Mode.",
-            "pie-menus.html#utility-pie", "menu.pies", "register_utility_pie", "unregister_utility_pie",
-            keys=(_k("U", "Object / Mesh", "Utility pie", "UV unwrap menu"),), keys_only=True, default_on=False,
-            experimental=True),
-    Feature("uv_pies", "UV Pies", "PIES",
-            "Unwrap and island actions in the UV editor.",
-            "pie-menus.html#uv-pies", "menu.pies", "register_uv_pies", "unregister_uv_pies",
-            keys=(_k("Q", "UV Editor", "UV pie"), _k("Space", "UV Editor", "UV pie", "Play animation")),
-            keys_only=True, default_on=False, experimental=True),
 
     # ---------------- Navigation & selection
     Feature("maya_navigation", "Alt Navigation", "NAV",
@@ -390,9 +347,7 @@ def unregister_all():
 # ---------------------------------------------------------------- presets
 
 def style_values(style, f):
-    """(enabled, keys) a preset gives one feature, or None for Custom."""
-    if style == "CUSTOM":
-        return None
+    """(enabled, keys) a welcome-screen preset gives one feature."""
     if f.optional or not f.default_on or f.experimental:
         return False, False
     if style == "ESSENTIALS":
@@ -426,21 +381,9 @@ def apply_style(style):
             setattr(p, f"enable_{f.id}", vals[0])
             if f.keys:
                 setattr(p, f"keys_{f.id}", vals[1])
-        p.style_modified = False
     sync_all()
-
-
-def matches_style(style, p=None):
-    p = p or prefs()
-    for f in FEATURES:
-        vals = style_values(style, f)
-        if vals is None:
-            return False
-        if bool(getattr(p, f"enable_{f.id}")) != vals[0]:
-            return False
-        if f.keys and getattr(p, f"enable_{f.id}") and bool(getattr(p, f"keys_{f.id}")) != vals[1]:
-            return False
-    return True
+    from . import pie_menus
+    pie_menus.install_presets(p, style)
 
 
 # ---------------------------------------------------------------- update callbacks (used by preferences)
@@ -454,7 +397,6 @@ def on_enable_changed(feature_id):
     if on and f.keys_only and f.keys and not getattr(p, f"keys_{feature_id}"):
         with suspended():
             setattr(p, f"keys_{feature_id}", True)  # a keys-only feature is useless without them
-    p.style_modified = True
     (register_feature if on else unregister_feature)(f)
     apply_key_state(feature_id)
 
@@ -463,7 +405,6 @@ def on_keys_changed(feature_id):
     if is_suspended():
         return
     p = prefs()
-    p.style_modified = True
     f = FEATURE_BY_ID[feature_id]
     if getattr(p, f"keys_{feature_id}") and f.keys_only and not getattr(p, f"enable_{feature_id}"):
         with suspended():
@@ -508,11 +449,13 @@ def migrate():
             for f in FEATURES:
                 if f.keys:
                     setattr(p, f"keys_{f.id}", not f.optional)
-            p.shortcut_style = "CUSTOM"
-            p.style_modified = False
+            p.shortcut_style = "INDUSTRY"
             p.show_whats_new = True
+            p.welcome_version = WELCOME_VERSION
         p.prefs_version = PREFS_VERSION
+    if upgrading:
+        from . import pie_menus
+        pie_menus.install_presets(p, "INDUSTRY")  # the pies 0.2 had on by default
     if not upgrading:
+        # Quiet until the welcome screen's choice: no shortcuts, no pies
         apply_style("ESSENTIALS")
-        with suspended():
-            p.shortcut_style = "ESSENTIALS"

@@ -17,10 +17,10 @@
 
 import bpy
 
-from . import features
+from . import features, pie_menus
 from .addon_preferences import KeyOpsPreferences
 from .operators.xray_select import register_xray_select, unregister_xray_select
-from .ui.toolkit_paneL_ui import panel_classes
+from .ui.toolkit_paneL_ui import NewToolkitPanel
 from .ui import welcome
 
 debug = True
@@ -31,21 +31,22 @@ def register():
         import time
         start = time.time()
 
+    pie_menus.register_properties()  # pie data lives in the preferences
     bpy.utils.register_class(KeyOpsPreferences)
     welcome.register()
-    for cls in panel_classes:
-        bpy.utils.register_class(cls)
+    bpy.utils.register_class(NewToolkitPanel)
     register_xray_select()
 
-    # Fresh install -> Essentials (no shortcuts). Upgrade from 0.2 -> keep everything.
+    # Fresh install -> quiet (no shortcuts) until the welcome screen. Upgrade from 0.2 -> keep everything.
     features.migrate()
     # Register every enabled feature from the registry (replaces the old if/elif dispatcher)
     features.sync_all()
+    pie_menus.register()
     welcome.schedule_welcome()
 
     if debug:
         print(f"{__package__} registered in {time.time() - start:.4f}s, "
-              f"{features.live_shortcut_count()} shortcuts active")
+              f"{features.live_shortcut_count() + pie_menus.live_count()} shortcuts active")
 
 
 def unregister():
@@ -53,11 +54,12 @@ def unregister():
     from .utils.pref_utils import unregister_icons
     reset_retopo_themes_on_unregister_addon()
 
+    pie_menus.unregister()
     features.unregister_all()
     unregister_icons()
     unregister_xray_select()
 
-    for cls in reversed(panel_classes):
-        bpy.utils.unregister_class(cls)
+    bpy.utils.unregister_class(NewToolkitPanel)
     welcome.unregister()
     bpy.utils.unregister_class(KeyOpsPreferences)
+    pie_menus.unregister_properties()

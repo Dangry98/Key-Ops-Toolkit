@@ -1,12 +1,13 @@
 import bpy
 import rna_keymap_ui
-from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
+from bpy.props import CollectionProperty, IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
 from .utils.pref_utils import get_addon_name, _keymap_item_to_display_item
 from .utils.utilities import is_addon_enabled
 from .operators.maya_navigation import update_tablet_navigation as _update_tablet_navigation
 from .operators.maya_navigation import update_sculpt_navigation as _update_sculpt_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
 from . import features as F
+from . import pie_menus
 from .ui.feature_settings import draw_settings, SETTINGS
 
 DOCS_URL = F.DOCS_URL
@@ -51,15 +52,9 @@ def _keys_update(feature_id):
     return update
 
 
-def _style_update(self, context):
-    if F.is_suspended():
-        return
-    if self.shortcut_style != "CUSTOM":
-        F.apply_style(self.shortcut_style)
-
-
 def _pause_update(self, context):
     F.apply_all_key_states()
+    pie_menus.sync_keymaps()
 
 
 _category_cache = {}  # Blender keeps pointers to enum strings, so every list we hand out must stay alive
@@ -77,19 +72,19 @@ def _category_enum_items(self, context):
         counts.append((sum(1 for f in feats if getattr(self, f"enable_{f.id}", False)), len(feats)))
     key = tuple(counts)
     if key not in _category_cache:
-        _category_cache[key] = [(cid, f"{name}   {on}/{total}", desc, icon, i)
+        _category_cache[key] = [(cid, f"{name}   {on}/{total}", desc, i)
                                 for i, ((cid, name, desc, icon), (on, total)) in enumerate(zip(F.CATEGORIES, counts))]
     return _category_cache[key]
 
 
 def _impact(f):
     if not f.keys:
-        return "No shortcuts", 'CHECKMARK'
+        return "No shortcuts"
     if f.replaced:
         extra = f" +{len(f.replaced) - 1}" if len(f.replaced) > 1 else ""
-        return f"Replaces {f.replaced[0].replaces}{extra}", 'ERROR'
+        return f"Replaces {f.replaced[0].replaces}{extra}"
     n = len(f.keys)
-    return f"{n} free shortcut{'s' if n > 1 else ''}", 'EVENT_K'
+    return f"{n} free shortcut{'s' if n > 1 else ''}"
 
 
 def _docs(f):
@@ -118,10 +113,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
     # ---------------- 1.0 state
     ui_tab: EnumProperty(name="Tab", items=[
-        ("HOME", "Home", "Shortcut style and status", 'HOME', 0),
-        ("FEATURES", "Features", "Turn features on and off, and change their settings", 'PRESET', 1),
-        ("SHORTCUTS", "Shortcuts", "Every Key Ops shortcut, grouped by feature", 'KEYINGSET', 2),
-        ("PIES", "Pie Menus", "Pie menus and the keys that open them", 'MESH_CIRCLE', 3)]) # type: ignore
+        ("FEATURES", "Features", "Turn features on and off, and change their settings"),
+        ("SHORTCUTS", "Shortcuts", "Every Key Ops shortcut, grouped by feature"),
+        ("PIES", "Pie Menus", "Edit the pie menus, their keys, or make your own")]) # type: ignore
     ui_category: EnumProperty(name="Category", items=_category_enum_items) # type: ignore
     ui_search: StringProperty(name="Search", description="Search features by name or description", options={'TEXTEDIT_UPDATE'}) # type: ignore
     ui_filter: EnumProperty(name="Show", items=[
@@ -130,8 +124,11 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         ("OFF", "Off", "Only features that are off"),
         ("KEYS", "Uses Keys", "Only features that add shortcuts"),
         ("REPLACES", "Replaces Keys", "Only features that replace a Blender shortcut")]) # type: ignore
-    shortcut_style: EnumProperty(name="Shortcut Style", items=[s for s in F.STYLES], default="ESSENTIALS", update=_style_update) # type: ignore
-    style_modified: BoolProperty(default=False) # type: ignore
+    shortcut_style: EnumProperty(name="Keyboard Preset", items=[s for s in F.STYLES], default="ESSENTIALS",
+                                 description="Which shortcuts to start with. Applied once from the welcome screen") # type: ignore
+    pies: CollectionProperty(type=pie_menus.KeyOpsPie) # type: ignore
+    active_pie: IntProperty(default=0) # type: ignore
+    pies_installed: BoolProperty(default=False) # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
                                   description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
     prefs_version: IntProperty(default=0) # type: ignore
@@ -237,69 +234,20 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         layout = self.layout
         if self.show_whats_new:
             box = layout.box()
-            col = box.column()
-            col.label(text="Key Ops 1.0: features and shortcuts now have separate switches.", icon='INFO')
-            sub = col.column()
+            row = box.row()
+            col = row.column(align=True)
+            col.label(text="Key Ops 1.0: every feature and its shortcuts can now be turned on and off separately.")
+            sub = col.row()
             sub.active = False
-            sub.label(text="Your setup from 0.2 is kept as it was. Switch to Essentials for tools and panels without shortcuts.")
-            row = col.row()
-            row.operator("keyops.dismiss_whats_new", text="Keep My Setup").switch = False
-            row.operator("keyops.dismiss_whats_new", text="Switch to Essentials").switch = True
+            sub.label(text="Your setup from 0.2 is kept. Pie menus are now editable in the Pie Menus tab.")
+            row.operator("keyops.dismiss_whats_new", text="Got It")
 
         row = layout.row()
         row.scale_y = 1.3
         row.prop(self, "ui_tab", expand=True)
         body = layout.column()
-        {"HOME": self.draw_home, "FEATURES": self.draw_features,
-         "SHORTCUTS": self.draw_shortcuts, "PIES": self.draw_pies}[self.ui_tab](context, body)
-
-    # ---------------------------------------------------------------- Home
-    def draw_home(self, context, layout):
-        box = layout.box()
-        box.label(text="Shortcut Style")
-        grid = box.grid_flow(row_major=True, columns=4, even_columns=True, align=False)
-        for sid, name, desc, icon, _i in F.STYLES:
-            col = grid.column(align=True)
-            r = col.row()
-            r.scale_y = 2.0
-            r.prop_enum(self, "shortcut_style", sid, text=name, icon=icon)
-            d = col.column(align=True)
-            d.active = False
-            for line in _wrap(desc, 30):
-                d.label(text=line)
-
-        feats, keys, repl = F.stats(self)
-        name = dict((s[0], s[1]) for s in F.STYLES)[self.shortcut_style]
-        if self.shortcut_style != "CUSTOM" and not F.matches_style(self.shortcut_style, self):
-            name += " (modified)"
-        row = box.row()
-        row.label(text=f"Current: {name}", icon='DOT')
-        row.label(text=f"{feats} features on")
-        row.label(text=f"{keys} shortcuts active")
-        sub = row.row()
-        sub.alert = repl > 0
-        sub.label(text=f"{repl} replace Blender keys", icon='ERROR' if repl else 'CHECKMARK')
-
-        box = layout.box()
-        row = box.row()
-        row.prop(self, "pause_shortcuts", text="Pause All Key Ops Shortcuts", icon='PAUSE' if not self.pause_shortcuts else 'PLAY', toggle=True)
-        sub = row.row()
-        sub.active = False
-        sub.label(text="Features keep working. Try this first when a key stops doing what you expect.")
-
-        box = layout.box()
-        box.label(text="Get Started")
-        row = box.row()
-        row.operator("keyops.welcome", text="Show Welcome Again", icon='HEART')
-        row.operator("wm.url_open", text="Documentation", icon='HELP').url = DOCS_URL
-        row.operator("keyops.shortcut_cheatsheet", text="Active Shortcuts", icon='KEYINGSET')
-
-        box = layout.box()
-        box.label(text="Blender Settings We Recommend")
-        col = box.column(align=True)
-        col.active = False
-        col.label(text="Pie menus open instantly with Interface > Editors > Pie Menus > Animation Timeout set to 0.")
-        col.label(text="Key Ops never changes your Blender preferences or keymap for you.")
+        {"FEATURES": self.draw_features, "SHORTCUTS": self.draw_shortcuts,
+         "PIES": self.draw_pies}[self.ui_tab](context, body)
 
     # ---------------------------------------------------------------- Features
     def _feature_matches(self, f):
@@ -321,25 +269,27 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         return True
 
     def draw_features(self, context, layout):
-        split = layout.split(factor=0.24)
+        split = layout.split(factor=0.22)
         left = split.column()
         col = left.column(align=True)
         col.scale_y = 1.35
         col.prop(self, "ui_category", expand=True)
         left.separator()
-        left.prop(self, "experimental", text="Show Experimental", icon='EXPERIMENTAL', toggle=True)
+        left.prop(self, "experimental", text="Show Experimental", toggle=True)
 
         right = split.column()
         row = right.row(align=True)
-        row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features") if bpy.app.version >= (4, 1, 0) else row.prop(self, "ui_search", text="", icon='VIEWZOOM')
+        if bpy.app.version >= (4, 1, 0):
+            row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features")
+        else:
+            row.prop(self, "ui_search", text="", icon='VIEWZOOM')
         row = right.row(align=True)
         row.prop(self, "ui_filter", expand=True)
         right.separator(factor=0.5)
 
         shown = [f for f in F.visible_features(self) if self._feature_matches(f)]
         if not shown:
-            box = right.box()
-            box.label(text="No features match. Clear the search or the filter.", icon='INFO')
+            right.box().label(text="No features match. Clear the search or the filter.")
         for f in shown:
             self.draw_card(context, right, f)
 
@@ -347,22 +297,28 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         wm = context.window_manager
         enabled = getattr(self, f"enable_{f.id}")
         is_open = getattr(wm, "keyops_open_feature", "") == f.id
+        keys_on = bool(getattr(self, f"keys_{f.id}", False))
 
         box = layout.box()
         col = box.column(align=True)
         row = col.row(align=True)
         row.prop(self, f"enable_{f.id}", text="")
-        sp = row.split(factor=0.5)
+        sp = row.split(factor=0.45)
         name = sp.row()
         name.active = enabled
         name.label(text=f.name + ("   (experimental)" if f.experimental else ""))
         right = sp.row(align=True)
         right.alignment = 'RIGHT'
-        text, icon = _impact(f)
-        badge = right.row()
-        badge.active = enabled
-        badge.alert = bool(f.replaced) and enabled and getattr(self, f"keys_{f.id}", False)
-        badge.label(text=text, icon=icon)
+        if f.keys:
+            # Shortcuts switch right on the card, no need to open it
+            sw = right.row(align=True)
+            sw.active = enabled
+            sw.alert = bool(f.replaced) and enabled and keys_on
+            sw.prop(self, f"keys_{f.id}", text=_impact(f), toggle=True)
+        else:
+            lab = right.row()
+            lab.active = False
+            lab.label(text=_impact(f))
         right.operator("wm.url_open", text="", icon='HELP', emboss=False).url = _docs(f)
         right.operator("keyops.toggle_feature_card", text="", icon='DOWNARROW_HLT' if is_open else 'RIGHTARROW',
                        emboss=False).feature_id = f.id
@@ -374,40 +330,32 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         if f.requires and not getattr(self, f"enable_{f.requires}"):
             r = col.row()
             r.separator(factor=2.6)
-            r.label(text=f"Needs {F.FEATURE_BY_ID[f.requires].name} to be on.", icon='LINKED')
+            r.label(text=f"Needs {F.FEATURE_BY_ID[f.requires].name} to be on.")
 
         if not is_open:
             return
         inner = box.column()
-        inner.separator(type='LINE') if bpy.app.version >= (4, 2, 0) else inner.separator()
+        inner.separator()
         if f.keys:
-            r = inner.row()
-            r.prop(self, f"keys_{f.id}", text="Use Shortcuts")
-            if not getattr(self, f"keys_{f.id}"):
-                s = r.row()
-                s.active = False
-                s.label(text="Off. Run it from the N-panel, menus or F3 search.")
             keys_col = inner.column(align=True)
-            keys_col.active = getattr(self, f"keys_{f.id}") and enabled
+            keys_col.active = keys_on and enabled
             for k in f.keys:
-                ks = keys_col.split(factor=0.28)
-                ks.label(text=k.key, icon='EVENT_K')
+                ks = keys_col.split(factor=0.25)
+                ks.label(text=k.key)
                 ks2 = ks.split(factor=0.6)
                 ks2.label(text=f"{k.action}  ·  {k.editor}")
-                ks2.label(text=f"Replaces {k.replaces}" if k.replaces else "Free key",
-                          icon='ERROR' if k.replaces else 'CHECKMARK')
+                ks2.label(text=f"Replaces {k.replaces}" if k.replaces else "Free key")
             sub = inner.row()
             sub.active = False
-            sub.label(text="Rebind these in the Shortcuts tab.")
-        else:
-            sub = inner.row()
-            sub.active = False
-            sub.label(text="This feature adds tools, panels or menu entries. It has no shortcuts.")
-        sbox = inner.column()
+            sub.label(text="The button above turns these on or off. Rebind them in the Shortcuts tab.")
         if f.id in SETTINGS:
-            sbox.separator()
-            sbox.label(text="Settings", icon='PREFERENCES')
-            draw_settings(f.id, self, sbox.box().column())
+            inner.separator()
+            inner.label(text="Settings")
+            draw_settings(f.id, self, inner.box().column())
+        elif not f.keys:
+            sub = inner.row()
+            sub.active = False
+            sub.label(text="This feature adds tools, panels or menu entries. It has no settings.")
 
     # ---------------------------------------------------------------- Shortcuts
     def draw_shortcuts(self, context, layout):
@@ -416,8 +364,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         sub = row.column(align=True)
         sub.active = False
         sub.label(text="Key Ops adds shortcuts on top of yours. Turning one off gives Blender's back.")
-        sub.label(text="Click a key to rebind it. Changes are saved in your keymap like any other shortcut.")
-        row.prop(self, "pause_shortcuts", text="Pause All", icon='PAUSE', toggle=True)
+        sub.label(text="Click a key to rebind it. Pie menu keys are set in the Pie Menus tab.")
+        row.prop(self, "pause_shortcuts", text="Pause All Shortcuts", toggle=True)
         layout.prop(self, "ui_search", text="", icon='VIEWZOOM')
 
         kc = context.window_manager.keyconfigs.user
@@ -432,7 +380,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
             drawn = True
             box = layout.box()
             head = box.row()
-            head.label(text=f.name, icon='ERROR' if f.replaced else 'EVENT_K')
+            head.label(text=f.name)
             head.prop(self, f"keys_{f.id}", text="On")
             col = box.column()
             col.active = F.keys_active(f.id, self)
@@ -441,21 +389,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 ukmi = _find_user_item(ukm, kmi) if ukm else None
                 if ukmi:
                     rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, ukm, ukmi, col, 0)
-            if not items:
-                col.label(text="No shortcuts registered yet.")
         if not drawn:
-            layout.label(text="No features with shortcuts are on. Turn some on in Features, or pick a style on Home.", icon='INFO')
+            layout.label(text="No features with shortcuts are on. Turn some on in the Features tab.")
 
     # ---------------------------------------------------------------- Pies
     def draw_pies(self, context, layout):
-        box = layout.box()
-        col = box.column(align=True)
-        col.active = False
-        col.label(text="Pie menus open with a key, so each one adds a shortcut. Options marked 'on Shift A' or 'on Space'")
-        col.label(text="replace a Blender key with Key Ops' own shortcut. Your keymap itself is never edited.")
-        for f in F.visible_features(self):
-            if f.category == "PIES":
-                self.draw_card(context, layout, f)
+        pie_menus.draw_pies_tab(self, context, layout)
 
 
 def _find_user_item(ukm, kmi):
