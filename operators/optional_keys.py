@@ -1,4 +1,4 @@
-"""Opt-in shortcuts that replace the old Rebind tab.
+"""Opt-in shortcut that replaces the old Rebind tab's W context menu button.
 
 The old Rebind buttons edited the user's keymap directly. These add Key Ops'
 own items to ``keyconfigs.addon`` instead, so turning them off or disabling the
@@ -9,8 +9,6 @@ import bpy
 from ..utils.pref_utils import unregister_keymaps
 
 registered_w_context_menu_keymaps = []
-registered_add_menu_shift_a_keymaps = []
-registered_view_pie_space_keymaps = []
 
 
 def _new(store, keymap, idname, key, menu, space_type="EMPTY", **mods):
@@ -32,24 +30,3 @@ def register_w_context_menu():
 def unregister_w_context_menu():
     unregister_keymaps(registered_w_context_menu_keymaps)
     registered_w_context_menu_keymaps.clear()
-
-
-def register_add_menu_shift_a():
-    for keymap in ("Object Mode", "Mesh"):
-        _new(registered_add_menu_shift_a_keymaps, keymap, "wm.call_menu_pie", "A",
-             "KEYOPS_MT_add_objects_pie_menu", shift=True)
-
-
-def unregister_add_menu_shift_a():
-    unregister_keymaps(registered_add_menu_shift_a_keymaps)
-    registered_add_menu_shift_a_keymaps.clear()
-
-
-def register_view_pie_space():
-    _new(registered_view_pie_space_keymaps, "3D View", "wm.call_menu_pie", "SPACE",
-         "VIEW3D_MT_view_pie", space_type="VIEW_3D")
-
-
-def unregister_view_pie_space():
-    unregister_keymaps(registered_view_pie_space_keymaps)
-    registered_view_pie_space_keymaps.clear()

@@ -103,7 +103,6 @@ SETTINGS = {
     "toggle_retopology": _toggle_retopology,
     "maya_pivot": _maya_pivot,
     "fast_merge": _fast_merge,
-    "add_objects_pie": _add_objects_pie,
     "legacy_shortcuts": _legacy_shortcuts,
     "material_index": _material_index,
 }
