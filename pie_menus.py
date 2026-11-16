@@ -68,6 +68,7 @@ KEY_EVENTS = (
 )
 
 O, M, P, N, MACRO, SUB = "OPERATOR", "MENU", "PROPERTY", "NONE", "MACRO", "SUBMENU"
+SCRIPT, PANEL_ITEM, LABEL = "SCRIPT", "POPOVER", "LABEL"
 _ = (N, "", "", "", "")
 
 
@@ -160,6 +161,7 @@ FIRST_PRESETS = ("add_objects", "add_modifier", "flatten", "cursor", "workspace"
 
 _ICONS = set(bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items.keys())
 _KEY_NAMES = {i.identifier: i.name for i in bpy.types.KeyMapItem.bl_rna.properties["type"].enum_items}
+_KEY_NAMES.update({f"BUTTON{n}MOUSE": f"Mouse {n}" for n in range(4, 8)})
 _MODIFIER_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}
 
 
@@ -239,6 +241,28 @@ class KeyOpsMacroStep(PropertyGroup):
                               description="Run this step like a key press, so tools that follow the mouse can be used. Later steps don't wait for it") # type: ignore
 
 
+class KeyOpsValue(PropertyGroup):
+    """A value of your own (number, toggle or text), saved by Key Ops and usable in menus and scripts."""
+    vtype: EnumProperty(name="Type", items=(("FLOAT", "Number", "A number like 0.25", 'DRIVER_DISTANCE', 0),
+                                            ("INT", "Whole Number", "A whole number like 3", 'LINENUMBERS_ON', 1),
+                                            ("BOOL", "Toggle", "On or off", 'CHECKBOX_HLT', 2),
+                                            ("STRING", "Text", "Some text", 'SYNTAX_OFF', 3)), update=lambda s, c: _values_changed()) # type: ignore
+    float_value: FloatProperty(name="Value", update=lambda s, c: _values_changed()) # type: ignore
+    int_value: IntProperty(name="Value", update=lambda s, c: _values_changed()) # type: ignore
+    bool_value: BoolProperty(name="Value", update=lambda s, c: _values_changed()) # type: ignore
+    string_value: StringProperty(name="Value", update=lambda s, c: _values_changed()) # type: ignore
+
+    @property
+    def field(self):
+        return {"FLOAT": "float_value", "INT": "int_value", "BOOL": "bool_value", "STRING": "string_value"}[self.vtype]
+
+
+def _values_changed():
+    if not _loading:
+        from . import settings_store
+        settings_store.save_soon("values")
+
+
 class KeyOpsPieItem(PropertyGroup):
     kind: EnumProperty(name="Type", items=(
         (N, "Empty", "Leave this slot empty (a separator in popup menus)"),
@@ -246,7 +270,12 @@ class KeyOpsPieItem(PropertyGroup):
         (M, "Menu", "Open a menu, e.g. VIEW3D_MT_add"),
         (P, "Toggle", "Toggle a setting, e.g. scene.tool_settings.use_snap"),
         (MACRO, "Macro", "Run several operators one after another"),
-        (SUB, "Key Ops Menu", "Open another of your Key Ops menus")), update=_changed) # type: ignore
+        (SUB, "Key Ops Menu", "Open another of your Key Ops menus"),
+        (SCRIPT, "Python", "Run Python, the same way Blender's Text Editor runs a script"),
+        (PANEL_ITEM, "Blender Panel", "Open one of Blender's panels, e.g. VIEW3D_PT_overlay"),
+        (LABEL, "Label", "A heading (popup menus, dialogs and panels)")), update=_changed) # type: ignore
+    script: StringProperty(name="Python", description="Python to run. Use the Text Editor button for longer scripts",
+                           update=_changed) # type: ignore
     steps: CollectionProperty(type=KeyOpsMacroStep) # type: ignore
     extra: StringProperty(options={'HIDDEN'}) # type: ignore  # fields from newer versions, kept as JSON
     label: StringProperty(name="Label", update=_changed) # type: ignore
@@ -263,6 +292,10 @@ class KeyOpsPie(PropertyGroup):
     only_mode: EnumProperty(name="Only In", items=ONLY_MODES, update=_changed,
                             description="Only open in this mode; anywhere else the key does what Blender does") # type: ignore
     key_event: EnumProperty(name="Key Event", items=KEY_EVENTS, update=_sync_update) # type: ignore
+    key_mod: EnumProperty(name="While Holding", update=_sync_update,
+                          description="Optional: a second key that must be held, for two-key shortcuts",
+                          items=[(i.identifier, "Nothing" if i.identifier == "NONE" else _KEY_NAMES.get(i.identifier, i.name), "")
+                                 for i in bpy.types.KeyMapItem.bl_rna.properties["key_modifier"].enum_items]) # type: ignore
     columns: IntProperty(name="Columns", default=2, min=1, max=6, update=_changed) # type: ignore
     dialog_mode: EnumProperty(name="Behaviour", items=(
         ("POPUP", "Popup", "Closes when the mouse moves away"),
@@ -286,6 +319,8 @@ def key_text(pie):
     if pie.key in ("", "NONE"):
         return "No key"
     mods = [m for m, on in (("Ctrl", pie.ctrl), ("Shift", pie.shift), ("Alt", pie.alt)) if on]
+    if getattr(pie, "key_mod", "NONE") not in ("NONE", ""):
+        mods.append(_KEY_NAMES.get(pie.key_mod, pie.key_mod) + " +")
     return " ".join(mods + [_KEY_NAMES.get(pie.key, pie.key)])
 
 
@@ -323,10 +358,10 @@ def install_presets(prefs, style):
 # ---------------------------------------------------------------- saving to pie_menus.json
 
 PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", "ctrl", "shift", "alt",
-              "key_event", "only_mode", "columns", "dialog_mode", "stack_reset")
-ITEM_FIELDS = ("kind", "label", "icon", "idname", "props")
+              "key_event", "only_mode", "columns", "dialog_mode", "stack_reset", "key_mod")
+ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script")
 STEP_FIELDS = ("idname", "props", "interactive")
-PIE_SCHEMA = 3  # bump when the saved layout changes, and add a migration below
+PIE_SCHEMA = 4  # bump when the saved layout changes, and add a migration below
 
 
 def _extra(obj):
@@ -427,7 +462,12 @@ def _migrate_pies_2_to_3(data):
     return data
 
 
-PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3}
+def _migrate_pies_3_to_4(data):
+    """Schema 4 added Python, panel and label items, and two-key shortcuts. Nothing to convert."""
+    return data
+
+
+PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3, 3: _migrate_pies_3_to_4}
 
 
 def load_from_disk():
@@ -435,6 +475,7 @@ def load_from_disk():
     global loaded_from_disk
     from . import settings_store
     loaded_from_disk = settings_store.load_section("pie_menus")
+    settings_store.load_section("values")
     return loaded_from_disk
 
 
@@ -451,13 +492,19 @@ _pie_keymaps = []
 _VIEWPORT_KEYMAPS = ("Object Mode", "Mesh", "Curve", "3D View Generic")
 
 
-def sync_keymaps():
+def _remove_pie_keymaps():
+    """Remove our menu shortcuts, skipping any that are already gone (Blender prints an error otherwise)."""
     for km, kmi in _pie_keymaps:
         try:
-            km.keymap_items.remove(kmi)
+            if kmi.as_pointer() in {x.as_pointer() for x in km.keymap_items}:
+                km.keymap_items.remove(kmi)
         except (ReferenceError, RuntimeError):
             pass
     _pie_keymaps.clear()
+
+
+def sync_keymaps():
+    _remove_pie_keymaps()
     kc = bpy.context.window_manager.keyconfigs.addon
     prefs = get_keyops_prefs()
     if kc is None or not getattr(prefs, "pies_installed", False) or prefs.pause_shortcuts:
@@ -471,7 +518,8 @@ def sync_keymaps():
         for name in names:
             km = kc.keymaps.new(name=name, space_type='EMPTY')
             value = 'PRESS' if pie.menu_type in {"STICKY", "MODAL"} else pie.key_event
-            kmi = km.keymap_items.new("wm.keyops_call_pie", pie.key, value, ctrl=pie.ctrl, shift=pie.shift, alt=pie.alt)
+            kmi = km.keymap_items.new("wm.keyops_call_pie", pie.key, value, ctrl=pie.ctrl, shift=pie.shift, alt=pie.alt,
+                                      key_modifier=pie.key_mod)
             kmi.properties.pie = pie.uid
             _pie_keymaps.append((km, kmi))
     _changed()  # every structural change ends here, so this keeps pie_menus.json up to date
@@ -504,6 +552,22 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
         layout.operator("wm.keyops_call_pie", text=item.label or target.name,
                         icon=_icon(item.icon) if item.icon else TYPE_ICON.get(target.menu_type, 'NONE')).pie = target.uid
         return
+    if item.kind == LABEL:
+        layout.label(text=item.label, icon=_icon(item.icon) if item.icon else 'NONE')
+        return
+    if item.kind == SCRIPT:
+        if not item.script.strip():
+            layout.separator()
+            return
+        op = layout.operator("wm.keyops_run_script", text=item.label or "Python", icon=_icon(item.icon) if item.icon else 'SCRIPT')
+        op.pie, op.slot = pie_uid, index
+        return
+    if item.kind == PANEL_ITEM:
+        if not item.idname.strip() or not hasattr(bpy.types, item.idname.strip()):
+            layout.label(text=f"{item.label or item.idname} (panel not found)", icon='ERROR')
+            return
+        layout.popover(panel=item.idname.strip(), text=item.label or item.idname, icon=_icon(item.icon) if item.icon else 'NONE')
+        return
     if item.kind == MACRO:
         if not item.steps:
             layout.separator()
@@ -519,10 +583,7 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
         if item.kind == M:
             layout.operator("wm.call_menu", text=label, icon=_icon(item.icon)).name = item.idname
         elif item.kind == P:
-            *path, prop = item.idname.strip().split(".")
-            data = context
-            for part in path:
-                data = getattr(data, part)
+            data, prop = _resolve(context, item.idname)
             if slider:  # dialogs and panels show settings as real fields and sliders
                 layout.prop(data, prop, text=label, icon=_icon(item.icon) if item.icon else 'NONE')
             else:
@@ -539,7 +600,13 @@ _stack_state = {}  # menu id -> (next index, time of last press)
 
 
 def _resolve(context, path):
-    *parts, prop = path.strip().split(".")
+    path = path.strip()
+    if path.startswith("values:"):  # one of your own values: values:Size
+        v = context.window_manager.keyops_values.get(path[len("values:"):].strip())
+        if v is None:
+            raise KeyError(path)
+        return v, v.field
+    *parts, prop = path.split(".")
     data = context
     for part in parts:
         data = getattr(data, part)
@@ -555,6 +622,10 @@ def run_item(context, pie, index):
         bpy.ops.wm.keyops_run_macro(pie=pie.uid, slot=index)
     elif item.kind == SUB:
         bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=item.idname)
+    elif item.kind == SCRIPT:
+        run_script(context, item.script, item.label)
+    elif item.kind == PANEL_ITEM:
+        bpy.ops.wm.call_panel(name=item.idname.strip())
     elif item.kind == M:
         bpy.ops.wm.call_menu(name=item.idname)
     elif item.kind == P:
@@ -599,18 +670,7 @@ class WM_OT_keyops_call_pie(Operator):
             return context.window_manager.invoke_popup(self, width=width)
 
         if kind == "STACK":
-            now = time.time()
-            idx, last = _stack_state.get(uid, (0, 0.0))
-            if pie.stack_reset and now - last > pie.stack_reset:
-                idx = 0
-            filled = [i for i, it in enumerate(items) if not _is_empty(it)]
-            if not filled:
-                return {'CANCELLED'}
-            target = filled[idx % len(filled)]
-            _stack_state[uid] = ((idx + 1) % len(filled), now)
-            run_item(context, pie, target)
-            self.report({'INFO'}, f"{pie.name}: {items[target].label or items[target].idname}")
-            return {'FINISHED'}
+            return self._run_stack(context, pie)
 
         if kind == "STICKY":
             self._key = event.type
@@ -663,6 +723,29 @@ class WM_OT_keyops_call_pie(Operator):
         draw_grid(layout, context, pie)
 
     def execute(self, context):
+        # Called from a script (no key press): stack keys still step, other menus need invoke.
+        pie = find_pie(self.pie)
+        if pie is None:
+            return {'CANCELLED'}
+        if pie.only_mode != "ANY" and context.mode != pie.only_mode:
+            return {'PASS_THROUGH'}
+        if pie.menu_type == "STACK":
+            return self._run_stack(context, pie)
+        return {'FINISHED'}
+
+    def _run_stack(self, context, pie):
+        uid, items = pie.uid, list(pie.items)
+        now = time.time()
+        idx, last = _stack_state.get(uid, (0, 0.0))
+        if pie.stack_reset and now - last > pie.stack_reset:
+            idx = 0
+        filled = [i for i, it in enumerate(items) if not _is_empty(it)]
+        if not filled:
+            return {'CANCELLED'}
+        target = filled[idx % len(filled)]
+        _stack_state[uid] = ((idx + 1) % len(filled), now)
+        run_item(context, pie, target)
+        self.report({'INFO'}, f"{pie.name}: {items[target].label or items[target].idname}")
         return {'FINISHED'}
 
     # ---- sticky / modal
@@ -677,11 +760,18 @@ class WM_OT_keyops_call_pie(Operator):
     def _show(self, context):
         v = self._value()
         text = f"{self._label}: {v:.3f}" if isinstance(v, float) else f"{self._label}: {v}"
-        hint = "   ·   move or scroll to change, click to confirm, right-click to cancel"
         if context.area:
-            context.area.header_text_set(text + hint)
+            context.area.header_text_set(text)
         if context.workspace:
-            context.workspace.status_text_set(text + hint)
+            def status(header, ctx):
+                row = header.layout.row(align=False)
+                for icons, label in ((('MOUSE_MOVE',), "Change"), (('MOUSE_MMB_SCROLL',), "Step"),
+                                     (('MOUSE_LMB',), "Confirm"), (('EVENT_ESC', 'MOUSE_RMB'), "Cancel")):
+                    for icon in icons[:-1]:
+                        row.label(text="", icon=icon)
+                    row.label(text=label, icon=icons[-1])
+                    row.separator(factor=1.5)
+            context.workspace.status_text_set(status)
 
     @staticmethod
     def _clear(context):
@@ -798,6 +888,84 @@ def _run_step(idname, props, interactive):
     mod, op = idname.strip().split(".", 1)
     fn = getattr(getattr(bpy.ops, mod), op)
     return fn('INVOKE_DEFAULT' if interactive else 'EXEC_DEFAULT', **_parse_props(props))
+
+
+def run_script(context, code, name=""):
+    """Run Python the same way Blender's Text Editor does (Text > Run Script).
+    The script goes into a temporary text block that is removed again afterwards."""
+    text = bpy.data.texts.new(".Key Ops Script")
+    try:
+        text.from_string(code)
+        with context.temp_override(edit_text=text):
+            bpy.ops.text.run_script()
+    finally:
+        bpy.data.texts.remove(text)
+
+
+class WM_OT_keyops_run_script(Operator):
+    bl_idname = "wm.keyops_run_script"
+    bl_label = "Run Python"
+    bl_description = "Run this item's Python, the way the Text Editor runs a script"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    pie: StringProperty() # type: ignore
+    slot: IntProperty() # type: ignore
+
+    def execute(self, context):
+        pie = find_pie(self.pie)
+        if pie is None or not (0 <= self.slot < len(pie.items)):
+            return {'CANCELLED'}
+        item = pie.items[self.slot]
+        try:
+            run_script(context, item.script, item.label)
+        except Exception as e:
+            lines = [ln.strip() for ln in str(e).splitlines() if ln.strip() and not ln.strip().startswith("Location:")]
+            errs = [ln for ln in lines if ln.split(":")[0].endswith(("Error", "Exception"))]
+            msg = (errs or lines or [type(e).__name__])[-1]
+            self.report({'WARNING'}, f"{item.label or 'Python'}: {msg}  (see the console for details)")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_script_edit(Operator):
+    bl_idname = "keyops.script_edit"
+    bl_label = "Edit in Text Editor"
+    bl_description = "Open this item's Python in Blender's Text Editor. Press Save to Item when you're done"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, prefs.pie_slot)
+        if item is None:
+            return {'CANCELLED'}
+        name = f"Key Ops - {_active_pie(prefs).name} - {item.label or 'Python'}"
+        text = bpy.data.texts.get(name) or bpy.data.texts.new(name)
+        text.from_string(item.script or "import bpy\n\n")
+        bpy.ops.wm.window_new()
+        win = context.window_manager.windows[-1]
+        area = win.screen.areas[0]
+        area.type = 'TEXT_EDITOR'
+        area.spaces.active.text = text
+        context.window_manager.keyops_script_text = name
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_script_save(Operator):
+    bl_idname = "keyops.script_save"
+    bl_label = "Save to Item"
+    bl_description = "Copy the script from the Text Editor back into this item"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, prefs.pie_slot)
+        text = bpy.data.texts.get(context.window_manager.keyops_script_text)
+        if item is None or text is None:
+            self.report({'WARNING'}, "Open the script in the Text Editor first")
+            return {'CANCELLED'}
+        item.script = text.as_string()
+        self.report({'INFO'}, "Saved the script to the item")
+        return {'FINISHED'}
 
 
 class WM_OT_keyops_run_macro(Operator):
@@ -961,6 +1129,80 @@ class KEYOPS_OT_slot_make_macro(Operator):
         return {'FINISHED'}
 
 
+class KEYOPS_OT_slot_set_kind(Operator):
+    bl_idname = "keyops.slot_set_kind"
+    bl_label = "Item Type"
+    bl_description = "Make this item a Python script or a label"
+    bl_options = {'INTERNAL'}
+    kind: StringProperty() # type: ignore
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, prefs.pie_slot)
+        if item is None:
+            return {'CANCELLED'}
+        item.kind = self.kind
+        if self.kind == SCRIPT and not item.script:
+            item.script = "import bpy\n"
+            item.label = item.label or "Python"
+        if self.kind == LABEL:
+            item.label = item.label or "Heading"
+        _changed()
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_pie_duplicate(Operator):
+    bl_idname = "keyops.pie_duplicate"
+    bl_label = "Duplicate"
+    bl_description = "Make a copy of this menu"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        src = _active_pie(prefs)
+        if src is None:
+            return {'CANCELLED'}
+        data = pies_to_data(prefs)["pies"][prefs.active_pie]
+        data["uid"] = uuid.uuid4().hex[:12]
+        data["name"] = src.name + " Copy"
+        data["enabled"] = False
+        data["preset"] = ""
+        pies_from_data(prefs, {"pies": [data]}, True)
+        prefs.active_pie = len(prefs.pies) - 1
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_value_add(Operator):
+    bl_idname = "keyops.value_add"
+    bl_label = "Add Value"
+    bl_description = "Add a value of your own. Use it in a Toggle/Setting item as values:Name"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        vals = context.window_manager.keyops_values
+        v = vals.add()
+        n = 1
+        while f"Value {n}" in vals:
+            n += 1
+        v.name = f"Value {n}"
+        _values_changed()
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_value_remove(Operator):
+    bl_idname = "keyops.value_remove"
+    bl_label = "Remove Value"
+    bl_options = {'INTERNAL'}
+    index: IntProperty() # type: ignore
+
+    def execute(self, context):
+        vals = context.window_manager.keyops_values
+        if 0 <= self.index < len(vals):
+            vals.remove(self.index)
+            _values_changed()
+        return {'FINISHED'}
+
+
 class KEYOPS_OT_macro_step_add(Operator):
     bl_idname = "keyops.macro_step_add"
     bl_label = "Add Step"
@@ -1087,7 +1329,7 @@ class KEYOPS_OT_pie_set_key(Operator):
         prefs = get_keyops_prefs()
         pie = prefs.pies[KEYOPS_OT_pie_set_key.capturing]
         if event.type in {'ESC', 'LEFTMOUSE', 'RIGHTMOUSE'}:
-            pass
+            pass  # middle and side mouse buttons can be used as keys
         elif event.type == 'BACK_SPACE':
             pie.key = "NONE"
         else:
@@ -1260,8 +1502,22 @@ def _user_menu_items():
     return _menu_items_cache[menus]
 
 
+_panel_items_cache = []
+
+
+def _blender_panel_items():
+    if not _panel_items_cache:
+        for i, name in enumerate(sorted(n for n in dir(bpy.types) if "_PT_" in n and not n.startswith("KEYOPS"))):
+            cls = getattr(bpy.types, name)
+            label = getattr(cls, "bl_label", "") or name
+            _panel_items_cache.append((f"P:{name}", f"{label}  ·  panel {name}", "", 'MENU_PANEL', 30000 + i))
+    return _panel_items_cache
+
+
 def _search_items(self, context):
     base = _KEYOPS_SEARCH + _user_menu_items()
+    if self.scope == "PANELS":
+        return _blender_panel_items()
     return base if self.scope == "KEYOPS" else base + _all_operator_items()
 
 
@@ -1279,7 +1535,7 @@ class KEYOPS_OT_pie_slot_search(Operator):
 
     slot: IntProperty() # type: ignore
     step: IntProperty(default=-1, options={'SKIP_SAVE'}) # type: ignore  # >= 0: a macro step
-    scope: EnumProperty(items=(("KEYOPS", "Key Ops", ""), ("ALL", "All of Blender", ""))) # type: ignore
+    scope: EnumProperty(items=(("KEYOPS", "Key Ops", ""), ("ALL", "All of Blender", ""), ("PANELS", "Blender Panels", ""))) # type: ignore
     action: EnumProperty(items=_search_items) # type: ignore
 
     def invoke(self, context, event):
@@ -1311,6 +1567,12 @@ def apply_step_action(step, action):
 
 
 def apply_action(item, action):
+    if action.startswith("P:"):
+        name = action[2:]
+        cls = getattr(bpy.types, name, None)
+        item.kind, item.idname, item.props = PANEL_ITEM, name, ""
+        item.label, item.icon = (getattr(cls, "bl_label", "") or name), ""
+        return
     if action.startswith("K:"):
         target = find_pie(action[2:])
         if target is not None:
@@ -1521,6 +1783,15 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
     selected = prefs.pie_customize and prefs.pie_slot == index
     # One rounded item, like an entry in a real pie: the icon and the label are two
     # frameless click zones inside it (icon opens the palette, label picks the action).
+    if item.kind == LABEL and not empty and not selected:  # a heading: plain text, still clickable
+        r = cell.row(align=True)
+        r.alignment = 'CENTER'
+        if prefs.pie_customize:
+            r.operator("keyops.pie_slot_select", text=text, emboss=False,
+                       icon=_icon(item.icon) if item.icon else 'NONE').slot = index
+        else:
+            r.label(text=text, icon=_icon(item.icon) if item.icon else 'NONE')
+        return
     item_box = cell.box() if not selected else cell.column()
     r = item_box.row(align=True)
     r.scale_y = 0.85 if not selected else 1.0
@@ -1539,6 +1810,10 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
 def _is_empty(item):
     if item.kind == MACRO:
         return not len(item.steps)
+    if item.kind == SCRIPT:
+        return not item.script.strip()
+    if item.kind == LABEL:
+        return not item.label.strip()
     return item.kind == N or not item.idname.strip()
 
 
@@ -1645,9 +1920,13 @@ def draw_pies_tab(prefs, context, layout):
     # pie list on the side: on/off, name, key
     outer = layout.split(factor=0.22)
     side = outer.column()
+    side.prop(context.window_manager, "keyops_menu_filter", text="", icon='VIEWZOOM')
     lbox = side.box()
     col = lbox.column(align=True)
+    flt = context.window_manager.keyops_menu_filter.strip().lower()
     for i, p in enumerate(prefs.pies):
+        if flt and flt not in p.name.lower():
+            continue
         row = col.row(align=True)
         row.prop(p, "enabled", text="")
         name = row.row(align=True)
@@ -1666,13 +1945,12 @@ def draw_pies_tab(prefs, context, layout):
     r.operator("keyops.settings_import", text="Import", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="Export", icon='EXPORT').scope = "PIES"
     draw_pie_feel(prefs, side)
+    draw_values(context, side)
     layout = outer.column()
 
     pie = prefs.pies[active]
     box = layout.box()
     head = box.row(align=True)
-    head.prop(pie, "enabled", text="On")
-    head.separator()
     capturing = KEYOPS_OT_pie_set_key.capturing == active
     keyb = head.row(align=True)
     keyb.alert = capturing
@@ -1748,6 +2026,33 @@ def draw_slot_editor(prefs, layout, pie):
                 icon='SEQUENCE' if item.kind != MACRO else 'BACK', depress=False)
     if item.kind == MACRO:
         draw_macro_steps(col, item, slot)
+    if item.kind == SCRIPT:
+        sbox = col.box()
+        lines = item.script.rstrip("\n").split("\n")
+        if len(lines) > 1:  # longer scripts: a read-only preview, edited in the Text Editor
+            pre = sbox.column(align=True)
+            pre.scale_y = 0.8
+            for line in lines[:8]:
+                pre.label(text=line.replace("\t", "    ") or " ")
+            if len(lines) > 8:
+                more = pre.row()
+                more.active = False
+                more.label(text=f"... {len(lines) - 8} more lines")
+        else:
+            sbox.prop(item, "script", text="", icon='SCRIPT')
+        r = sbox.row(align=True)
+        r.operator("keyops.script_edit", text="Edit in Text Editor", icon='TEXT')
+        r.operator("keyops.script_save", text="Save to Item", icon='FILE_TICK')
+        note = sbox.row()
+        note.active = False
+        note.label(text="Runs like Text Editor > Run Script")
+    more_kinds = col.row(align=True)
+    for kind, text, icon in ((SCRIPT, "Python", 'SCRIPT'), (PANEL_ITEM, "Blender Panel", 'MENU_PANEL'), (LABEL, "Label", 'SYNTAX_OFF')):
+        if kind == PANEL_ITEM:
+            op = more_kinds.operator("keyops.pie_slot_search", text=text, icon=icon, depress=item.kind == kind)
+            op.slot, op.scope = slot, "PANELS"
+        else:
+            more_kinds.operator("keyops.slot_set_kind", text=text, icon=icon, depress=item.kind == kind).kind = kind
     paste = col.row(align=True)
     paste.prop(context_wm(), "keyops_paste_command", text="", icon='PASTEDOWN',
                placeholder="Paste a command from Blender's Info editor") if bpy.app.version >= (4, 1, 0) else \
@@ -1786,6 +2091,8 @@ def draw_slot_editor(prefs, layout, pie):
         c.prop(pie, "only_mode", text="Only In")
         if pie.menu_type not in {"PANEL", "STICKY", "MODAL"}:
             c.prop(pie, "key_event", text="Opens On")
+        if pie.menu_type != "PANEL":
+            c.prop(pie, "key_mod", text="While Holding")
         if pie.menu_type in {"DIALOG", "PANEL"}:
             c.prop(pie, "columns")
         if pie.menu_type == "DIALOG":
@@ -1795,33 +2102,48 @@ def draw_slot_editor(prefs, layout, pie):
         r = c.row(align=True)
         if pie.preset in PRESET_BY_ID:
             r.operator("keyops.pie_reset", text="Reset to Preset")
-        r.operator("keyops.pie_remove", text="Delete Pie")
+        r.operator("keyops.pie_duplicate", text="Duplicate")
+        r.operator("keyops.pie_remove", text="Delete")
 
 
-def draw_pie_feel(prefs, layout):
-    """Blender's own pie menu settings, shown here so they're easy to find.
-    Key Ops never changes them; the person does, as in Preferences > Interface."""
+def draw_values(context, layout):
+    """Your own values: numbers, toggles and text that items and scripts can use."""
+    prefs = get_keyops_prefs()
     box = layout.box()
     row = box.row()
     row.alignment = 'LEFT'
-    row.prop(prefs, "pie_show_feel", text="How Pies Feel", emboss=False,
-             icon='DOWNARROW_HLT' if prefs.pie_show_feel else 'RIGHTARROW')
-    if not prefs.pie_show_feel:
+    row.prop(prefs, "pie_show_values", text="My Values", emboss=False,
+             icon='DOWNARROW_HLT' if prefs.pie_show_values else 'RIGHTARROW')
+    if not prefs.pie_show_values:
         return
+    vals = context.window_manager.keyops_values
+    for i, v in enumerate(vals):
+        r = box.row(align=True)
+        r.prop(v, "vtype", text="", icon_only=True)
+        r.prop(v, "name", text="")
+        r.prop(v, v.field, text="")
+        r.operator("keyops.value_remove", text="", icon='X').index = i
+    box.operator("keyops.value_add", text="Add Value", icon='ADD')
+    if vals:
+        note = box.column(align=True)
+        note.active = False
+        note.label(text="Use in an item as  values:Name")
+        note.label(text="Scripts: wm.keyops_values[\"Name\"]")
+
+
+def draw_pie_feel(prefs, layout):
+    """The no-lag option. It's Blender's own pie animation setting, shown here so it's easy to find:
+    the person changes it, Key Ops never writes Blender's preferences itself."""
     view = bpy.context.preferences.view
-    col = box.column()
-    r = col.row(align=True)
-    r.prop(view, "pie_animation_timeout", text="Animation")
-    hint = col.row()
+    box = layout.box()
+    row = box.row(align=True)
+    row.label(text="No Lag Pies")
+    sub = row.row(align=True)
+    sub.ui_units_x = 5
+    sub.prop(view, "pie_animation_timeout", text="")
+    hint = box.row()
     hint.active = False
-    hint.label(text="0 = opens instantly, no lag")
-    col.prop(view, "pie_menu_radius", text="Radius")
-    col.prop(view, "pie_menu_threshold", text="Threshold")
-    col.prop(view, "pie_menu_confirm", text="Confirm")
-    col.prop(view, "pie_tap_timeout", text="Tap Key Timeout")
-    note = col.row()
-    note.active = False
-    note.label(text="Blender settings, also in Interface > Editors")
+    hint.label(text="Set to 0 for pies with no opening delay")
 
 
 def context_wm():
@@ -1877,11 +2199,33 @@ def _register_support():
         return {kmi.as_pointer(): (km, kmi) for km in kc.keymaps for kmi in km.keymap_items}
 
     for module, reg, _unreg in _SUPPORT:
+        mod = _module(module)
         before = set(items())
-        getattr(_module(module), reg)()
+        getattr(mod, reg)()
+        removed = set()
         for ptr, (km, kmi) in items().items():
             if ptr not in before and " Tool: " not in km.name:
                 km.keymap_items.remove(kmi)
+                removed.add(ptr)
+        _forget_removed(mod, removed)
+
+
+def _forget_removed(mod, removed):
+    """The old modules keep lists of the (keymap, item) pairs they added, to remove them on
+    unregister. Drop the ones removed above, so nothing tries to remove them a second time."""
+    if not removed:
+        return
+    for value in vars(mod).values():
+        if isinstance(value, list) and value and all(isinstance(e, tuple) and len(e) == 2 for e in value):
+            keep = []
+            for km, kmi in value:
+                try:
+                    if kmi.as_pointer() in removed:
+                        continue
+                except (ReferenceError, AttributeError):
+                    continue
+                keep.append((km, kmi))
+            value[:] = keep
 
 
 def _unregister_support():
@@ -1893,8 +2237,9 @@ def _unregister_support():
             pass
 
 
-property_classes = (KeyOpsMacroStep, KeyOpsPieItem, KeyOpsPie, KeyOpsExportChoice)
-classes = (KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
+property_classes = (KeyOpsValue, KeyOpsMacroStep, KeyOpsPieItem, KeyOpsPie, KeyOpsExportChoice)
+classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save, KEYOPS_OT_slot_set_kind,
+           KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_MT_pie_new, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
@@ -1920,6 +2265,9 @@ def register():
         name="Search Icons", description="Type part of an icon name and press Enter",
         update=lambda self, ctx: bpy.app.timers.register(_open_palette, first_interval=0.05))
     bpy.types.WindowManager.keyops_export_menus = CollectionProperty(type=KeyOpsExportChoice)
+    bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
+    bpy.types.WindowManager.keyops_menu_filter = StringProperty(name="Find Menu", options={'TEXTEDIT_UPDATE'})
+    bpy.types.WindowManager.keyops_script_text = StringProperty()
     bpy.types.WindowManager.keyops_paste_command = StringProperty(
         name="Paste Command", description="Paste a bpy.ops command copied from Blender's Info editor", update=_paste_command)
     bpy.types.WindowManager.keyops_icon_category = EnumProperty(
@@ -1931,25 +2279,52 @@ def register():
 def unregister():
     from . import settings_store
     settings_store.flush_now()  # don't lose a change made just before disabling
-    for km, kmi in _pie_keymaps:
-        try:
-            km.keymap_items.remove(kmi)
-        except (ReferenceError, RuntimeError):
-            pass
-    _pie_keymaps.clear()
+    _remove_pie_keymaps()
     _unregister_support()
     del bpy.types.WindowManager.keyops_icon_filter
     del bpy.types.WindowManager.keyops_icon_category
     del bpy.types.WindowManager.keyops_paste_command
     del bpy.types.WindowManager.keyops_export_menus
+    del bpy.types.WindowManager.keyops_values
+    del bpy.types.WindowManager.keyops_menu_filter
+    del bpy.types.WindowManager.keyops_script_text
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+
+
+def values_to_data(prefs):
+    out = []
+    for v in bpy.context.window_manager.keyops_values:
+        out.append({"name": v.name, "type": v.vtype, "value": getattr(v, v.field)})
+    return {"values": out}
+
+
+def values_from_data(prefs, data, merge):
+    global _loading
+    _loading = True
+    try:
+        vals = bpy.context.window_manager.keyops_values
+        if not merge:
+            vals.clear()
+        for entry in data.get("values", []):
+            if not isinstance(entry, dict) or not entry.get("name"):
+                continue
+            v = vals.get(entry["name"]) or vals.add()
+            v.name = entry["name"]
+            try:
+                v.vtype = entry.get("type", "FLOAT")
+                setattr(v, v.field, entry.get("value"))
+            except (TypeError, ValueError):
+                pass
+    finally:
+        _loading = False
 
 
 def _register_section():
     from . import settings_store
     settings_store.register_section("pie_menus", pies_to_data, pies_from_data, own_file=True,
                                     schema=PIE_SCHEMA, migrations=PIE_MIGRATIONS)
+    settings_store.register_section("values", values_to_data, values_from_data, own_file=True, schema=1)
 
 
 _register_section()

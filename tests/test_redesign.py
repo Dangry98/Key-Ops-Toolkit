@@ -32,6 +32,13 @@ def user_keymap_snapshot():
     return sorted(snap, key=repr)
 
 
+def call_menu(uid):
+    """Open a Key Ops menu like a key press would (invoke needs a window, even in background mode)."""
+    win = bpy.context.window_manager.windows[0]
+    with bpy.context.temp_override(window=win, screen=win.screen):
+        return bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=uid)
+
+
 def addon_items():
     kc = bpy.context.window_manager.keyconfigs.addon
     return [(km.name, kmi) for km in kc.keymaps for kmi in km.keymap_items]
@@ -299,15 +306,15 @@ def run():
     stack.items[0].kind, stack.items[0].idname = "PROPERTY", "scene.tool_settings.use_snap"
     stack.items[1].kind, stack.items[1].idname = "PROPERTY", "scene.tool_settings.use_mesh_automerge"
     stack.stack_reset = 0
-    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    call_menu(stack.uid)
     first = (ts.use_snap, ts.use_mesh_automerge)
-    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    call_menu(stack.uid)
     second = (ts.use_snap, ts.use_mesh_automerge)
-    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    call_menu(stack.uid)
     check("stack key runs the next item on each press, then starts over",
           first == (True, False) and second == (True, True) and ts.use_snap is False, f"{first} {second}")
     stack.only_mode = "EDIT_MESH"
-    res = bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    res = call_menu(stack.uid)
     check("'Only in' lets Blender's own key through in other modes", res == {'PASS_THROUGH'}, str(res))
     bpy.ops.keyops.pie_add(menu_type="PANEL")
     panel = p.pies[-1]
@@ -333,8 +340,77 @@ def run():
         x.pop("key_event", None); x.pop("only_mode", None)
     json.dump(v2, open(pie_file, "w"))
     PM.load_from_disk()
-    check("schema 2 files upgrade to schema 3", json.load(open(pie_file))["schema"] == 3
+    check("schema 2 files upgrade to the current schema", json.load(open(pie_file))["schema"] == PM.PIE_SCHEMA
           and all(x.key_event == "PRESS" and x.only_mode == "ANY" for x in p.pies))
+
+    # ---- Python, Blender panel and label items, your own values, duplicate, two-key shortcuts
+    bpy.ops.keyops.pie_add(menu_type="MENU")
+    m = p.pies[-1]
+    p.active_pie = len(p.pies) - 1
+    while len(m.items) < 3:
+        bpy.ops.keyops.menu_item_add()
+    p.pie_slot = 0
+    bpy.ops.keyops.slot_set_kind(kind="SCRIPT")
+    check("an item can be made a Python script", m.items[0].kind == "SCRIPT" and m.items[0].script.startswith("import bpy"))
+    m.items[0].script = "import bpy\nbpy.context.scene.frame_end = 77\n"
+    texts_before = len(bpy.data.texts)
+    res = bpy.ops.wm.keyops_run_script(pie=m.uid, slot=0)
+    check("Python items run through the Text Editor", res == {'FINISHED'} and bpy.context.scene.frame_end == 77, str(res))
+    check("the temporary text is removed after running", len(bpy.data.texts) == texts_before)
+    m.items[0].script = "raise ValueError('boom')"
+    res = bpy.ops.wm.keyops_run_script(pie=m.uid, slot=0)
+    check("a failing script is reported instead of breaking the menu", res == {'CANCELLED'} and len(bpy.data.texts) == texts_before)
+    PM.apply_action(m.items[1], "P:VIEW3D_PT_overlay")
+    check("an item can open one of Blender's panels", m.items[1].kind == "POPOVER" and m.items[1].idname == "VIEW3D_PT_overlay")
+    check("Blender's panels can be searched", any(i[0] == "P:VIEW3D_PT_overlay" for i in PM._blender_panel_items()))
+    p.pie_slot = 2
+    bpy.ops.keyops.slot_set_kind(kind="LABEL")
+    check("an item can be a label", m.items[2].kind == "LABEL" and m.items[2].label)
+    bpy.ops.keyops.value_add()
+    vals = bpy.context.window_manager.keyops_values
+    v = vals[-1]
+    v.name, v.vtype = "Size", "FLOAT"
+    v.float_value = 2.5
+    data, prop = PM._resolve(bpy.context, "values:Size")
+    check("your own values can be used as values:Name", getattr(data, prop) == 2.5)
+    S.flush_now()
+    vfile = S.section_path("values")
+    check("your own values are saved to values.json",
+          os.path.isfile(vfile) and json.load(open(vfile))["data"]["values"][0]["value"] == 2.5)
+    vals.clear()
+    S.load_section("values")
+    check("your own values load back", vals.get("Size") is not None and vals["Size"].float_value == 2.5)
+    n = len(p.pies)
+    bpy.ops.keyops.pie_duplicate()
+    dup = p.pies[-1]
+    check("menus can be duplicated", len(p.pies) == n + 1 and dup.name == m.name + " Copy" and dup.uid != m.uid
+          and [i.kind for i in dup.items] == [i.kind for i in m.items] and not dup.enabled)
+    m.key, m.key_mod, m.enabled = "F", "BUTTON4MOUSE", True
+    PM.sync_keymaps()
+    kmis = [kmi for _k, kmi in addon_items() if kmi.idname == "wm.keyops_call_pie" and kmi.properties.pie == m.uid]
+    check("a menu can need a second held key", kmis and all(k.key_modifier == "BUTTON4MOUSE" for k in kmis))
+    check("the held key is shown", PM.key_text(m).endswith("+ F"), PM.key_text(m))
+    m.key, m.key_mod = "BUTTON5MOUSE", "NONE"
+    PM.sync_keymaps()
+    check("side mouse buttons can open menus",
+          any(kmi.type == "BUTTON5MOUSE" for _k, kmi in addon_items() if kmi.idname == "wm.keyops_call_pie"))
+    m.enabled = False
+    S.flush_now()
+    saved = next(x for x in json.load(open(pie_file))["data"]["pies"] if x["uid"] == m.uid)
+    check("new item fields are saved", saved["items"][0]["script"] and saved["items"][1]["kind"] == "POPOVER"
+          and "key_mod" in saved)
+    v3 = json.load(open(pie_file))
+    v3["schema"] = 3
+    for x in v3["data"]["pies"]:
+        x.pop("key_mod", None)
+        for it in x["items"]:
+            it.pop("script", None)
+    json.dump(v3, open(pie_file, "w"))
+    PM.load_from_disk()
+    check("schema 3 files upgrade to schema 4", json.load(open(pie_file))["schema"] == 4
+          and all(x.key_mod == "NONE" for x in p.pies))
+    bpy.context.window_manager.keyops_menu_filter = "zzz-no-match"
+    bpy.context.window_manager.keyops_menu_filter = ""
 
     # ---- disable: Blender's own keymap untouched, our items gone
     addon_utils.disable(MOD, default_set=True)
