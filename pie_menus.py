@@ -550,6 +550,40 @@ class KEYOPS_OT_pie_slot_select(Operator):
         return {'FINISHED'}
 
 
+class KEYOPS_PT_icon_palette(bpy.types.Panel):
+    """Icon palette popup. Shown with wm.call_panel, so it closes when an icon is clicked."""
+    bl_idname = "KEYOPS_PT_icon_palette"
+    bl_label = "Pick an Icon"
+    bl_space_type = 'TOPBAR'
+    bl_region_type = 'HEADER'
+    bl_ui_units_x = 22
+
+    def draw(self, context):
+        wm = context.window_manager
+        layout = self.layout
+        layout.label(text="Pick an Icon")
+        row = layout.row(align=True)
+        row.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
+        row.operator("keyops.pie_set_icon", text="No Icon").icon = ""
+        q = wm.keyops_icon_filter.strip().upper().replace(" ", "_")
+        matches = [n for n in _ICON_LIST if q in n]
+        cols = 16
+        names = matches[:cols * 12]  # keeps the popup on screen; search finds the rest
+        grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=True)
+        grid.scale_y = 1.15
+        for name in names:
+            # no button background: icons sit on the dark popup, like the Icon Viewer add-on
+            grid.operator("keyops.pie_set_icon", text="", icon=name, emboss=False).icon = name
+        for _ in range(max(0, cols - len(names))):
+            grid.label(text="")  # keep icons the same size when only a few match
+        if not names:
+            layout.label(text="No icons match.")
+        elif len(matches) > len(names):
+            hint = layout.row()
+            hint.active = False
+            hint.label(text=f"Showing {len(names)} of {len(matches)}. Type to search, e.g. mesh, arrow, modifier.")
+
+
 class KEYOPS_OT_pie_icon_picker(Operator):
     bl_idname = "keyops.pie_icon_picker"
     bl_label = "Pick an Icon"
@@ -557,29 +591,9 @@ class KEYOPS_OT_pie_icon_picker(Operator):
     bl_options = {'INTERNAL'}
     slot: IntProperty() # type: ignore
 
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=470, title="Pick an Icon", confirm_text="Done")
-
-    def draw(self, context):
-        wm = context.window_manager
-        layout = self.layout
-        row = layout.row(align=True)
-        row.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
-        row.operator("keyops.pie_set_icon", text="No Icon").icon = ""
-        q = wm.keyops_icon_filter.strip().upper().replace(" ", "_")
-        names = [n for n in _ICON_LIST if q in n][:360]
-        cols = 16
-        grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=True)
-        for name in names:
-            op = grid.operator("keyops.pie_set_icon", text="", icon=name)
-            op.icon = name
-            op.slot = self.slot
-        for _ in range(max(0, cols - len(names))):
-            grid.label(text="")  # keep icons the same size when only a few match
-        if not names:
-            layout.label(text="No icons match.")
-
     def execute(self, context):
+        get_keyops_prefs().pie_slot = self.slot
+        bpy.ops.wm.call_panel(name="KEYOPS_PT_icon_palette", keep_open=False)
         return {'FINISHED'}
 
 
@@ -821,7 +835,7 @@ def _unregister_support():
 property_classes = (KeyOpsPieItem, KeyOpsPie)
 classes = (WM_OT_keyops_call_pie, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
-           KEYOPS_OT_pie_slot_select, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
+           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
 
 
 def register_properties():

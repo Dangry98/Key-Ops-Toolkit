@@ -24,6 +24,8 @@ CARD_EDGE = (0.26, 0.26, 0.28, 1.0)
 TILE = (0.18, 0.18, 0.19, 1.0)
 TILE_HOVER = (0.22, 0.22, 0.235, 1.0)
 TEXT = (0.92, 0.92, 0.93, 1.0)
+BUTTON = (0.70, 0.31, 0.42, 1.0)          # calmer brand rose (logo gradient, toned down)
+BUTTON_HOVER = (0.78, 0.36, 0.48, 1.0)
 DIM = (0.62, 0.62, 0.65, 1.0)
 
 PRESETS = (
@@ -236,7 +238,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         # Get Started
         bw, bh = 220 * s, 44 * s
         bx, by = cx - bw / 2, y0 + 30 * s
-        _rounded(bx, by, bw, bh, r_tile, (1.0, 0.42, 0.5, 1.0) if self.hover == "START" else ACCENT)
+        _rounded(bx, by, bw, bh, r_tile, BUTTON_HOVER if self.hover == "START" else BUTTON)
         _text(cx, by + bh / 2 - 6 * s, "Get Started", 16 * s, (1, 1, 1, 1), center=True)
         self.hit["START"] = (bx, by, bw, bh)
 
