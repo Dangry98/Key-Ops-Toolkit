@@ -1211,7 +1211,7 @@ _ICON_LIST = sorted(n for n in _ICONS if n not in {"NONE", "BLANK1"} and not n.s
 _ICON_CAT = {n: _icon_category(n) for n in _ICON_LIST}
 
 
-# ---------------------------------------------------------------- pie overview (ND Primitives style)
+# ---------------------------------------------------------------- pie overview
 
 SLOT_W = 7.0  # units
 
