@@ -55,6 +55,8 @@ def _prefs_ready():
 
 
 def _finish_register():
+    # Pie menus live in pie_menus.json in the add-on's user folder; read them first
+    pie_menus.load_from_disk()
     # Fresh install -> quiet (no shortcuts) until the welcome screen. Upgrade from 0.2 -> keep everything.
     features.migrate()
     # Register every enabled feature from the registry (replaces the old if/elif dispatcher)

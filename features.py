@@ -444,7 +444,8 @@ def apply_style(style):
                 setattr(p, f"keys_{f.id}", vals[1])
     sync_all()
     from . import pie_menus
-    pie_menus.install_presets(p, style)
+    if not pie_menus.loaded_from_disk:  # pies saved by the user (pie_menus.json) are never overwritten
+        pie_menus.install_presets(p, style)
 
 
 # ---------------------------------------------------------------- update callbacks (used by preferences)
@@ -517,6 +518,8 @@ def migrate():
         p.prefs_version = PREFS_VERSION
     if upgrading:
         from . import pie_menus
+        if pie_menus.loaded_from_disk:
+            return  # pies already saved in pie_menus.json
         pie_menus.install_presets(p, "INDUSTRY")  # the pies 0.2 had on by default
         # 0.2 stored one switch per pie; carry over any the user changed
         old_switches = {"add_objects": "enable_add_objects_pie", "add_modifier": "enable_add_modifier_pie",

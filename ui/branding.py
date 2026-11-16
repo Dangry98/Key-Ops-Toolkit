@@ -44,6 +44,8 @@ def draw_logo(layout, scale=4.0):
 def _links(row):
     row.operator("wm.url_open", text="Documentation", icon='HELP', emboss=False).url = DOCS_URL
     row.operator("wm.url_open", text="Report a Problem", icon='URL', emboss=False).url = ISSUES_URL
+    row.operator("keyops.settings_export", text="Export Settings", icon='EXPORT', emboss=False).scope = "ALL"
+    row.operator("keyops.settings_import", text="Import Settings", icon='IMPORT', emboss=False).scope = "ALL"
 
 
 def draw_header(layout):
