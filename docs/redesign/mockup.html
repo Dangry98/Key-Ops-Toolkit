@@ -1,0 +1,593 @@
+<title>Key Ops 1.0 Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a document column that hosts full-width "Blender window" mockups; page follows theme, mockups stay in Blender's dark UI */
+:root{
+  --bg:#f3f4f6; --surface:#ffffff; --fg:#1d2128; --muted:#5d6470; --line:#dcdfe5;
+  --accent:#3d6fd6; --accent-soft:#e3ebfb; --amber:#b66a00; --amber-soft:#fbeed8; --green:#2f8a4e;
+  --f-display:"Space Grotesk",system-ui,sans-serif; --f-body:"Inter",system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,monospace;
+  /* Blender UI (fixed, dark) */
+  --b-win:#1d1d1d; --b-region:#303030; --b-panel:#3d3d3d; --b-box:#2b2b2b; --b-btn:#545454; --b-btn-h:#656565;
+  --b-field:#1d1d1d; --b-text:#e5e5e5; --b-dim:#9a9a9a; --b-sel:#4772b3; --b-amber:#e0a040; --b-green:#6cbf6c; --b-line:#242424;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161a; --surface:#1c1f24; --fg:#e7e9ee; --muted:#9aa1ad; --line:#2d3139;
+  --accent:#7ea3f0; --accent-soft:#1f2b44; --amber:#f0b257; --amber-soft:#3a2c15; --green:#6fcf8b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161a; --surface:#1c1f24; --fg:#e7e9ee; --muted:#9aa1ad; --line:#2d3139;
+  --accent:#7ea3f0; --accent-soft:#1f2b44; --amber:#f0b257; --amber-soft:#3a2c15; --green:#6fcf8b; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+.wrap{max-width:1120px;margin:0 auto}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.02em}
+h2{font-size:26px;letter-spacing:-.01em}
+h3{font-size:17px}
+p{margin:0}
+.prose{max-width:68ch;display:grid;gap:12px;color:var(--fg)}
+.muted{color:var(--muted)}
+kbd,.kbd{font:600 12px/1 var(--f-mono);padding:3px 6px;border-radius:4px;border:1px solid var(--line);background:var(--surface);white-space:nowrap}
+header.top{padding-block:48px 28px;display:grid;gap:16px}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:18px;max-width:62ch;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:2px}
+.stat b{font:700 26px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:13px}
+.stat.warn b{color:var(--amber)}
+nav.sec{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+  display:flex;gap:4px;overflow-x:auto;padding-block:8px;margin-bottom:28px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+nav.sec button{font:500 14px var(--f-body);color:var(--muted);background:none;border:0;padding:8px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+nav.sec button[aria-selected="true"]{color:var(--fg);background:var(--surface);box-shadow:0 0 0 1px var(--line)}
+nav.sec button:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+section.view{display:grid;gap:22px}
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 8px 8px 0;max-width:80ch}
+.callout.amber{border-color:var(--amber);background:var(--amber-soft)}
+.twocol{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:820px){.twocol{grid-template-columns:1fr}}
+table.doc{border-collapse:collapse;width:100%;font-size:14px}
+table.doc th,table.doc td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.doc th{font:600 12px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.scroll{overflow-x:auto}
+pre.code{background:#16181d;color:#d7dae0;border-radius:10px;padding:16px;overflow-x:auto;font:13px/1.55 var(--f-mono);margin:0}
+.annot{font-size:13px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}
+.annot span::before{content:"→ ";color:var(--accent)}
+
+/* ---------- Blender mock ---------- */
+.bwin{background:var(--b-win);border-radius:10px;overflow:hidden;color:var(--b-text);font:12.5px/1.4 var(--f-body);
+  box-shadow:0 10px 40px rgba(0,0,0,.25);border:1px solid #111}
+.btitle{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#181818;color:var(--b-dim);font-size:12px}
+.btitle i{width:10px;height:10px;border-radius:50%;background:#444;display:inline-block}
+.bbody{display:grid;grid-template-columns:180px minmax(0,1fr);min-height:560px}
+@media (max-width:760px){.bbody{grid-template-columns:1fr}.bside{display:none}}
+.bside{background:var(--b-region);padding:10px 8px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--b-line)}
+.bside div{padding:4px 10px;border-radius:4px;color:var(--b-dim)}
+.bside div.on{background:var(--b-sel);color:#fff}
+.bside hr{border:0;border-top:1px solid #3a3a3a;margin:6px 4px}
+.bmain{background:var(--b-region);padding:12px;min-width:0;display:grid;gap:10px;align-content:start}
+.baddon{background:var(--b-panel);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.baddon b{font-weight:600}
+.bbtn{font:12.5px var(--f-body);background:var(--b-btn);color:var(--b-text);border:0;border-radius:4px;padding:5px 10px;cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.bbtn:hover{background:var(--b-btn-h)}
+.bbtn.on{background:var(--b-sel);color:#fff}
+.bbtn.ghost{background:transparent;color:var(--b-dim)}
+.btabs{display:flex;gap:1px;background:var(--b-box);border-radius:5px;padding:2px;flex-wrap:wrap}
+.btabs .bbtn{flex:1;border-radius:3px;background:var(--b-btn);min-width:90px}
+.btabs .bbtn.on{background:var(--b-sel)}
+.bbox{background:var(--b-box);border:1px solid #262626;border-radius:6px;padding:10px;display:grid;gap:8px;min-width:0}
+.blabel{color:var(--b-dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
+.bfield{background:var(--b-field);border:1px solid #191919;color:var(--b-text);border-radius:4px;padding:5px 8px;font:12.5px var(--f-body);width:100%}
+.brow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.grow{flex:1;min-width:0}
+.bchk{width:14px;height:14px;border-radius:3px;background:var(--b-btn);display:inline-grid;place-items:center;flex:none;cursor:pointer;border:0;padding:0}
+.bchk.on{background:var(--b-sel)}
+.bchk.on::after{content:"";width:7px;height:4px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.badge{font:600 10.5px/1 var(--f-mono);padding:3px 6px;border-radius:3px;white-space:nowrap}
+.badge.ui{background:#474747;color:#cfcfcf}
+.badge.add{background:#2c3f61;color:#a9c4f5}
+.badge.rep{background:#4d3a17;color:#f1c27a}
+.badge.free{background:#24402a;color:#9fdca9}
+.badge.off{background:#383838;color:#8a8a8a}
+.bkey{font:600 11px/1 var(--f-mono);background:#262626;border:1px solid #444;border-bottom-width:2px;border-radius:4px;padding:3px 6px;color:#ddd;white-space:nowrap}
+.fgrid{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px}
+@media (max-width:620px){.fgrid{grid-template-columns:1fr}}
+.cats{display:flex;flex-direction:column;gap:1px;background:var(--b-box);padding:2px;border-radius:5px;align-self:start}
+@media (max-width:620px){.cats{flex-direction:row;flex-wrap:wrap}}
+.cats .bbtn{text-align:left;border-radius:3px;display:flex;justify-content:space-between;gap:6px}
+.cats .bbtn small{color:#bbb;font-variant-numeric:tabular-nums}
+.card{background:var(--b-panel);border-radius:5px;padding:8px 10px;display:grid;gap:6px}
+.card .desc{color:var(--b-dim);padding-left:22px}
+.card .more{border-top:1px solid #333;padding:8px 0 2px 22px;display:grid;gap:6px}
+.card.dis .name,.card.dis .desc{opacity:.55}
+.iconbtn{background:transparent;border:0;color:var(--b-dim);cursor:pointer;font:600 12px var(--f-mono);padding:2px 6px;border-radius:3px}
+.iconbtn:hover{background:#4a4a4a;color:#fff}
+.krow{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #353535}
+.krow:last-child{border-bottom:0}
+.krow .act{min-width:0}
+.krow .act small{display:block;color:var(--b-dim)}
+.switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--b-text);background:none;border:0;font:inherit;padding:0}
+.switch .t{width:26px;height:14px;border-radius:7px;background:#555;position:relative;transition:background .15s}
+.switch .t::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#ddd;transition:transform .15s}
+.switch.on .t{background:var(--b-sel)}
+.switch.on .t::after{transform:translateX(12px)}
+.styles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+@media (max-width:700px){.styles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.style{background:var(--b-btn);border:0;border-radius:5px;padding:10px;text-align:left;color:var(--b-text);cursor:pointer;display:grid;gap:3px;font:inherit}
+.style b{font-size:13.5px}
+.style small{color:#c4c4c4;line-height:1.35}
+.style.on{background:var(--b-sel)}
+.style.on small{color:#e6edf9}
+.style .rec{font:600 10px var(--f-mono);color:#9fdca9;letter-spacing:.04em}
+.statusline{display:flex;gap:14px;flex-wrap:wrap;color:var(--b-dim)}
+.statusline b{color:var(--b-text);font-variant-numeric:tabular-nums}
+.pies{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.pie svg{width:100%;max-width:240px;height:auto;display:block;margin:0 auto}
+
+/* Welcome dialog */
+.stage{background:radial-gradient(ellipse at 50% 30%,#3a3a3a,#232323 70%);padding:36px 16px;display:grid;place-items:center;min-height:560px}
+.dialog{background:#2e2e2e;border:1px solid #1a1a1a;border-radius:8px;width:100%;max-width:600px;box-shadow:0 18px 50px rgba(0,0,0,.5);color:var(--b-text);display:grid}
+.dialog .dh{display:flex;align-items:center;gap:10px;padding:14px 16px 4px}
+.logo{width:30px;height:30px;border-radius:7px;background:conic-gradient(from 210deg,#4772b3,#7ea3f0,#e0a040,#4772b3);display:grid;place-items:center;font:700 13px var(--f-display);color:#111}
+.dialog .db{padding:10px 16px 14px;display:grid;gap:12px}
+.dialog .df{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid #242424;flex-wrap:wrap}
+.dots{display:flex;gap:6px}
+.dots i{width:7px;height:7px;border-radius:50%;background:#555}
+.dots i.on{background:var(--b-sel)}
+.wstyles{display:grid;gap:6px}
+.wstyles .style{grid-template-columns:minmax(0,1fr) auto;align-items:center}
+.review{display:grid;gap:2px;max-height:260px;overflow:auto;background:var(--b-box);border-radius:5px;padding:6px 10px}
+.where{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:start}
+
+/* Viewport + N-panel */
+.vp{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:600px}
+@media (max-width:640px){.vp{grid-template-columns:1fr}.vp .scene{min-height:180px}}
+.scene{background:linear-gradient(#3d3d3d,#393939);position:relative;overflow:hidden}
+.scene::before{content:"";position:absolute;inset:0;background-image:linear-gradient(#444 1px,transparent 1px),linear-gradient(90deg,#444 1px,transparent 1px);background-size:40px 40px;opacity:.5;transform:perspective(400px) rotateX(60deg) scale(2.2);transform-origin:50% 100%}
+.scene .hud{position:absolute;top:10px;left:12px;display:flex;gap:6px;flex-wrap:wrap}
+.cube{position:absolute;left:50%;top:52%;width:110px;height:110px;transform:translate(-50%,-50%) rotate(45deg) skew(-8deg,-8deg);background:#8a8a8a;box-shadow:inset -30px -30px 0 #6c6c6c;border:2px solid #f5a623}
+.npanel{background:var(--b-region);display:grid;grid-template-columns:minmax(0,1fr) 22px;border-left:1px solid var(--b-line)}
+.nbody{padding:8px;display:grid;gap:6px;align-content:start;min-width:0}
+.ntabs{background:#282828;display:flex;flex-direction:column;align-items:center;gap:2px;padding-top:6px}
+.ntabs span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;color:var(--b-dim);padding:8px 2px;border-radius:3px}
+.ntabs span.on{background:var(--b-sel);color:#fff}
+.np{background:var(--b-panel);border-radius:5px}
+.np>summary{list-style:none;cursor:pointer;padding:6px 8px;display:flex;align-items:center;gap:6px;font-weight:600}
+.np>summary::-webkit-details-marker{display:none}
+.np>summary::before{content:"";border:4px solid transparent;border-left-color:#bbb;transform-origin:25% 50%;transition:transform .12s}
+.np[open]>summary::before{transform:rotate(90deg)}
+.np .in{padding:0 8px 8px;display:grid;gap:3px}
+.np .np{background:#353535}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
+.nb{background:var(--b-btn);border:0;border-radius:4px;color:var(--b-text);font:12px var(--f-body);padding:6px 4px;cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nhead{display:flex;align-items:center;gap:6px;padding:2px 2px 4px}
+.mode{font:600 11px var(--f-mono);background:#262626;padding:3px 6px;border-radius:3px}
+.cheat{position:absolute;right:12px;top:44px;width:min(320px,calc(100% - 24px));background:#262626;border:1px solid #111;border-radius:7px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:10px;display:grid;gap:6px;z-index:2}
+.cheat .krow{grid-template-columns:auto minmax(0,1fr) auto}
+.vpwrap{position:relative}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">Key Ops: Toolkit · Proposal for 1.0</div>
+  <h1>Quiet by default</h1>
+  <p class="lede">A redesign of the preferences window, shortcuts, pie menus, N-panel and first run. Every feature stays. Shortcuts become something you opt into, and every key says what it replaces.</p>
+  <div class="stats">
+    <div class="stat warn"><b>26 of 31</b><span>features on at first install today</span></div>
+    <div class="stat warn"><b>≈100</b><span>keymap entries live on install, across 20 features</span></div>
+    <div class="stat warn"><b>12+</b><span>Blender default keys replaced, incl. <kbd>1</kbd> <kbd>Delete</kbd> <kbd>D</kbd> <kbd>Shift S</kbd> <kbd>Ctrl E</kbd></span></div>
+    <div class="stat"><b>0</b><span>keys bound by the proposed default (Essentials)</span></div>
+  </div>
+</header>
+
+<nav class="sec" role="tablist" aria-label="Sections">
+  <button role="tab" data-v="welcome" aria-selected="true">Welcome</button>
+  <button role="tab" data-v="prefs" aria-selected="false">Preferences</button>
+  <button role="tab" data-v="npanel" aria-selected="false">N-panel</button>
+  <button role="tab" data-v="design" aria-selected="false">Design notes</button>
+  <button role="tab" data-v="code" aria-selected="false">Code &amp; rollout</button>
+</nav>
+
+<!-- ================= WELCOME ================= -->
+<section class="view" id="v-welcome">
+  <div class="prose">
+    <h2>First run: pick a style, review, go</h2>
+    <p class="muted">Shown once after install, as an <code>invoke_props_dialog</code> opened from a timer. Upgrading users get a one-page "What's new" with <b>Keep my setup</b> as the default. Click through the dialog: the style you choose also drives the Preferences mockup.</p>
+  </div>
+  <div class="bwin">
+    <div class="btitle"><i></i><i></i><i></i>&nbsp;Blender — Layout</div>
+    <div class="stage"><div class="dialog" id="welcome"></div></div>
+  </div>
+</section>
+
+<!-- ================= PREFERENCES ================= -->
+<section class="view" id="v-prefs" hidden>
+  <div class="prose">
+    <h2>Preferences: four fixed tabs</h2>
+    <p class="muted">Home, Features, Shortcuts and Pie Menus. The tabs never rename or reorder when the window gets narrow. The mockup is live: toggle features, filter, open a card's settings, pause shortcuts.</p>
+  </div>
+  <div class="bwin">
+    <div class="btitle"><i></i><i></i><i></i>&nbsp;Blender Preferences</div>
+    <div class="bbody">
+      <div class="bside">
+        <div>Interface</div><div>Themes</div><div>Viewport</div><div>Lights</div><div>Editing</div><div>Animation</div>
+        <hr><div class="on">Add-ons</div><div>Get Extensions</div><hr><div>Input</div><div>Navigation</div><div>Keymap</div><hr><div>System</div><div>Save &amp; Load</div><div>File Paths</div>
+      </div>
+      <div class="bmain">
+        <div class="baddon"><span class="bchk on" aria-hidden="true"></span><b>Key Ops: Toolkit</b><span style="color:var(--b-dim)">1.0.0 · Modeling, Mesh, UV</span></div>
+        <div class="btabs" role="tablist" id="ptabs"></div>
+        <div id="pview" style="display:grid;gap:10px;min-width:0"></div>
+      </div>
+    </div>
+  </div>
+  <div class="annot"><span>Impact badges come from each feature's declared data, not a runtime conflict scanner</span><span>Key rows use <code>rna_keymap_ui</code>, so users can still rebind any Key Ops key</span><span>"Pause all shortcuts" unregisters Key Ops keys only</span></div>
+</section>
+
+<!-- ================= N-PANEL ================= -->
+<section class="view" id="v-npanel" hidden>
+  <div class="prose">
+    <h2>N-panel: one tab, follows the mode</h2>
+    <p class="muted">Native subpanels replace the icon-only toggle row. Object Mode and Edit Mode show different sections, and Pipeline tools sit in one collapsed group. The <b>?</b> button opens a cheat sheet of the Key Ops shortcuts active in the current mode.</p>
+  </div>
+  <div class="bwin">
+    <div class="btitle"><i></i><i></i><i></i>&nbsp;3D Viewport</div>
+    <div class="vpwrap"><div class="vp">
+      <div class="scene"><div class="hud">
+        <button class="bbtn on" data-mode="OBJECT" id="mObj">Object Mode</button>
+        <button class="bbtn" data-mode="EDIT" id="mEdit">Edit Mode</button>
+      </div><div class="cube"></div></div>
+      <div class="npanel"><div class="nbody" id="nbody"></div>
+        <div class="ntabs"><span>Item</span><span>Tool</span><span>View</span><span class="on">Key Ops</span></div></div>
+    </div><div class="cheat" id="cheat" hidden></div></div>
+  </div>
+  <div class="twocol">
+    <div class="bbox" style="background:var(--surface);border-color:var(--line);color:var(--fg)">
+      <h3>Today</h3>
+      <ul class="muted" style="margin:0;padding-left:18px;display:grid;gap:4px">
+        <li>Tab called "Toolkit", a name other add-ons also use. The UV editor tab name is a separate setting.</li>
+        <li>A row of unlabelled icons switches sub-panels on and off through <code>toolkit_panel_mode</code>.</li>
+        <li>Quick Bake Name, Retopology, LOD and CAD Decimate are separate panels in the same tab, always shown.</li>
+      </ul>
+    </div>
+    <div class="bbox" style="background:var(--surface);border-color:var(--line);color:var(--fg)">
+      <h3>Proposed</h3>
+      <ul class="muted" style="margin:0;padding-left:18px;display:grid;gap:4px">
+        <li>One "Key Ops" tab name for the 3D View and UV editor (renamable).</li>
+        <li>Native <code>bl_parent_id</code> subpanels, so collapse, reorder and pin come for free.</li>
+        <li>A mode-aware <code>poll()</code> per section, and Pipeline grouped and closed by default.</li>
+        <li>The header holds the cheat sheet and a ⋯ menu: Pause shortcuts, Preferences, Docs.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DESIGN NOTES ================= -->
+<section class="view" id="v-design" hidden>
+  <div class="prose">
+    <h2>What changes and why</h2>
+    <p>The common complaint is that the add-on does too much the moment it is installed. The redesign separates <b>having a feature</b> from <b>having its shortcuts</b>, labels every key by its impact, and lets a first-run choice decide how much changes.</p>
+  </div>
+  <div class="callout amber prose"><p><b>Compliance blocker.</b> The extensions.blender.org rules this repo tracks forbid editing <code>keyconfigs.user</code>, rebind operators, conflict resolvers, and writing preferences or themes. The current Rebind tab, the pie-timeout button, Maya Pivot's Grease Pencil tweak and Retopology's theme swap all do this. In 1.0 they become opt-in <code>keyconfigs.addon</code> items, or text-only advice.</p></div>
+
+  <h3>Principles</h3>
+  <div class="scroll"><table class="doc">
+    <tr><th>Principle</th><th>In practice</th></tr>
+    <tr><td>Quiet by default</td><td>New installs bind zero keys. Tools, panels, menus and F3 entries all work without them.</td></tr>
+    <tr><td>Features ≠ shortcuts</td><td>Every feature has two switches: <i>enabled</i> and <i>use shortcuts</i>.</td></tr>
+    <tr><td>Keys state their impact</td><td><span class="badge free">FREE</span> or <span class="badge rep">REPLACES "Delete menu"</span>, declared next to the key in code.</td></tr>
+    <tr><td>One source of truth</td><td>A <code>FEATURES</code> registry drives registration, preferences, welcome, cheat sheet and docs.</td></tr>
+    <tr><td>No surprises on upgrade</td><td>Existing users stay on "Custom (kept from 0.2.x)" with nothing changed.</td></tr>
+  </table></div>
+
+  <h3>Shortcut styles</h3>
+  <div class="scroll"><table class="doc">
+    <tr><th>Style</th><th>Keys</th><th>For</th></tr>
+    <tr><td><b>Essentials</b> · default</td><td>None</td><td>"I just want the tools."</td></tr>
+    <tr><td><b>Blender+</b></td><td>Free combos only: <kbd>Shift Alt A</kbd> <kbd>Shift Q</kbd> <kbd>Alt 3</kbd>, Modifier Keys in the Properties editor</td><td>Blender users who want speed without relearning</td></tr>
+    <tr><td><b>Industry</b></td><td>Everything, including replacements: Alt navigation, <kbd>D</kbd> pivot, <kbd>Delete</kbd>, <kbd>1</kbd> merge, <kbd>Shift S</kbd> pie</td><td>Maya, Max and Modo users. Matches 0.2.x today.</td></tr>
+    <tr><td><b>Custom</b></td><td>You choose</td><td>Opens Features</td></tr>
+  </table></div>
+
+  <h3>New feature categories</h3>
+  <div class="scroll"><table class="doc" id="catTable"></table></div>
+
+  <h3>What happens to Rebind</h3>
+  <div class="scroll"><table class="doc">
+    <tr><th>Today (edits your keymap)</th><th>1.0 (Key Ops' own keymap, opt-in)</th></tr>
+    <tr><td>Rebind right-click / W context menu</td><td>Shortcuts › Interface › "W opens context menu"</td></tr>
+    <tr><td>Add menu ↔ Shift Alt A</td><td>Pie Menus › Add Objects › "Also on Shift A"</td></tr>
+    <tr><td>Space → View Camera pie</td><td>Pie Menus › View Camera › "Also on Space"</td></tr>
+    <tr><td>No-lag pie timeout (writes preferences)</td><td>Home › Recommended settings: text and docs link only</td></tr>
+  </table></div>
+
+  <h3>Small fixes along the way</h3>
+  <p class="muted" style="max-width:80ch">Fix the typos <i>Seperate, Atributes, Matieral, Primitivs, Modifers, Defualt, Cusomize</i>. Rename "Extensions" to "Features" inside the add-on, because Blender uses that word for packages. Move WIP pies behind a "Show experimental" filter. Rename <code>toolkit_paneL_ui.py</code>.</p>
+</section>
+
+<!-- ================= CODE ================= -->
+<section class="view" id="v-code" hidden>
+  <div class="prose">
+    <h2>One registry instead of four places</h2>
+    <p class="muted">Today a feature means a <code>BoolProperty</code>, a draw tuple, a branch in a 250-line <code>if/elif</code> in <code>__init__.py</code>, and an entry in the keymap source list in <code>pref_utils.py</code>. In 1.0 it is one declaration.</p>
+  </div>
+<pre class="code">@dataclass(frozen=True)
+class Key:
+    keymap: str; idname: str; type: str; value: str = "PRESS"
+    ctrl: bool = False; shift: bool = False; alt: bool = False
+    props: tuple = ()
+    replaces: str = ""          # "Delete menu" → amber badge; "" → FREE
+
+@dataclass(frozen=True)
+class Feature:
+    id: str; name: str; category: str; description: str; docs: str
+    module: str                 # register()/unregister() for classes only, no keymaps
+    keys: tuple = ()
+    key_styles: frozenset = frozenset({"INDUSTRY"})
+    experimental: bool = False
+
+FEATURES = (
+    Feature("auto_delete", "Auto Delete", "MODELING",
+            "Delete in Edit Mode removes what you selected, with no menu.",
+            "industry-standard.html#auto-delete", "operators.auto_delete",
+            keys=(Key("Mesh", "keyops.auto_delete", "DEL", replaces="Delete menu"),)),
+    ...
+)
+
+def register_keys(f):
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:              # background mode, guarded once for everyone
+        return
+    for k in f.keys:
+        km = kc.keymaps.new(k.keymap, space_type="EMPTY")
+        kmi = km.keymap_items.new(k.idname, k.type, k.value, ctrl=k.ctrl, shift=k.shift, alt=k.alt)
+        for n, v in k.props: setattr(kmi.properties, n, v)
+        _live[f.id].append((km, kmi))</pre>
+  <div class="annot"><span>Removes <code>extension_register_unregister</code>, the <code>registered_*_keymaps</code> globals, the <code>"PIE"</code> string sorting and the ignore list</span><span>Keeps the <code>enable_&lt;id&gt;</code> props so saved preferences still load</span></div>
+
+  <h3>Rollout</h3>
+  <div class="scroll"><table class="doc">
+    <tr><th>Phase</th><th>Ships</th><th>Risk</th></tr>
+    <tr><td>1</td><td>Registry and generic lifecycle behind today's UI</td><td>Low. Covered by enable/disable snapshot tests.</td></tr>
+    <tr><td>2</td><td>Compliance fixes: drop Rebind, theme writes and user-keymap edits</td><td>Medium. Explained in What's new.</td></tr>
+    <tr><td>3</td><td>New preferences window</td><td>Low</td></tr>
+    <tr><td>4</td><td>Welcome screen, What's new, shortcut styles; Essentials becomes the default for new installs</td><td>Low, since upgraders keep their setup</td></tr>
+    <tr><td>5</td><td>N-panel restructure and cheat sheet</td><td>Low</td></tr>
+    <tr><td>6</td><td>Docs-site shortcut tables generated from <code>FEATURES</code></td><td>Low</td></tr>
+  </table></div>
+  <h3>Open questions</h3>
+  <ol class="muted" style="margin:0;padding-left:20px;display:grid;gap:4px;max-width:80ch">
+    <li>Is Blender+ worth keeping, or are three styles enough?</li>
+    <li>Should the N-panel tab be called "Key Ops" or stay "Toolkit"?</li>
+    <li>Should Quick Export's <kbd>Ctrl E</kbd> be limited to Object Mode so it stops replacing the Edge menu?</li>
+    <li>Should Outliner Options (replaces Outliner clicks) be Industry-only?</li>
+  </ol>
+  <p class="muted">The full write-up is in <code>docs/redesign/DESIGN.md</code> on branch <code>claude/preference-window-redesign-hoayma</code>.</p>
+</section>
+</div>
+
+<script>
+(function(){
+const CATS=[["MODELING","Modeling"],["OBJECT","Object & Modifiers"],["PIES","Pie Menus"],["NAV","Navigation & Selection"],["UV","UV"],["PIPELINE","Pipeline"],["INTERFACE","Interface"]];
+// id, name, cat, desc, keys [key, editor, action, replaces, free], blenderPlus(keys on in B+), experimental
+const F=[
+ ["merge_tool","Merge Tool","MODELING","Maya-style target weld for vertices and edges, in the toolbar.",[],0,0],
+ ["fast_loop_cut","Fast Loop Cut","MODELING","Previews the loop under the cursor and cuts on click, with no slide step.",[["Alt R","Mesh","Select Fast Loop Cut tool","",1]],1,0],
+ ["cutter_tool","Cutter Tool","MODELING","Draw a box, circle or ngon to boolean-cut objects. Toolbar tool.",[],0,0],
+ ["fast_merge","Merge / Connect","MODELING","Merge to nearest or active vertex, and connect, in one key.",[["1","Mesh","Fast merge","Vertex select mode",0],["Shift 1","Mesh","Fast connect","Extend vertex mode",0],["Alt 1","Mesh","Merge menu","",1]],0,0],
+ ["auto_delete","Auto Delete","MODELING","Delete in Edit Mode removes what you selected, with no menu.",[["Delete","Mesh","Context-aware delete","Delete menu",0]],0,0],
+ ["flatten_pie","Flatten Pie","MODELING","Flattens the selection left, right, top or bottom from the current view.",[["Alt 3","Mesh","Flatten pie","",1]],1,0],
+ ["atri_op","Attribute Operations","MODELING","Select and assign face, edge and vertex attributes in Edit Mode.",[],0,0],
+ ["looptools_menu","LoopTools Menu","MODELING","Adds LoopTools to the Edit Mode context menu. Blender 5.3+.",[],0,0],
+ ["toolkit_panel","Object Toolkit","OBJECT","Object and Edit Mode operations in the N-panel: combine, separate, apply, mirror, booleans.",[["Alt C","Object Mode","Smart combine","Convert menu",0],["Alt X","Object Mode","Fast mirror","",1],["Ctrl Num −","Object Mode","Boolean difference","",1],["Ctrl Num +","Object Mode","Boolean union","",1],["D","Mesh","Mirror options","Annotate",0]],0,0],
+ ["modi_key","Modifier Keys","OBJECT","Reorder, toggle, apply and delete modifiers with keys while hovering the Properties editor.",[["Q / E","Properties","Move modifier up / down","",1],["W / S","Properties","Select modifier up / down","",1],["A","Properties","Apply modifier","",1],["X","Properties","Delete modifier","",1]],1,0],
+ ["material_index","Material Utils","OBJECT","Material list, preview icons and quick assign.",[["Alt M","Mesh","Material menu","Split menu",0]],0,0],
+ ["add_objects_pie","Add Objects Pie","PIES","Add primitives at a size relative to the view, so they are never too big or too small.",[["Shift Alt A","3D View","Add Objects pie","",1]],1,0],
+ ["add_modifier_pie","Add Modifier Pie","PIES","The modifiers you use most, one flick away.",[["Shift Q","Window","Add Modifier pie","",1]],1,0],
+ ["cursor_pie","Cursor & Origin Pie","PIES","A fuller cursor and origin snapping pie.",[["Shift S","3D View","Cursor & Origin pie","Snap pie",0]],0,0],
+ ["workspace_pie","Workspace Pie","PIES","Switch workspaces from the viewport.",[["Shift \\","Window","Workspace pie","",1]],0,1],
+ ["utility_pie","Utility Pie","PIES","Common mesh and UV actions in Object and Edit Mode.",[["U","Mesh","Utility pie","UV unwrap menu",0]],0,1],
+ ["uv_pies","UV Pies","PIES","Unwrap and island actions in the UV editor.",[["Q","UV Editor","UV pie","",0],["Space","UV Editor","UV pie","Play animation",0]],0,1],
+ ["maya_navigation","Alt Navigation","NAV","Alt + left, middle and right mouse to orbit, pan and zoom.",[["Alt LMB drag","3D View","Orbit","Loop select (Edit)",0],["Alt MMB drag","3D View","Pan","",1],["Alt RMB drag","3D View","Zoom","",1]],0,0],
+ ["maya_pivot","Maya Pivot","NAV","Hold or tap D to edit the pivot in Object and Edit Mode.",[["D","Object Mode","Edit pivot","Annotate",0]],0,0],
+ ["double_click_select_island","Select Island","NAV","Double-click to select a linked island in mesh, UV and curves.",[["Dbl-click","Mesh","Select island","",0],["Dbl-click","UV Editor","Select island","",0]],0,0],
+ ["toggle_retopology","Retopology Toggle","NAV","Switches overlay, snapping and tool to a retopology setup and back.",[["5","Mesh","Toggle retopology","",1]],1,0],
+ ["uv_tools","UV Tools","UV","Smart UV Sync, UV Cut, unwrap in place, pack helpers and a UV N-panel.",[["RMB","UV Editor","Smart UV sync","Context menu",0],["X","UV Editor","UV cut","",1],["Alt 2","Mesh","Remove seam","",1]],0,0],
+ ["quick_export","Quick Export","PIPELINE","Export selection; low/high collections go to a bake folder.",[["Ctrl E","3D View","Quick export","Edge menu (Edit Mode)",0]],0,0],
+ ["quick_bake_name","Quick Bake Name","PIPELINE","Name high and low poly pairs for baking.",[],0,0],
+ ["auto_lod","Auto LOD","PIPELINE","Generate decimated LOD chains from selected meshes.",[],0,0],
+ ["cad_decimate","CAD Decimate","PIPELINE","Decimate meshes with millions of triangles through export and import.",[],0,0],
+ ["polycount_list","Polycount List","PIPELINE","Every object with its poly count and modifier evaluation time.",[],0,0],
+ ["viewport_menu","Viewport Menu","INTERFACE","Alt V overlay menu with quick toggles and silhouette mode.",[["Alt V","3D View","Viewport menu","Rip fill (Edit)",0]],0,0],
+ ["outliner_options","Outliner Options","INTERFACE","Auto-focus and extra click behaviour in the Outliner.",[["LMB / RMB","Outliner","Outliner click","Outliner select",0]],0,0],
+ ["legacy_shortcuts","Legacy Shortcuts","INTERFACE","Shortcuts from 2.7x: Alt P poke, < > grow and shrink, UV Ctrl A/P/C/V.",[["Alt P","Mesh","Poke faces","",1],["< / Shift <","Mesh","Select more / less","",1],["Ctrl C / V","UV Editor","Copy / paste UVs","",0]],0,0],
+ ["w_context","W Context Menu","INTERFACE","Opens the right-click context menu on W, as in older Blender. Replaces the old Rebind button.",[["W","3D View","Context menu","Select tool cycle",0]],0,0]
+].map(a=>({id:a[0],name:a[1],cat:a[2],desc:a[3],keys:a[4].map(k=>({key:k[0],ed:k[1],act:k[2],rep:k[3],free:!!k[4]})),bp:!!a[5],exp:!!a[6]}));
+
+const S={style:"ESSENTIALS",modified:false,tab:"HOME",cat:"MODELING",q:"",filter:"ALL",open:{},paused:false,showExp:false,step:0,en:{},keys:{}};
+function applyStyle(st){
+  S.style=st;S.modified=false;
+  F.forEach(f=>{
+    const isNew=f.id==="w_context";
+    S.en[f.id]=!f.exp&&!isNew;
+    if(st==="ESSENTIALS")S.keys[f.id]=false;
+    else if(st==="BLENDER_PLUS")S.keys[f.id]=f.bp;
+    else if(st==="INDUSTRY")S.keys[f.id]=!f.exp&&!isNew&&f.keys.length>0;
+    else S.keys[f.id]=S.keys[f.id]||false;
+  });
+}
+applyStyle("ESSENTIALS");
+const STYLE_INFO={ESSENTIALS:["Essentials","Tools, panels and menus. No shortcuts."],BLENDER_PLUS:["Blender+","Adds keys only where Blender has none."],INDUSTRY:["Industry","Maya-style: Alt navigation, D pivot, Delete, 1 merge."],CUSTOM:["Custom","Choose each feature yourself."]};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const impact=f=>{if(!f.keys.length)return'<span class="badge ui">UI</span>';const r=f.keys.filter(k=>k.rep);return r.length?`<span class="badge rep">REPLACES ${esc(r[0].rep.toUpperCase())}${r.length>1?" +"+(r.length-1):""}</span>`:`<span class="badge add">⌨ ${f.keys.length} KEY${f.keys.length>1?"S":""}</span>`};
+const kbadge=k=>k.rep?`<span class="badge rep">REPLACES ${esc(k.rep)}</span>`:'<span class="badge free">FREE</span>';
+const sw=(on,attr,label)=>`<button class="switch${on?" on":""}" ${attr} aria-pressed="${on}"><span class="t"></span>${label||""}</button>`;
+function counts(){let feats=0,keys=0,rep=0;F.forEach(f=>{if(!S.en[f.id])return;feats++;if(S.keys[f.id]&&!S.paused){keys+=f.keys.length;rep+=f.keys.filter(k=>k.rep).length}});return{feats,keys,rep}}
+function styleLabel(){return STYLE_INFO[S.style][0]+(S.modified&&S.style!=="CUSTOM"?" (modified)":"")}
+
+/* ---------- Welcome ---------- */
+const W=document.getElementById("welcome");
+function renderWelcome(){
+  const dots=[0,1,2].map(i=>`<i class="${i===S.step?"on":""}"></i>`).join("");
+  let body="";
+  if(S.step===0){
+    body=`<p>Key Ops adds modeling tools, pie menus and panels. <b>Nothing changes your shortcuts until you choose.</b></p>
+    <div class="blabel">How should Key Ops use your keyboard?</div>
+    <div class="wstyles">${["ESSENTIALS","BLENDER_PLUS","INDUSTRY","CUSTOM"].map(k=>`<button class="style${S.style===k?" on":""}" data-wstyle="${k}"><span><b>${STYLE_INFO[k][0]}</b><br><small>${STYLE_INFO[k][1]}</small></span>${k==="ESSENTIALS"?'<span class="rec">RECOMMENDED</span>':""}</button>`).join("")}</div>`;
+  }else if(S.step===1){
+    const rows=[];F.forEach(f=>{if(S.en[f.id]&&S.keys[f.id])f.keys.forEach((k,i)=>rows.push(`<div class="krow"><span class="bkey">${esc(k.key)}</span><span class="act">${esc(k.act)}<small>${esc(f.name)} · ${esc(k.ed)}</small></span>${kbadge(k)}<button class="bchk on" data-wk="${f.id}" aria-label="Keep ${esc(f.name)} shortcuts"></button></div>`))});
+    const c=counts();
+    body=`<p><b>${esc(styleLabel())}</b> will add <b>${c.keys}</b> shortcut${c.keys===1?"":"s"}${c.rep?`, and <b style="color:var(--b-amber)">${c.rep} replace Blender keys</b>`:""}. Untick anything you don't want.</p>
+    ${rows.length?`<div class="review">${rows.join("")}</div>`:`<div class="bbox" style="text-align:center;color:var(--b-dim)">No shortcuts. Every tool is still in the N-panel, the menus and F3 search.</div>`}`;
+  }else{
+    body=`<p>You're set. Here's where things live:</p>
+    <div class="where">
+      <span class="bkey">N</span><span><b>Key Ops tab</b> in the 3D View sidebar: object, mesh, modifier and pipeline tools.</span>
+      <span class="bkey">F3</span><span>Search "Key Ops" to run any tool without a shortcut.</span>
+      <span class="bkey">?</span><span>The cheat sheet in the N-panel header lists every active Key Ops shortcut for your current mode.</span>
+      <span class="bkey">⚙</span><span>Edit › Preferences › Add-ons › Key Ops to change style, features and keys at any time.</span>
+    </div>`;
+  }
+  W.innerHTML=`<div class="dh"><div class="logo">K</div><div><b style="font-size:15px">Welcome to Key Ops</b><div style="color:var(--b-dim)">Step ${S.step+1} of 3</div></div></div>
+  <div class="db">${body}</div>
+  <div class="df"><div class="dots">${dots}</div><div class="brow">
+    ${S.step>0?'<button class="bbtn ghost" data-wnav="-1">Back</button>':'<button class="bbtn ghost" data-wnav="skip">Skip</button>'}
+    ${S.step<2?`<button class="bbtn on" data-wnav="1">${S.step===0&&S.style==="CUSTOM"?"Open Features":"Next"}</button>`:'<button class="bbtn on" data-wnav="done">Open N-panel</button>'}
+  </div></div>`;
+}
+W.addEventListener("click",e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.dataset.wstyle){applyStyle(t.dataset.wstyle);renderWelcome();renderPrefs();renderN();return}
+  if(t.dataset.wk){S.keys[t.dataset.wk]=false;S.modified=true;renderWelcome();renderPrefs();return}
+  const n=t.dataset.wnav;
+  if(n==="1"){if(S.step===0&&S.style==="CUSTOM"){S.tab="FEATURES";go("prefs");renderPrefs();return}S.step++}
+  else if(n==="-1")S.step--;
+  else if(n==="skip"){S.step=2}
+  else if(n==="done"){go("npanel");S.step=0}
+  renderWelcome();
+});
+
+/* ---------- Preferences ---------- */
+const PT=document.getElementById("ptabs"),PV=document.getElementById("pview");
+const TABS=[["HOME","Home"],["FEATURES","Features"],["SHORTCUTS","Shortcuts"],["PIES","Pie Menus"]];
+function card(f){
+  const on=S.en[f.id],open=S.open[f.id],ko=S.keys[f.id];
+  return `<div class="card${on?"":" dis"}"><div class="brow">
+    <button class="bchk${on?" on":""}" data-en="${f.id}" aria-label="Enable ${esc(f.name)}" aria-pressed="${on}"></button>
+    <b class="name grow">${esc(f.name)}${f.exp?' <span class="badge off">WIP</span>':""}</b>${impact(f)}
+    <button class="iconbtn" title="Open docs" aria-label="Docs for ${esc(f.name)}">?</button>
+    <button class="iconbtn" data-open="${f.id}" aria-expanded="${!!open}" aria-label="Settings for ${esc(f.name)}">${open?"▾":"▸"}</button></div>
+    <div class="desc">${esc(f.desc)}</div>
+    ${open?`<div class="more">${f.keys.length?`<div class="brow">${sw(ko,`data-keys="${f.id}"`,"Use shortcuts")}<span style="color:var(--b-dim)">${ko?"":"Off. Run it from the N-panel, menus or F3."}</span></div>
+      ${f.keys.map(k=>`<div class="krow"><span class="bkey">${esc(k.key)}</span><span class="act">${esc(k.act)}<small>${esc(k.ed)}</small></span>${kbadge(k)}<span></span></div>`).join("")}`:'<span style="color:var(--b-dim)">No shortcuts. This feature only adds UI.</span>'}
+      <div class="blabel" style="margin-top:4px">Settings</div><div style="color:var(--b-dim)">The feature's own options live here, in one place, and stay visible even while the feature is off.</div></div>`:""}
+  </div>`;
+}
+function renderPrefs(){
+  PT.innerHTML=TABS.map(([k,l])=>`<button class="bbtn${S.tab===k?" on":""}" role="tab" aria-selected="${S.tab===k}" data-ptab="${k}">${l}</button>`).join("");
+  const c=counts();let h="";
+  if(S.tab==="HOME"){
+    h=`<div class="bbox"><div class="blabel">Shortcut style</div>
+      <div class="styles">${Object.keys(STYLE_INFO).map(k=>`<button class="style${S.style===k?" on":""}" data-pstyle="${k}"><b>${STYLE_INFO[k][0]}</b><small>${STYLE_INFO[k][1]}</small></button>`).join("")}</div>
+      <div class="statusline"><span>Current: <b>${esc(styleLabel())}</b></span><span><b>${c.feats}</b> features on</span><span><b>${c.keys}</b> shortcuts active</span><span style="${c.rep?"color:var(--b-amber)":""}"><b style="color:inherit">${c.rep}</b> replace Blender keys</span></div></div>
+    <div class="bbox"><div class="brow">${sw(S.paused,'data-pause="1"',"<b>Pause all Key Ops shortcuts</b>")}<span class="grow" style="color:var(--b-dim)">Features keep working. Use this first when a key stops doing what you expect.</span></div></div>
+    <div class="bbox"><div class="blabel">Get started</div><div class="brow"><button class="bbtn" data-gowelcome="1">Show welcome again</button><button class="bbtn">What's new in 1.0</button><button class="bbtn">Open docs</button><button class="bbtn">Report a problem</button></div></div>
+    <div class="bbox"><div class="blabel">Blender settings we recommend</div><div style="color:var(--b-dim)">Pie menus feel instant with <b style="color:var(--b-text)">Interface › Editors › Pie Menus › Animation Timeout = 0</b>. Key Ops never changes your preferences for you.</div><div class="brow"><button class="bbtn">How to change it</button></div></div>`;
+  }else if(S.tab==="FEATURES"){
+    const q=S.q.toLowerCase();
+    const list=F.filter(f=>(S.showExp||!f.exp)&&(q?(f.name+" "+f.desc).toLowerCase().includes(q):f.cat===S.cat||(S.cat==="UV"&&f.id==="uv_pies")))
+      .filter(f=>S.filter==="ALL"||(S.filter==="ON"&&S.en[f.id])||(S.filter==="OFF"&&!S.en[f.id])||(S.filter==="KEYS"&&f.keys.length)||(S.filter==="REP"&&f.keys.some(k=>k.rep)));
+    h=`<div class="fgrid"><div class="cats">${CATS.map(([k,l])=>{const n=F.filter(f=>f.cat===k&&(S.showExp||!f.exp));return `<button class="bbtn${!q&&S.cat===k?" on":""}" data-cat="${k}">${l}<small>${n.filter(f=>S.en[f.id]).length}/${n.length}</small></button>`}).join("")}</div>
+      <div style="display:grid;gap:6px;min-width:0;align-content:start">
+        <div class="brow"><input class="bfield grow" id="fsearch" placeholder="Search all features" value="${esc(S.q)}" aria-label="Search features" style="width:auto">
+        <div class="btabs" style="flex:none">${[["ALL","All"],["ON","On"],["OFF","Off"],["KEYS","Uses keys"],["REP","Replaces keys"]].map(([k,l])=>`<button class="bbtn${S.filter===k?" on":""}" style="min-width:0" data-filter="${k}">${l}</button>`).join("")}</div>
+        <button class="bbtn${S.showExp?" on":""}" data-exp="1">Show experimental</button></div>
+        ${list.length?list.map(card).join(""):'<div class="bbox" style="color:var(--b-dim)">No features match. Clear the search or filter.</div>'}
+      </div></div>`;
+  }else if(S.tab==="SHORTCUTS"){
+    const groups=F.filter(f=>S.en[f.id]&&f.keys.length);
+    h=`<div class="bbox"><div class="brow"><span class="grow" style="color:var(--b-dim)">Key Ops only adds shortcuts on top of yours. Turning one off brings back Blender's. Click a key to rebind it.</span>${sw(S.paused,'data-pause="1"',"Pause all")}</div></div>
+    ${groups.map(f=>`<div class="bbox"><div class="brow"><b class="grow">${esc(f.name)}</b>${sw(S.keys[f.id]&&!S.paused,`data-keys="${f.id}"`,"")}<button class="bbtn ghost">Restore defaults</button></div>
+      ${f.keys.map(k=>`<div class="krow" style="${S.keys[f.id]&&!S.paused?"":"opacity:.5"}"><span class="bkey">${esc(k.key)}</span><span class="act">${esc(k.act)}<small>${esc(k.ed)}</small></span>${kbadge(k)}<span></span></div>`).join("")}</div>`).join("")}`;
+  }else{
+    const pies=F.filter(f=>f.cat==="PIES"&&(S.showExp||!f.exp));
+    const P={add_objects_pie:["Cube","Plane","Cylinder","Sphere","Circle","Monkey","Grid","Custom"],add_modifier_pie:["Bevel","Mirror","Array","Solidify","Boolean","Subdiv","Weld","Triangulate"],cursor_pie:["Cursor → Sel","Sel → Cursor","Origin → Sel","Origin → Geo","Cursor → World","Origin → Bottom","Cursor → Active","Reset"],workspace_pie:["Layout","Modeling","UV","Shading","Sculpt","Texture","Render","Scripting"],utility_pie:["Seams","Sharp","Unwrap","Clear","Normals","Smooth","Flat","Weld"],uv_pies:["Unwrap","Pack","Straighten","Rotate","Align","Stitch","Pin","Split"]};
+    const ALSO={add_objects_pie:["Also on Shift A","Replaces the Add menu"],cursor_pie:null,add_modifier_pie:null};
+    h=`<div class="bbox" style="color:var(--b-dim)">Each pie shows its slots and key. "Also on Blender's key" options replace the old Rebind buttons. They add a Key Ops shortcut and never edit your keymap.</div>
+    <div class="pies">${pies.map(f=>{const sl=P[f.id]||[];const pos=[[120,22],[120,218],[34,120],[206,120],[52,52],[188,52],[52,188],[188,188]];const k=f.keys[0];const on=S.en[f.id];
+      return `<div class="card pie${on?"":" dis"}"><div class="brow"><button class="bchk${on?" on":""}" data-en="${f.id}" aria-label="Enable ${esc(f.name)}"></button><b class="grow">${esc(f.name)}</b>${k?`<span class="bkey">${esc(k.key)}</span>`:""}</div>
+      <svg viewBox="0 0 240 240" role="img" aria-label="${esc(f.name)} layout"><circle cx="120" cy="120" r="18" fill="#262626" stroke="#555"/><circle cx="120" cy="120" r="4" fill="#4772b3"/>
+      ${sl.map((s,i)=>`<g><rect x="${pos[i][0]-40}" y="${pos[i][1]-11}" width="80" height="22" rx="4" fill="#545454"/><text x="${pos[i][0]}" y="${pos[i][1]+4}" text-anchor="middle" fill="#e5e5e5" font-size="10.5" font-family="Inter,sans-serif">${esc(s)}</text></g>`).join("")}</svg>
+      ${k?kbadge(k):""}
+      ${ALSO[f.id]?`<div class="brow">${sw(false,"",esc(ALSO[f.id][0]))}<span class="badge rep">${esc(ALSO[f.id][1].toUpperCase())}</span></div>`:""}</div>`}).join("")}</div>`;
+  }
+  PV.innerHTML=h;
+}
+PT.addEventListener("click",e=>{const t=e.target.closest("[data-ptab]");if(t){S.tab=t.dataset.ptab;renderPrefs()}});
+PV.addEventListener("click",e=>{
+  const t=e.target.closest("button");if(!t)return;const d=t.dataset;
+  if(d.pstyle){applyStyle(d.pstyle)}
+  else if(d.en){S.en[d.en]=!S.en[d.en];S.modified=true}
+  else if(d.keys){if(S.paused)S.paused=false;else S.keys[d.keys]=!S.keys[d.keys];S.modified=true}
+  else if(d.open){S.open[d.open]=!S.open[d.open]}
+  else if(d.cat){S.cat=d.cat;S.q=""}
+  else if(d.filter){S.filter=d.filter}
+  else if(d.exp){S.showExp=!S.showExp}
+  else if(d.pause){S.paused=!S.paused}
+  else if(d.gowelcome){S.step=0;renderWelcome();go("welcome");return}
+  else return;
+  renderPrefs();renderN();
+});
+PV.addEventListener("input",e=>{if(e.target.id==="fsearch"){S.q=e.target.value;const pos=e.target.selectionStart;renderPrefs();const n=document.getElementById("fsearch");n.focus();n.setSelectionRange(pos,pos)}});
+
+/* ---------- N-panel ---------- */
+let MODE="OBJECT",cheatOpen=false;
+const NB=document.getElementById("nbody"),CH=document.getElementById("cheat");
+const b=(t)=>`<button class="nb" tabindex="-1">${t}</button>`;
+function np(title,inner,open){return `<details class="np"${open?" open":""}><summary>${title}</summary><div class="in">${inner}</div></details>`}
+function renderN(){
+  let h=`<div class="nhead"><span class="mode">${MODE==="OBJECT"?"OBJECT":"EDIT · MESH"}</span><span class="grow"></span><button class="iconbtn" id="cheatBtn" aria-expanded="${cheatOpen}" title="Shortcut cheat sheet">?</button><button class="iconbtn" title="Pause shortcuts, Preferences, Docs">⋯</button></div>`;
+  if(MODE==="OBJECT"){
+    h+=np("Object",`<div class="g2">${b("Combine")}${b("Separate")}${b("Apply Modifiers")}${b("Freeze Scale")}${b("Snap to Floor")}${b("Clear Normals")}${b("Fast Mirror")}${b("Parent Used")}</div>`,1);
+    h+=np("Modifiers",`<div class="g3">${b("Bevel")}${b("Mirror")}${b("Array")}${b("Solidify")}${b("Boolean")}${b("Subdiv")}</div><div class="g2">${b("Apply All")}${b("Toggle All")}</div>`,1);
+    h+=np("Retopology",`<div class="g2">${b("Toggle Retopo")}${b("Snap: Face")}</div>`,0);
+  }else{
+    h+=np("Mesh",`<div class="g2">${b("Fast Bevel")}${b("Fast Solidify")}${b("Offset Extrude")}${b("Extrude Normals")}${b("Merge / Connect")}${b("Set Flow")}${b("Fast Knife")}${b("Flatten")}</div>`,1);
+    h+=np("Selection",`<div class="g2">${b("Select Similar")}${b("Select Island")}${b("Grow")}${b("Shrink")}</div>`,1);
+    h+=np("UV",`<div class="g2">${b("Unwrap in Place")}${b("Seam by Angle")}${b("Sharp from UV")}${b("Quick Pack")}</div>`,0);
+    h+=np("Attributes",`<div class="g2">${b("Assign")}${b("Select")}</div>`,0);
+  }
+  h+=np("Pipeline",np("Bake Names",`<div class="g2">${b("High")}${b("Low")}</div>`,0)+np("Quick Export",`<div class="g2">${b("Export")}${b("Bake Folder")}</div>`,0)+np("Auto LOD",b("Generate LODs"),0)+np("CAD Decimate",b("Decimate"),0)+np("Polycount",b("Refresh List"),0),0);
+  NB.innerHTML=h;
+  // cheat sheet
+  const ed=MODE==="OBJECT"?["Object Mode","3D View","Window","Properties"]:["Mesh","3D View","Window"];
+  const rows=[];F.forEach(f=>{if(S.en[f.id]&&S.keys[f.id]&&!S.paused)f.keys.forEach(k=>{if(ed.includes(k.ed))rows.push(`<div class="krow"><span class="bkey">${esc(k.key)}</span><span class="act">${esc(k.act)}<small>${esc(f.name)}</small></span>${k.rep?'<span class="badge rep">REPL</span>':'<span class="badge free">FREE</span>'}</div>`)})});
+  CH.innerHTML=`<div class="brow"><b class="grow">Key Ops shortcuts · ${MODE==="OBJECT"?"Object":"Edit"} Mode</b><button class="iconbtn" id="cheatClose" aria-label="Close">✕</button></div>
+   ${rows.length?rows.join(""):`<div style="color:var(--b-dim)">No Key Ops shortcuts are active${S.paused?" (paused)":""}. Current style: ${esc(styleLabel())}. Switch to Blender+ or Industry on the Preferences Home tab to see some here.</div>`}`;
+  CH.hidden=!cheatOpen;
+}
+document.getElementById("v-npanel").addEventListener("click",e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.dataset.mode){MODE=t.dataset.mode;document.getElementById("mObj").classList.toggle("on",MODE==="OBJECT");document.getElementById("mEdit").classList.toggle("on",MODE==="EDIT");renderN()}
+  else if(t.id==="cheatBtn"){cheatOpen=!cheatOpen;renderN()}
+  else if(t.id==="cheatClose"){cheatOpen=false;renderN()}
+});
+
+/* ---------- Category table ---------- */
+document.getElementById("catTable").innerHTML='<tr><th>Category</th><th>Features</th></tr>'+CATS.map(([k,l])=>`<tr><td><b>${l}</b></td><td>${F.filter(f=>f.cat===k).map(f=>esc(f.name)).join(", ")}</td></tr>`).join("");
+
+/* ---------- Section nav ---------- */
+const views=["welcome","prefs","npanel","design","code"];
+function go(v){views.forEach(x=>document.getElementById("v-"+x).hidden=x!==v);document.querySelectorAll("nav.sec button").forEach(bt=>bt.setAttribute("aria-selected",bt.dataset.v===v));try{history.replaceState(null,"","#"+v)}catch(_){}}
+document.querySelector("nav.sec").addEventListener("click",e=>{const t=e.target.closest("[data-v]");if(t)go(t.dataset.v)});
+window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(views.includes(h))go(h)});
+renderWelcome();renderPrefs();renderN();
+const h0=location.hash.slice(1);if(views.includes(h0))go(h0);
+})();
+</script>
