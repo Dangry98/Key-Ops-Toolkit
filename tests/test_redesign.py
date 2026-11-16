@@ -289,6 +289,53 @@ def run():
     check("files exported by an earlier Key Ops still import", any(x.name == "From Old Export" and x.menu_type == "PIE"
                                                                and len(x.items) == 8 for x in p.pies))
 
+    # ---- more menu types
+    ts = bpy.context.scene.tool_settings
+    ts.use_snap, ts.use_mesh_automerge = False, False
+    bpy.ops.keyops.pie_add(menu_type="STACK")
+    stack = p.pies[-1]
+    p.active_pie = len(p.pies) - 1
+    PM.apply_action(stack.items[0], "C0")
+    stack.items[0].kind, stack.items[0].idname = "PROPERTY", "scene.tool_settings.use_snap"
+    stack.items[1].kind, stack.items[1].idname = "PROPERTY", "scene.tool_settings.use_mesh_automerge"
+    stack.stack_reset = 0
+    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    first = (ts.use_snap, ts.use_mesh_automerge)
+    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    second = (ts.use_snap, ts.use_mesh_automerge)
+    bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    check("stack key runs the next item on each press, then starts over",
+          first == (True, False) and second == (True, True) and ts.use_snap is False, f"{first} {second}")
+    stack.only_mode = "EDIT_MESH"
+    res = bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=stack.uid)
+    check("'Only in' lets Blender's own key through in other modes", res == {'PASS_THROUGH'}, str(res))
+    bpy.ops.keyops.pie_add(menu_type="PANEL")
+    panel = p.pies[-1]
+    panel.items[0].kind, panel.items[0].idname = "PROPERTY", "scene.render.resolution_percentage"
+    check("sidebar panels appear in the 3D View sidebar", bpy.types.KEYOPS_PT_user_panels_3d.poll(bpy.context))
+    bpy.ops.keyops.pie_add(menu_type="DIALOG")
+    dialog = p.pies[-1]
+    PM.apply_action(dialog.items[0], "O:mesh.primitive_cube_add")
+    res = bpy.ops.wm.keyops_call_pie('INVOKE_DEFAULT', pie=dialog.uid)
+    check("dialogs open", res in ({'RUNNING_MODAL'}, {'FINISHED'}), str(res))
+    PM.apply_action(dialog.items[1], f"K:{stack.uid}")
+    check("an item can open another Key Ops menu", dialog.items[1].kind == "SUBMENU" and dialog.items[1].idname == stack.uid)
+    bpy.ops.keyops.pie_add(menu_type="STICKY")
+    check("sticky keys have a press and a release item", len(p.pies[-1].items) == 2)
+    bpy.ops.keyops.pie_add(menu_type="MODAL")
+    check("modal values hold one setting", len(p.pies[-1].items) == 1 and p.pies[-1].items[0].kind == "PROPERTY")
+    S.flush_now()
+    saved_types = {x["menu_type"] for x in json.load(open(pie_file))["data"]["pies"]}
+    check("every menu type is saved", {"PIE", "STACK", "PANEL", "DIALOG", "STICKY", "MODAL"} <= saved_types, str(saved_types))
+    v2 = json.load(open(pie_file))
+    v2["schema"] = 2
+    for x in v2["data"]["pies"]:
+        x.pop("key_event", None); x.pop("only_mode", None)
+    json.dump(v2, open(pie_file, "w"))
+    PM.load_from_disk()
+    check("schema 2 files upgrade to schema 3", json.load(open(pie_file))["schema"] == 3
+          and all(x.key_event == "PRESS" and x.only_mode == "ANY" for x in p.pies))
+
     # ---- disable: Blender's own keymap untouched, our items gone
     addon_utils.disable(MOD, default_set=True)
     after = user_keymap_snapshot()
