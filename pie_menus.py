@@ -565,8 +565,12 @@ class KEYOPS_PT_icon_palette(bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
         row.operator("keyops.pie_set_icon", text="No Icon").icon = ""
+        tabs = layout.row(align=True)
+        for cid, label in [(c[0], c[1]) for c in ICON_CATEGORIES] + [("OTHER", "Other")]:
+            tabs.operator("keyops.icon_palette_tab", text=label, depress=(wm.keyops_icon_category == cid)).category = cid
         q = wm.keyops_icon_filter.strip().upper().replace(" ", "_")
-        matches = [n for n in _ICON_LIST if q in n]
+        cat = wm.keyops_icon_category
+        matches = [n for n in _ICON_LIST if q in n and (cat == "ALL" or _ICON_CAT.get(n) == cat)]
         cols = 16
         names = matches[:cols * 12]  # keeps the popup on screen; search finds the rest
         grid = layout.grid_flow(row_major=True, columns=cols, even_columns=True, even_rows=True, align=True)
@@ -584,6 +588,36 @@ class KEYOPS_PT_icon_palette(bpy.types.Panel):
             hint.label(text=f"Showing {len(names)} of {len(matches)}. Type to search, e.g. mesh, arrow, modifier.")
 
 
+def _open_palette():
+    """Open the icon palette in the area under the mouse (used to reopen it after a tab click)."""
+    ctx = bpy.context
+    for window in ctx.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type in {'PREFERENCES', 'VIEW_3D'}:
+                region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+                with ctx.temp_override(window=window, area=area, region=region):
+                    bpy.ops.wm.call_panel(name="KEYOPS_PT_icon_palette", keep_open=False)
+                return None
+    return None
+
+
+class KEYOPS_OT_icon_palette_tab(Operator):
+    bl_idname = "keyops.icon_palette_tab"
+    bl_label = "Icon Category"
+    bl_options = {'INTERNAL'}
+    category: StringProperty() # type: ignore
+
+    @classmethod
+    def description(cls, context, properties):
+        return f"Show {properties.category.title()} icons"
+
+    def execute(self, context):
+        context.window_manager.keyops_icon_category = self.category
+        # The palette closes on any click, so open it again on the new category
+        bpy.app.timers.register(_open_palette, first_interval=0.05)
+        return {'FINISHED'}
+
+
 class KEYOPS_OT_pie_icon_picker(Operator):
     bl_idname = "keyops.pie_icon_picker"
     bl_label = "Pick an Icon"
@@ -592,6 +626,10 @@ class KEYOPS_OT_pie_icon_picker(Operator):
     slot: IntProperty() # type: ignore
 
     def execute(self, context):
+        item = _active_item(get_keyops_prefs(), self.slot)
+        if item is None or item.kind == N or not item.idname.strip():
+            self.report({'INFO'}, "Pick an action for this slot first")
+            return {'CANCELLED'}
         get_keyops_prefs().pie_slot = self.slot
         bpy.ops.wm.call_panel(name="KEYOPS_PT_icon_palette", keep_open=False)
         return {'FINISHED'}
@@ -617,7 +655,32 @@ class KEYOPS_OT_pie_set_icon(Operator):
         return {'FINISHED'}
 
 
+ICON_CATEGORIES = (
+    ("ALL", "All", ()),
+    ("OBJECTS", "Objects", ("MESH_", "OUTLINER_", "OBJECT", "CURVE", "SURFACE", "META", "EMPTY", "LIGHT", "CAMERA",
+                            "ARMATURE", "LATTICE", "GREASEPENCIL", "FORCE_", "SPEAKER", "VOLUME", "POINTCLOUD", "MONKEY")),
+    ("MODIFIERS", "Modifiers", ("MOD_", "CON_", "AUTOMERGE", "GEOMETRY_NODES", "NODETREE")),
+    ("EDITING", "Editing", ("EDITMODE", "VERTEXSEL", "EDGESEL", "FACESEL", "SELECT", "SNAP", "PIVOT", "ORIENTATION",
+                            "TRANSFORM", "TOOL", "SCULPT", "BRUSH", "MIRROR", "UV", "STICKY", "SEAM", "SHARP",
+                            "NORMAL", "FREEZE", "CENTER", "CURSOR", "DECORATE", "PROP_", "AUTO")),
+    ("VIEW", "View", ("VIEW", "HIDE", "RESTRICT", "ZOOM", "OVERLAY", "XRAY", "SHADING", "MATERIAL", "TEXTURE",
+                      "IMAGE", "NODE", "WORLD", "RENDER", "SCENE", "WINDOW", "WORKSPACE", "AREA", "SPLIT",
+                      "FULLSCREEN", "GRID", "AXIS")),
+    ("ARROWS", "Arrows", ("TRIA_", "ARROW", "SORT", "BACK", "FORWARD", "LOOP_", "FRAME_", "PLAY", "REW", "FF",
+                          "DISCLOSURE", "DOWNARROW", "RIGHTARROW", "UP", "DOWN", "LEFT", "RIGHT")),
+    ("KEYS", "Keys", ("EVENT_", "MOUSE_")),
+)
+
+
+def _icon_category(name):
+    for cid, _label, prefixes in ICON_CATEGORIES[1:]:
+        if any(name.startswith(pre) or (len(pre) > 3 and pre in name) for pre in prefixes):
+            return cid
+    return "OTHER"
+
+
 _ICON_LIST = sorted(n for n in _ICONS if n not in {"NONE", "BLANK1"} and not n.startswith(("BRUSH_", "MATPLANE", "COLORSET_")))
+_ICON_CAT = {n: _icon_category(n) for n in _ICON_LIST}
 
 
 # ---------------------------------------------------------------- pie overview
@@ -635,12 +698,16 @@ def _slot_button(row, pie, index, prefs):
     item = pie.items[index]
     empty = item.kind == N or not item.idname.strip()
     text = "Empty" if empty else (item.label or item.idname)
-    icon = 'NONE' if empty else _icon(item.icon)
+    selected = prefs.pie_customize and prefs.pie_slot == index
+    # icon part: opens the icon palette for this slot
+    cell.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'BLANK1',
+                  depress=selected).slot = index
+    # label part: search for an action, or select the slot to edit it
     if prefs.pie_customize:
-        op = cell.operator("keyops.pie_slot_select", text=text, icon=icon, depress=(prefs.pie_slot == index))
+        op = cell.operator("keyops.pie_slot_select", text=text, depress=selected)
         op.slot = index
     else:
-        op = cell.operator("keyops.pie_slot_search", text=text, icon=icon)
+        op = cell.operator("keyops.pie_slot_search", text=text)
         op.slot = index
         op.scope = "KEYOPS"
 
@@ -721,7 +788,7 @@ def draw_pies_tab(prefs, context, layout):
         tip = box.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text="Click a slot to search for a different action. Customize for labels, icons and your own pies.")
+        tip.label(text="Click a slot to search for a different action, or its icon to change the icon. Customize for more.")
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
@@ -758,9 +825,9 @@ def draw_slot_editor(prefs, layout, pie):
     if not empty:
         row = col.row(align=True)
         row.prop(item, "label", text="Label")
-        ic = row.row(align=True)
-        ic.ui_units_x = 4.5
-        ic.operator("keyops.pie_icon_picker", text="Icon", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
+        hint = col.row()
+        hint.active = False
+        hint.label(text="Click a slot's icon to change it")
 
         more = col.row()
         more.alignment = 'LEFT'
@@ -835,7 +902,7 @@ def _unregister_support():
 property_classes = (KeyOpsPieItem, KeyOpsPie)
 classes = (WM_OT_keyops_call_pie, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
-           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
+           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon)
 
 
 def register_properties():
@@ -851,7 +918,11 @@ def unregister_properties():
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.WindowManager.keyops_icon_filter = StringProperty(name="Search Icons", options={'TEXTEDIT_UPDATE'})
+    bpy.types.WindowManager.keyops_icon_filter = StringProperty(
+        name="Search Icons", description="Type part of an icon name and press Enter",
+        update=lambda self, ctx: bpy.app.timers.register(_open_palette, first_interval=0.05))
+    bpy.types.WindowManager.keyops_icon_category = EnumProperty(
+        name="Category", items=[(c[0], c[1], f"{c[1]} icons") for c in ICON_CATEGORIES] + [("OTHER", "Other", "Everything else")])
     _register_support()
     sync_keymaps()
 
@@ -865,5 +936,6 @@ def unregister():
     _pie_keymaps.clear()
     _unregister_support()
     del bpy.types.WindowManager.keyops_icon_filter
+    del bpy.types.WindowManager.keyops_icon_category
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
