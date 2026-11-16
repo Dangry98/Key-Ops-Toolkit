@@ -164,10 +164,15 @@ def run():
     p.prefs_version = 0
     with F.suspended():
         p.enable_auto_delete = True   # an explicitly saved 0.2 setting
+    p["enable_cursor_pie"] = 0        # a 0.2 user who had switched the Cursor pie off
+    p["enable_workspace_pie"] = 1     # ...and the Workspace pie on
     F.migrate()
     F.sync_all()
     PM = sys.modules[MOD].pie_menus
-    check("upgrade keeps 0.2 pies on", PM.live_count() >= 4, str(PM.live_count()))
+    check("upgrade keeps 0.2 pies on", PM.live_count() >= 3, str(PM.live_count()))
+    states = {x.preset: x.enabled for x in p.pies}
+    check("upgrade keeps a pie the user switched off in 0.2 (Cursor)", states["cursor"] is False, str(states))
+    check("upgrade keeps a pie the user switched on in 0.2 (Workspace)", states["workspace"] is True)
     check("upgrade keeps 0.2 shortcuts on", any(kmi.type == "DEL" and kmi.active for _k, kmi in addon_items()))
     check("upgrade shows What's new", p.show_whats_new)
     addon_utils.disable(MOD, default_set=True)
