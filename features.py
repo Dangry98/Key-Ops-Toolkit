@@ -505,7 +505,12 @@ def migrate():
         "enable_add_objects_pie", "enable_cursor_pie", "enable_workspace_pie",
         "auto_delete_dissolv_edge", "maya_pivot_behavior", "fast_merge_merge_options",
         "add_object_pie_use_relative", "material_list_type", "experimental"]
-    upgrading = any((p.is_property_set(n) if hasattr(p, n) else p.get(n) is not None) for n in legacy_names)
+    changed_settings = any((p.is_property_set(n) if hasattr(p, n) else p.get(n) is not None) for n in legacy_names)
+    # A 0.2 user who never changed a setting leaves nothing saved. But Blender re-enables an installed
+    # add-on at startup without marking the preferences as changed, while enabling it in Preferences
+    # (a new install) marks them changed first. So "enabled at startup" means it was installed before.
+    enabled_at_startup = not bpy.app.background and not bpy.context.preferences.is_dirty
+    upgrading = changed_settings or enabled_at_startup
     with suspended():
         if upgrading:
             # Keep every feature and shortcut exactly as it was in 0.2.x
