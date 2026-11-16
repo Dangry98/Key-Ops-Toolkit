@@ -1,3 +1,4 @@
+import time
 # Based on the excellent Polycount Addon by Vinc3r
 # https://github.com/Vinc3r/Polycount
 # I used this addon a lot and really liked it, but I feelt it could be improved in terms of performance, ui and usability when working in big production scenes.
@@ -281,6 +282,9 @@ def get_poly_count(context, force_update_all=False):
     else:
         polycount.sort(key=sortList, reverse=polycount_sorting_ascending)
 
+npanel_last_draw = 0.0
+
+
 @persistent
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
     global latest_updateded_objects_in_depsgrapth, list_cache
@@ -293,7 +297,7 @@ def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
                 scene_tab_is_open = True
                 break
             
-    if 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode:
+    if time.time() - npanel_last_draw < 5.0:  # Key Ops N-panel polycount section was drawn recently
         latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
         scene_tab_is_open = True
 

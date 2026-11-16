@@ -1,588 +1,156 @@
 import bpy
+import rna_keymap_ui
 from bpy.props import IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
-from .utils.pref_utils import get_addon_name, draw_keymap, get_registered_keymap_display_items
+from .utils.pref_utils import get_addon_name, _keymap_item_to_display_item
 from .utils.utilities import is_addon_enabled
-from .operators.maya_navigation import update_tablet_navigation, update_sculpt_navigation
+from .operators.maya_navigation import update_tablet_navigation as _update_tablet_navigation
+from .operators.maya_navigation import update_sculpt_navigation as _update_sculpt_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
+from . import features as F
+from .ui.feature_settings import draw_settings, SETTINGS
 
-DOCS_URL = "https://dangry98.github.io/Key-Ops-Toolkit/"
+DOCS_URL = F.DOCS_URL
 
-current_available_tabs = []
-do_once_over705 = False
-do_once_under705 = False
 
-def get_window_with():
-    wm = bpy.context.window_manager
-    for w in wm.windows:
-        if w.screen:
-            for area in w.screen.areas:
-                if area.type == 'PREFERENCES':
-                    prefrences_window_size = area.width
-    return prefrences_window_size
+# ---------------------------------------------------------------- update callbacks
 
-def prefs_tabs_update(self, context):
-    global current_available_tabs
+def update_tablet_navigation(self, context):
+    with F.capture("maya_navigation"):
+        _update_tablet_navigation(self, context)
 
-    prefs_tabs = [("EXTENSIONS", "Extensions", ""),
-                    ("KEYMAPS", "Keymaps", ""),
-                    ("REBIND", "Rebind", "")]
-    
-    if get_window_with() <= 705:
-        prefs_tabs.insert(1, ("SETTINGS", "Settings", ""))
+
+def update_sculpt_navigation(self, context):
+    with F.capture("maya_navigation"):
+        _update_sculpt_navigation(self, context)
+
+
+def update_legacy_collection_shortcuts(self, context):
+    if F.is_suspended():
+        return
+    if bpy.app.version < (5, 0, 0) or not self.enable_legacy_shortcuts:
+        if self.enable_legacy_collection_shortcuts:
+            self.enable_legacy_collection_shortcuts = False
+        return
+    from .operators.legacy_shortcuts import register_legacy_collection_shortcuts, unregister_legacy_collection_shortcuts
+    if self.enable_legacy_collection_shortcuts:
+        with F.capture("legacy_shortcuts"):
+            register_legacy_collection_shortcuts()
     else:
-        prefs_tabs[0] = ("EXTENSIONS", "Extensions / Settings", "")
-        
-    current_available_tabs = [tab[0] for tab in prefs_tabs]
-    return prefs_tabs
+        unregister_legacy_collection_shortcuts()
+
+
+def _enable_update(feature_id):
+    def update(self, context):
+        F.on_enable_changed(feature_id)
+    return update
+
+
+def _keys_update(feature_id):
+    def update(self, context):
+        F.on_keys_changed(feature_id)
+    return update
+
+
+def _style_update(self, context):
+    if F.is_suspended():
+        return
+    if self.shortcut_style != "CUSTOM":
+        F.apply_style(self.shortcut_style)
+
+
+def _pause_update(self, context):
+    F.apply_all_key_states()
+
+
+_category_cache = {}  # Blender keeps pointers to enum strings, so every list we hand out must stay alive
+
+
+def _category_enum_items(self, context):
+    """Category list with live 'on/total' counts."""
+    try:
+        visible = F.visible_features(self)
+    except Exception:
+        visible = F.FEATURES
+    counts = []
+    for cid, _name, _desc, _icon in F.CATEGORIES:
+        feats = [f for f in visible if f.category == cid]
+        counts.append((sum(1 for f in feats if getattr(self, f"enable_{f.id}", False)), len(feats)))
+    key = tuple(counts)
+    if key not in _category_cache:
+        _category_cache[key] = [(cid, f"{name}   {on}/{total}", desc, icon, i)
+                                for i, ((cid, name, desc, icon), (on, total)) in enumerate(zip(F.CATEGORIES, counts))]
+    return _category_cache[key]
+
+
+def _impact(f):
+    if not f.keys:
+        return "No shortcuts", 'CHECKMARK'
+    if f.replaced:
+        extra = f" +{len(f.replaced) - 1}" if len(f.replaced) > 1 else ""
+        return f"Replaces {f.replaced[0].replaces}{extra}", 'ERROR'
+    n = len(f.keys)
+    return f"{n} free shortcut{'s' if n > 1 else ''}", 'EVENT_K'
+
+
+def _docs(f):
+    return f.docs if f.docs.startswith("http") else DOCS_URL + f.docs
+
+
+def _wrap(text, width):
+    words, lines, line = text.split(), [], ""
+    for w in words:
+        if len(line) + len(w) + 1 > width and line:
+            lines.append(line)
+            line = w
+        else:
+            line = f"{line} {w}".strip()
+    if line:
+        lines.append(line)
+    return lines
+
 
 class KeyOpsPreferences(bpy.types.AddonPreferences):
-    tabs: bpy.props.EnumProperty(name="Tabs", items=prefs_tabs_update, default=None) # type: ignore
     bl_idname = get_addon_name()
 
-    # Disable by default only when LoopTools is currently enabled to avoid duplicate menu entries.
-    looptools_menu_default = not is_addon_enabled(
-        "looptools",
-        "mesh_looptools",
-        "bl_ext.blender_org.looptools",
-    )
- 
-    def draw(self, context):
-        global current_available_tabs
-        global do_once_over705
-        global do_once_under705
-
-        layout = self.layout
-        column = layout.column(align=True)
-        row = column.row()
-        row.prop(self, "tabs", expand=True)
-
-        tab_draw_funcs = {
-            "EXTENSIONS": self.draw_extensions,
-            "KEYMAPS": self.draw_keymaps,
-            "REBIND": self.draw_rebind}
-
-        if get_window_with() < 705 and "SETTINGS" in current_available_tabs:
-            tab_draw_funcs["SETTINGS"] = self.draw_extensions
-
-        was_extension = False
-        if self.tabs == "EXTENSIONS":
-            was_extension = True
-
-        #compensate for the fact that the tabs enum is offset by 1 when settings is added so it does not jump around
-        if get_window_with() > 705 and do_once_over705 == True:
-            tab_to_switch = current_available_tabs
-            current_tab_index = tab_to_switch.index(self.tabs) if self.tabs in tab_to_switch else 0
-            if was_extension == False:
-                self.tabs = tab_to_switch[current_tab_index - 1]
-            do_once_over705 = False
-        
-        if get_window_with() < 705 and do_once_under705 == True:
-            tab_to_switch = current_available_tabs
-            current_tab_index = tab_to_switch.index(self.tabs) if self.tabs in tab_to_switch else 0
-            if was_extension == False:
-                self.tabs = tab_to_switch[current_tab_index + 1]
-            do_once_under705 = False
-         
-        if get_window_with() <= 705:
-            draw_func_type = layout
-            do_once_over705 = True
-        if get_window_with() > 705:
-            draw_func_type = "box"
-            do_once_under705 = True
-
-        if draw_func_type == "box":
-            box = column.box()
-            tab_draw_funcs.get(self.tabs)(box)
-        else:
-            tab_draw_funcs.get(self.tabs)(layout)
-
-    def draw_extensions(self, draw_func_type):
-        def draw_section(draw_func_type, section_label, data):
-            bb = draw_func_type
-            bb.label(text=section_label)
-            column = bb.column(align=True)
-            for label, property_name, toggle, link, experimental in data:
-                if experimental == 1 and not self.experimental:
-                    continue
-                row = column.split(factor=0.33, align=False)
-
-                if toggle:
-                    row.prop(self, property_name, toggle=True)
-                elif property_name:
-                    row.prop(self, property_name)
-                if link:
-                    if bpy.app.version >= (5, 2, 0):
-                        row.link(url=link, text=label)
-                    else:
-                        row.operator("wm.url_open", text=label, emboss=False).url = link    
-                else:
-                    row.label(text=label)
-            if section_label != "Toolkit":
-                column.separator(type='LINE')
-        
-        if get_window_with() > 705:
-            split = draw_func_type.split()
-            b = split.box()
-        else:
-            b = draw_func_type
-
-        if not self.tabs == "SETTINGS":
-            maya_data = [("Alt + LMB/MMB/RMB to orbit, pan & zoom", "enable_maya_navigation", False, DOCS_URL + "industry-standard.html#alt-navigation", 0),
-                        ("Left Dbl Click - Selects Mesh Island ", "enable_double_click_select_island", False, DOCS_URL + "industry-standard.html#select-island", 0),
-                        ("⌦ - Edit Mode Instant Delete", "enable_auto_delete", True, DOCS_URL + "industry-standard.html#auto-delete", 0),
-                        ("D - Pivot in Object Mode", "enable_maya_pivot", True, DOCS_URL + "industry-standard.html#maya-pivot", 0),]
-            draw_section(b, "Industry Standard", maya_data)
-
-            Game_Art_Toolkit = [
-                                ("Decimate millions of tris", "enable_cad_decimate", True, DOCS_URL + "toolkit.html#cad-decimate", 0),
-                                ("Tool to create LODs for meshes", "enable_auto_lod", True, DOCS_URL + "toolkit.html#auto-lod", 0),
-                                ("Add bake names for low & highpoly", "enable_quick_bake_name", True, DOCS_URL + "toolkit.html#quick-bake-name", 0),
-                                ("List of objects and there poly count", "enable_polycount_list", True, DOCS_URL + "toolkit.html#polycount-list", 0),
-                                ("New Object & Edit Mode operations", "enable_toolkit_panel", True, DOCS_URL + "toolkit.html#toolkit-panel", 0),
-                                ("Toggle Overlay, Tools and Settings", "enable_toggle_retopology", True, DOCS_URL + "industry-standard.html#toggle-retopology", 0),
-
-                             ]
-            draw_section(b, "Toolkit", Game_Art_Toolkit)
-            
-            Tools = [("Maya like Target Weld Tool", "enable_merge_tool", True, DOCS_URL + "modeling-tools.html#merge-tool", 0),
-                     ("Loop cut on hover, click to cut", "enable_fast_loop_cut", True, DOCS_URL + "modeling-tools.html#fast-loop-cut", 0),
-                     ("Draw shapes to boolean cut objects", "enable_cutter_tool", True, DOCS_URL + "modeling-tools.html#cutter", 0),]
-            draw_section(b, "Tools", Tools)
-
-            pie_data = [("Faster way to Add Mesh Primitivs", "enable_add_objects_pie", True, DOCS_URL + "pie-menus.html#add-objects-pie", 0),
-                        ("WIP. Utility Pie Menu in Edit/Object Mode", "enable_utility_pie", True, DOCS_URL + "pie-menus.html#utility-pie", 1),
-                        ("Faster way to Add Common Modifers", "enable_add_modifier_pie", True, DOCS_URL + "pie-menus.html#add-modifier-pie", 0),
-                        ("Switch Workspace Faster", "enable_workspace_pie", True, DOCS_URL + "pie-menus.html#workspace-pie", 0),
-                        ("Better Shift S Pie Menu", "enable_cursor_pie", True, DOCS_URL + "pie-menus.html#cursor-pie", 0),
-                        ("Flatten selection from view direction", "enable_flatten_pie", True, DOCS_URL + "pie-menus.html#flatten-pie", 0),
-                        ("WIP. UV Pies", "enable_uv_pies", True, DOCS_URL + "pie-menus.html#uv-pies", 1),]
-            draw_section(b, "Pie Menu", pie_data)
-
-            Extra_data = [("1 & Shift 1 - Quick Merge/Connect ", "enable_fast_merge", True, DOCS_URL + "extras.html#fast-merge", 0),
-                        ("Add shortcuts to the modifier panel", "enable_modi_key", True, DOCS_URL + "extras.html#modifier-key", 0),
-                        ("Attribute Operations: select/assign", "enable_atri_op", True, DOCS_URL + "extras.html#attribute-operations", 0),
-                        ("Quick access to Viewport Overlays", "enable_viewport_menu", True, DOCS_URL + "extras.html#viewport-menu", 0),
-                        ("Adds extra options in the outliner", "enable_outliner_options", True, DOCS_URL + "extras.html#outliner-options", 0),
-                        ("CTRL E to export out meshes", "enable_quick_export", True, DOCS_URL + "toolkit.html#quick-export", 0),
-                        ("Extra UV Tools", "enable_uv_tools", True, DOCS_URL + "uv.html#uv-tools", 0),
-                        ("Extra Matieral Utils and UI", "enable_material_index", True, DOCS_URL + "toolkit.html#material-utils", 0),
-                        ]
-            draw_section (b, "Extra", Extra_data)
-
-            Legacy_data = [("From 2.79x, click to learn more", "enable_legacy_shortcuts", False, DOCS_URL + "extras.html#legacy-shortcuts", 0),]
-            if bpy.app.version >= (5, 3, 0):
-                Legacy_data.append(("Classic Loop Tools Menu", "enable_looptools_menu", True, "https://docs.blender.org/manual/en/latest/addons/mesh/looptools.html", 0))
-            draw_section(b, "Legacy", Legacy_data)
-
-
-        #draw settings, should only draw in extensions tab if over 705, otherwise it should draw in settings tab
-        if self.tabs == "SETTINGS" or get_window_with() > 705:
-            if get_window_with() > 705:
-                b = split.box()
-                b.label(text="Settings:")
-
-            if self.enable_maya_navigation:
-                prefrences_input = bpy.context.preferences.inputs
-                bb = b.box()
-                bb
-                column = bb.column()
-                row = column.row()
-                row.label(text="Alt Navigation")
-                row = column.row()
-                row.prop(self, "maya_navigation_tablet_navigation")
-                if bpy.app.version >= (5, 1, 0):
-                    row.prop(self, "maya_navigation_sculpt_navigation")
-                row.prop(prefrences_input, "use_zoom_to_mouse", text="Zoom to Mouse")
-                row = column.row()
-                row.label(text="Drag Threshold")
-                row.prop(prefrences_input, "drag_threshold_mouse", text="Mouse")
-                row.prop(prefrences_input, "drag_threshold_tablet", text="Tablet")
-
-            if self.enable_auto_delete:
-                bb = b.box()
-
-                column = bb.column()
-                layout = column.split(factor=2.0)  
-                row = layout.row(align=True)
-                row.label(text="Auto Delete")
-                row.prop(self, "auto_delete_dissolv_edge")
-                # Find the keymap item
-                keymap_item = None
-                for km in bpy.context.window_manager.keyconfigs.user.keymaps:
-                    if km.name == 'Object Mode':
-                        for kmi in km.keymap_items:
-                            if kmi.idname == "object.delete" and kmi.type == "X":
-                                keymap_item = kmi
-                                break
-
-                if keymap_item:
-                    row.prop(keymap_item.properties, "confirm", text="Confirm X")
-           
-            if self.enable_toggle_retopology:
-                from .utils.utilities import get_tool_icon_value
-
-                bb = b.box()
-                bb.label(text="Toggle Retopology")
-
-                column = bb.column()
-                row = column.row(align=True)
-                icon_value = get_tool_icon_value(self.toggle_retopology_custom_tool, bpy.context)
-                if icon_value:
-                    row.label(text="", icon_value=icon_value)
-                else:
-                    row.label(text="", icon='TOOL_SETTINGS')
-                row.prop(self, "toggle_retopology_custom_tool", text="    Tool")
-                row.operator("keyops.search_retopology_tool", text="", icon="VIEWZOOM")
-           
-                column.prop(self, "toggle_retopology_color_enum")
-                layout = column.split(factor=5.0)
-                row = layout.row(align = True)
-                row.scale_x=2
-                if self.toggle_retopology_color_enum == "custom_color":
-                    row.prop(self, "toggle_retopology_custom_color")
-                    row.prop(self, "toggle_retopology_face_alpha")
-                    row.prop(self, "toggle_retopology_edge_width")
-                else:
-                    row.label(text="Edge Width:")
-                    row.prop(self, "toggle_retopology_edge_width")
-                    row.label(text="Snapping:")
-
-                row.prop(self, "toggle_retopology_snapping_settings_vert", icon="SNAP_VERTEX", text="")
-                row.prop(self, "toggle_retopology_snapping_settings_face", icon="SNAP_FACE", text="")
-                row.prop(self, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE", text="")
-                row.prop(self, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP", text="")
-
-            if self.enable_maya_pivot:
-                bb = b.box()
-                column = bb.column()
-
-                layout = column.split(factor=2.0)  
-                row = layout.row()
-                row.alignment="LEFT"
-                row.scale_x=1.5
-                row.label(text="Maya Pivot")
-                row.label(text="Behavior")
-                row.prop(self, "maya_pivot_behavior", text="")
-                row.prop(self, "maya_pivot_show_gizmo")
-
-                if self.experimental:
-                    if self.maya_pivot_experimental:
-                        layout = column.split(factor=2.0)  
-                        row = layout.row()
-                        row.prop(self, "maya_pivot_in_edit_mode")
-                    row.prop(self, "maya_pivot_experimental")
-
-            if self.enable_fast_merge: 
-                bb = b.box()
-                bb
-                column = bb.column()
-                row = column.row()
-                row.label(text="Fast Merge")
-                row.alignment = 'EXPAND'
-                row.prop(self, "fast_merge_merge_options", text="")
-                row.prop(self, "fast_merge_soft_limit")
-                if self.fast_merge_soft_limit == "max_polycount" or self.fast_merge_soft_limit == "max_limit_&_all_selected":
-                    row.prop(self, "fast_merge_polycount")
-
-            if self.enable_add_objects_pie:
-                def check_add_mesh_pie_keymap():
-                    is_add_mesh_pie_alt = False
-                    for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-                        for keymap_item in keymap.keymap_items:
-                            if keymap_item.name == "Add Mesh Pie" and keymap_item.type == "A" and keymap_item.shift and keymap_item.alt:
-                                is_add_mesh_pie_alt = True
-                                break
-                    return is_add_mesh_pie_alt
-                is_add_mesh_pie_alt = check_add_mesh_pie_keymap()
-
-                bb = b.box()
-
-                column = bb.column()
-                row = column.row()
-                row.alignment = 'LEFT'
-                row.label(text="Add Objects Pie")
-                if is_add_mesh_pie_alt:
-
-                    row.operator("keyops.add_object_pie_rebind", text="Currently Shift Alt A - Set to Shift A?", icon='QUESTION'). type = "Add Object Pie Rebind Shift A"
-                else:
-                    row.operator("keyops.add_object_pie_rebind", text="Currently Shift A - Reset to Default?", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A" 
-                
-                layout = column.split(factor=5.0)  
-                row = layout.row()
-                row.alignment = 'LEFT'
-                row.prop(self, "add_object_pie_use_relative")
-                row.prop(self, "add_object_pie_relative_scale")   
-                row.prop(self, "add_object_pie_min_scale")    
-                row.prop(self, "add_object_pie_default_scale")
-                layout = column.split(factor=5.0)
-                row = layout.row()
-                row.alignment = 'LEFT'
-                row.prop(self, "add_object_pie_Enum")
-                if self.add_object_pie_Enum == "BLEND":
-                    row.prop(self, "add_object_pie_blend_file_path", text ="")
-                    row.prop(self, "add_object_pie_blend_object_name", text ="Name")
-                if self.add_object_pie_Enum == "CUSTOM":
-                    row.prop(self, "add_object_pie_bpy_ops", text ="")
-
-            # if self.enable_toolkit_panel:
-            #     bb = b.box()
-            #     bb
-            #     column = bb.column()
-            #     row = column.row()
-            #     row.label(text="Toolkit Panel")
-            #     row.prop(self, "max_layout", text="3ds Max Inspired Layout")
-            if self.enable_legacy_shortcuts and bpy.app.version >= (5, 0, 0):
-                collection_box = b.box()
-                row = collection_box.row(align=True)
-                row.label(text="Legacy Shortcuts")
-                row.scale_x = 2.5
-                row.prop(self, "enable_legacy_collection_shortcuts", text="Legacy Hide/Show Collection shortcuts")
-
-            if self.enable_material_index:
-                bb = b.box()
-                bb
-                column = bb.column()
-                row = column.row(align=True)
-                row.alignment="LEFT"
-                row.label(text="Material Utils")
-                # sub = row.row()
-                # sub.active = False
-                # sub.label(text="Shortcut: Alt + M")
-                # row = column.row()
-                row.prop(self, "material_list_type", text="")
-                if self.material_list_show_icons and self.material_list_type == "PREVIEW_ICONS":
-                    sub = row.row()
-                    sub.scale_x=0.685
-                    sub.prop(self, "material_list_icon_scale", text="Scale")
-                else:
-                    row.prop(self, "material_list_show_icons")
-                row = column.row()
-                row.active = False
-                # row.prop(self, "material_utilities_panel")
-            
-
-            
-            bb = b.box()
-            bb
-            column = bb.column()
-            row = column.row()
-            row.label(text="Experimental")
-            row.prop(self, "experimental", text="Enable Experimental", icon = "ERROR")
-
-        # if self.enable_uv_tools:
-        #     bb = b.box()
-        #     bb
-        #     layout = bb.split(factor=0.0)
-        #     column = bb.column()
-        #     row = column.row()
-        #     row.label(text="UV Tools")
-        #     row.label(text="panel name (restart required)")  
-        #     row.prop(self, "uv_tools_panel_name")
-
-    def draw_keymaps(self, box):
-        keymap_items = get_registered_keymap_display_items()
-        wm = bpy.context.window_manager
-        kc = wm.keyconfigs.user
-
-        if get_window_with() < 800:
-            b = box.box()
-
-            b.label(text="Operations")
-            self.draw_maya_keymaps(kc, keymap_items, b)
-
-            b.label(text="Pie Menus")
-            self.draw_pie_keymaps(kc, keymap_items, b)
-        else:
-            split = box.split()
-
-            b = split.box()
-            b.label(text="Operations")
-            self.draw_maya_keymaps(kc, keymap_items, b)
-
-            b = split.box()
-            b.label(text="Pie Menus")
-            self.draw_pie_keymaps(kc, keymap_items, b)
-            
-
-
-    # def draw_keyops(self, box):
-    #     column = box.column()
-    #     column.label(text="Nothing here yet... will add somthing cool in the future")
-
-    def draw_rebind(self, box):
-        bb = box.box()
-        column = bb.column()
-        row = column.row()
-        row.label(text="Rebind/Cusomize Shortcuts in Blender")
-        row.separator()
-        row = column.row()
-        row.label(text="Warning, this will permanently change your keymaps", icon='ERROR')
-        
-        bb = box.box()
-        column = bb.column()
-        row = column.row()
-        row.label(text="Rebind")
-
-        row.separator()
-        row.separator()
-        
-        row = column.row()
-        row.label(text="Rebind Context Menu")
-        row.operator("keyops.rebind_rightclick")
-        row.operator("keyops.rebind_w")
-
-        def check_add_mesh_pie_keymap():
-            is_add_mesh_pie_alt = False
-            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-                for keymap_item in keymap.keymap_items:
-                    if keymap_item.name == "Add Mesh Pie" and keymap_item.type == "A" and keymap_item.shift and keymap_item.alt:
-                        is_add_mesh_pie_alt = True
-                        break
-            return is_add_mesh_pie_alt
-        
-        is_add_mesh_pie_alt = check_add_mesh_pie_keymap()
-
-        if is_add_mesh_pie_alt:
-            row = column.row()
-            row.label(text="Rebind Add Menu")
-            row.operator("keyops.add_object_pie_rebind", text="Add Menu to (Shift Alt A)"). type = "Add Object Pie Rebind Shift A"
-        else:
-            row = column.row()
-            row.label(text="Rebind Add Menu")
-            row.operator("keyops.add_object_pie_rebind", text="Reset Add Menu back to (Shift A)", icon ="BACK"). type = "Add Object Pie Rebind Shift Alt A"
-    
-        bb = box.box()
-        column = bb.column()
-        row = column.row()
-        row.label(text="Pies")
-
-        #pie menu settings
-        def check_view_camera_pie_keymap():
-            is_view_camera_pie_space = False
-            for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-                for keymap_item in keymap.keymap_items:
-                    if keymap_item.name == "Play Animation" and keymap_item.type == "SPACE" and keymap_item.shift==False:
-                        is_view_camera_pie_space = True
-                        break
-            return is_view_camera_pie_space
-            
-        is_view_camera_pie_space = check_view_camera_pie_keymap()
-        
-        if is_view_camera_pie_space:
-            row = column.row()
-
-            row.label(text="View Camera Pie")
-            row.operator("keyops.space_to_view_camera_pie", text="View Camera Pie to (Space)"). type = "Space To View Camera Pie Shift"
-        else:
-            row = column.row()
-
-            row.label(text="View Camera Pie")
-            row.operator("keyops.space_to_view_camera_pie", text="Reset Play back to (Space)", icon ="BACK"). type = "Space To View Camera Pie"            
-       
-        row = column.row()
-        row.label(text="Pie Menu Animation Timeout")
-        if bpy.context.preferences.view.pie_animation_timeout == 6:
-            row.operator("keyops.rebind", text="No Lag Pie Menu Settings").type = "No_Lag_Pie"
-        else:
-            row.operator("keyops.rebind", text = "Reset to Defualt", icon ="BACK").type = "Default_Pie"
-
-#The following code is based on the MACHIN3 addon: MACHIN3tools
-#Check out there awesome addons here: https://machin3.io/
-    def draw_maya_keymaps(self, kc, keysdict, layout):
-        drawn = False
-        
-        ignore_list = ["MAYA_NAVIGATION", 
-                        "DOUBLE_CLICK_SELECT_ISLAND",
-                        "ADD_OBJECTS_PIE",
-                        "VIEW_PIE",
-                        "SELECT_EDGE_LOOP",
-                        "WORKSPACE_PIE",
-                        "CURSOR_PIE",
-                        "ADD_MODIFIER_PIE",
-                        "VIEW_CAMERA_PIE",
-                        "UV_U_PIE",
-                        "UV_SPACE_PIE",
-                        "UTILITY_PIE",
-                        "FLATTEN_PIE",
-                        "UV_PIES"]
-
-        for name in keysdict:
-            if not any(string in name for string in ignore_list):
-                keylist = keysdict.get(name)
-
-                if draw_keymap(kc, name, keylist, layout):
-                    drawn = True
-        return drawn
-
-    def draw_pie_keymaps(self, kc, keysdict, layout):
-        drawn = False
-
-        for name in keysdict:
-            if "PIE" in name:
-                keylist = keysdict.get(name)
-
-                if draw_keymap(kc, name, keylist, layout):
-                    drawn = True
-        return drawn
-
-    def enable_deco(extension):
-        def update_enable(self, context):
-            from . import extension_register_unregister
-            is_set_to_enalbe = getattr(self, f"enable_{extension}")
-            extension_register_unregister(extension, is_set_to_enalbe)
-        return update_enable
-
-    def update_legacy_collection_shortcuts(self, context):
-        if bpy.app.version < (5, 0, 0):
-            self.enable_legacy_collection_shortcuts = False
-            return
-        if not self.enable_legacy_shortcuts:
-            self.enable_legacy_collection_shortcuts = False
-            return
-
-        if self.enable_legacy_collection_shortcuts:
-            from .operators.legacy_shortcuts import register_legacy_collection_shortcuts
-            register_legacy_collection_shortcuts()
-        else:
-            from .operators.legacy_shortcuts import unregister_legacy_collection_shortcuts
-            unregister_legacy_collection_shortcuts()
-
+    # Disable LoopTools menu by default when LoopTools is enabled, to avoid duplicate menu entries.
+    looptools_menu_default = not is_addon_enabled("looptools", "mesh_looptools", "bl_ext.blender_org.looptools")
     default_retopology_custom_tool = "builtin.select_box"
 
-    toggle_retopology_default = True
+    # ---------------- 1.0 state
+    ui_tab: EnumProperty(name="Tab", items=[
+        ("HOME", "Home", "Shortcut style and status", 'HOME', 0),
+        ("FEATURES", "Features", "Turn features on and off, and change their settings", 'PRESET', 1),
+        ("SHORTCUTS", "Shortcuts", "Every Key Ops shortcut, grouped by feature", 'KEYINGSET', 2),
+        ("PIES", "Pie Menus", "Pie menus and the keys that open them", 'MESH_CIRCLE', 3)]) # type: ignore
+    ui_category: EnumProperty(name="Category", items=_category_enum_items) # type: ignore
+    ui_search: StringProperty(name="Search", description="Search features by name or description", options={'TEXTEDIT_UPDATE'}) # type: ignore
+    ui_filter: EnumProperty(name="Show", items=[
+        ("ALL", "All", "Show all features"),
+        ("ON", "On", "Only features that are on"),
+        ("OFF", "Off", "Only features that are off"),
+        ("KEYS", "Uses Keys", "Only features that add shortcuts"),
+        ("REPLACES", "Replaces Keys", "Only features that replace a Blender shortcut")]) # type: ignore
+    shortcut_style: EnumProperty(name="Shortcut Style", items=[s for s in F.STYLES], default="ESSENTIALS", update=_style_update) # type: ignore
+    style_modified: BoolProperty(default=False) # type: ignore
+    pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
+                                  description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
+    prefs_version: IntProperty(default=0) # type: ignore
+    welcome_version: IntProperty(default=0) # type: ignore
+    show_whats_new: BoolProperty(default=False) # type: ignore
 
-    enable_auto_delete: BoolProperty(name="Auto Delete", description="Instant context-aware edit mode delete, no more menus.", default=True, update=enable_deco("auto_delete")) # type: ignore
-    enable_toggle_retopology: BoolProperty(name="Retopology", description="Toggle a retopology preset with overlay, snapping, tool, and theme settings along with tool.", default=toggle_retopology_default, update=enable_deco("toggle_retopology")) # type: ignore
-    enable_maya_pivot: BoolProperty(name="Maya Pivot", description="Maya-style pivot editing on D in Object Mode, including hold or toggle behavior.", default=True, update=enable_deco("maya_pivot")) # type: ignore
-    enable_maya_navigation: BoolProperty(name="Alt Navigation", description="Maya-style Alt navigation in 3D view and editors.", default=True, update=enable_deco("maya_navigation")) # type: ignore
-    enable_double_click_select_island: BoolProperty(name="Select Island", description="Double-click to selected linked island in mesh, UV, and curve objects.", default=True, update=enable_deco("double_click_select_island")) # type: ignore
-    enable_uv_tools: BoolProperty(name="UV Tools", description="Add UV workflow operators and shortcuts like Smart UV Sync, UV Cut, unwrap, and packing helpers.", default=True, update=enable_deco("uv_tools")) # type: ignore
-    enable_uv_pies: BoolProperty(name="UV Pies", description="UV pie menus on Q and Space in the UV editor for fast unwrap and island actions.", default=False, update=enable_deco("uv_pies")) # type: ignore
-    enable_utility_pie: BoolProperty(name="Utility Pie", description="Utility pie menu on U in object and edit mode for common mesh and UV actions.", default=False, update=enable_deco("utility_pie")) # type: ignore
-    enable_add_objects_pie: BoolProperty(name="Add Objects Pie", description="Add objects pie menu with screenspace relative scaling, so its never to big or to small.", default=True, update=enable_deco("add_objects_pie")) # type: ignore
-    enable_add_modifier_pie: BoolProperty(name="Add Modifier Pie", description="Add modifier pie menu.", default=True, update=enable_deco("add_modifier_pie")) # type: ignore
-    enable_legacy_shortcuts: BoolProperty(name="Legacy Shortcuts", description="Restore useful legacy-inspired modeling and UV shortcuts from older Blender versions.", default=True, update=enable_deco("legacy_shortcuts")) # type: ignore
+    # ---------------- feature switches, generated from the registry
+    for _f in F.FEATURES:
+        _default = looptools_menu_default if _f.id == "looptools_menu" else (_f.default_on and not _f.optional)
+        __annotations__[f"enable_{_f.id}"] = BoolProperty(
+            name=_f.name, description=_f.description, default=_default, update=_enable_update(_f.id))
+        if _f.keys:
+            __annotations__[f"keys_{_f.id}"] = BoolProperty(
+                name="Use Shortcuts", description=f"Turn {_f.name} shortcuts on or off", default=False,
+                update=_keys_update(_f.id))
+    del _f, _default
+
     enable_legacy_collection_shortcuts: BoolProperty(name="Collection Number Keys", description="Restore object-mode collection hide/unhide shortcuts on numbers 1-0, including Shift and Alt variants. Blender 5.0+ only.", default=False, update=update_legacy_collection_shortcuts) # type: ignore
-    enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore
-    enable_cursor_pie: BoolProperty(name="Cursor Pie", description="A better cursor and origin snapping pie menu on Shift+S.", default=True, update=enable_deco("cursor_pie")) # type: ignore
-    enable_flatten_pie: BoolProperty(name="Flatten Pie", description="Alt+3 pie in edit mode that flattens the selection left, right, top or bottom from the current view, onto the outer most selected point.", default=True, update=enable_deco("flatten_pie")) # type: ignore
-    enable_fast_merge: BoolProperty(name="Merge/Connect", description="Fast merge and connect shortcuts in edit mode with smart nearest or active vertex behavior. Use with 1 and Shift 1.", default=True, update=enable_deco("fast_merge")) # type: ignore
-    enable_merge_tool: BoolProperty(name="Merge Tool", description="Maya like target weld merge tool for vertices and edges.", default=True, update=enable_deco("merge_tool")) # type: ignore
-    enable_fast_loop_cut: BoolProperty(name="Fast Loop Cut", description="Loop cut tool that previews the loop where you hover and cuts it on click, no slide step.", default=True, update=enable_deco("fast_loop_cut")) # type: ignore
-    enable_cutter_tool: BoolProperty(name="Cutter Tool", description="Object mode tool to draw a box, circle or ngon and boolean it into objects. Uses a light overlay while drawing, not a live boolean.", default=True, update=enable_deco("cutter_tool")) # type: ignore
-    enable_modi_key: BoolProperty(name="Modifier Key", description="New Keyboard shortcuts in the modifiers tab for reordering, toggling, applying, modifier status, and deleting modifiers etc.", default=True, update=enable_deco("modi_key")) # type: ignore
-    enable_cad_decimate: BoolProperty(name="CAD Decimate", description="CAD decimation operators and UI for export, decimate, and import workflows on heavy meshes.", default=True, update=enable_deco("cad_decimate"))     # type: ignore
-    enable_auto_lod: BoolProperty(name="Auto LOD", description="Automatic LOD generation tools that create decimated LOD chains from selected meshes.", default=True, update=enable_deco("auto_lod")) # type: ignore
-    enable_quick_bake_name: BoolProperty(name="Quick Bake Name", description="Quick high and low bake naming tools.", default=True, update=enable_deco("quick_bake_name")) # type: ignore
-    enable_polycount_list: BoolProperty(name="Polycount List", description="A list with all objects and their poly count along with how long it takes to calculate each object's modifiers", default=True, update=enable_deco("polycount_list")) # type: ignore
-    enable_toolkit_panel: BoolProperty(name="Object Toolkit", description="Object toolkit Panel.", default=True, update=enable_deco("toolkit_panel")) # type: ignore
-    # enable_editmode_toolkit_panel: BoolProperty(name="EditMode Toolkit", default=True, update=enable_deco("editmode_toolkit_panel")) # type: ignore
-    enable_quick_export: BoolProperty(name="Quick Export", description="Ctrl+E quick export selected objects. If collections are named low... or high... it will export to a bake folder.", default=True, update=enable_deco("quick_export")) # type: ignore
-    enable_atri_op: BoolProperty(name="Atributes Operations", description="Face, edge and vert group operations for managing attributes in edit mode.", default=True, update=enable_deco("atri_op")) # type: ignore
-    enable_material_index: BoolProperty(name="Material Utils", description="Material utils operations.", default=True, update=enable_deco("material_index")) # type: ignore
-    enable_outliner_options: BoolProperty(name="Outliner Options", description="Extra outliner options like auto focus.", default=True, update=enable_deco("outliner_options")) # type: ignore
-    enable_viewport_menu: BoolProperty(name="Viewport Menu", description="Alt+V viewport overlay menu with quick toggles and silhouette mode.", default=True, update=enable_deco("viewport_menu")) # type: ignore
-    enable_looptools_menu: BoolProperty(name="LoopTools Menu", description="Add LoopTools to the edit mode context menu. Blender 5.3+ only.", default=looptools_menu_default, update=enable_deco("looptools_menu")) # type: ignore
+
 
     #prefs settings variables
     maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update= update_tablet_navigation) # type: ignore 
@@ -662,3 +230,241 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         default="COMPACT_LIST") # type: ignore  
     material_list_show_icons: BoolProperty(name="Show Icons", default=True) # type: ignore
     experimental: BoolProperty(name="Experimental", default=False, description="Enable Experimental Features") # type: ignore
+
+    # ================================================================ drawing
+
+    def draw(self, context):
+        layout = self.layout
+        if self.show_whats_new:
+            box = layout.box()
+            col = box.column()
+            col.label(text="Key Ops 1.0: features and shortcuts now have separate switches.", icon='INFO')
+            sub = col.column()
+            sub.active = False
+            sub.label(text="Your setup from 0.2 is kept as it was. Switch to Essentials for tools and panels without shortcuts.")
+            row = col.row()
+            row.operator("keyops.dismiss_whats_new", text="Keep My Setup").switch = False
+            row.operator("keyops.dismiss_whats_new", text="Switch to Essentials").switch = True
+
+        row = layout.row()
+        row.scale_y = 1.3
+        row.prop(self, "ui_tab", expand=True)
+        body = layout.column()
+        {"HOME": self.draw_home, "FEATURES": self.draw_features,
+         "SHORTCUTS": self.draw_shortcuts, "PIES": self.draw_pies}[self.ui_tab](context, body)
+
+    # ---------------------------------------------------------------- Home
+    def draw_home(self, context, layout):
+        box = layout.box()
+        box.label(text="Shortcut Style")
+        grid = box.grid_flow(row_major=True, columns=4, even_columns=True, align=False)
+        for sid, name, desc, icon, _i in F.STYLES:
+            col = grid.column(align=True)
+            r = col.row()
+            r.scale_y = 2.0
+            r.prop_enum(self, "shortcut_style", sid, text=name, icon=icon)
+            d = col.column(align=True)
+            d.active = False
+            for line in _wrap(desc, 30):
+                d.label(text=line)
+
+        feats, keys, repl = F.stats(self)
+        name = dict((s[0], s[1]) for s in F.STYLES)[self.shortcut_style]
+        if self.shortcut_style != "CUSTOM" and not F.matches_style(self.shortcut_style, self):
+            name += " (modified)"
+        row = box.row()
+        row.label(text=f"Current: {name}", icon='DOT')
+        row.label(text=f"{feats} features on")
+        row.label(text=f"{keys} shortcuts active")
+        sub = row.row()
+        sub.alert = repl > 0
+        sub.label(text=f"{repl} replace Blender keys", icon='ERROR' if repl else 'CHECKMARK')
+
+        box = layout.box()
+        row = box.row()
+        row.prop(self, "pause_shortcuts", text="Pause All Key Ops Shortcuts", icon='PAUSE' if not self.pause_shortcuts else 'PLAY', toggle=True)
+        sub = row.row()
+        sub.active = False
+        sub.label(text="Features keep working. Try this first when a key stops doing what you expect.")
+
+        box = layout.box()
+        box.label(text="Get Started")
+        row = box.row()
+        row.operator("keyops.welcome", text="Show Welcome Again", icon='HEART')
+        row.operator("wm.url_open", text="Documentation", icon='HELP').url = DOCS_URL
+        row.operator("keyops.shortcut_cheatsheet", text="Active Shortcuts", icon='KEYINGSET')
+
+        box = layout.box()
+        box.label(text="Blender Settings We Recommend")
+        col = box.column(align=True)
+        col.active = False
+        col.label(text="Pie menus open instantly with Interface > Editors > Pie Menus > Animation Timeout set to 0.")
+        col.label(text="Key Ops never changes your Blender preferences or keymap for you.")
+
+    # ---------------------------------------------------------------- Features
+    def _feature_matches(self, f):
+        q = self.ui_search.strip().lower()
+        if q and q not in f"{f.name} {f.description}".lower():
+            return False
+        if not q and f.category != self.ui_category:
+            return False
+        on = getattr(self, f"enable_{f.id}")
+        flt = self.ui_filter
+        if flt == "ON" and not on:
+            return False
+        if flt == "OFF" and on:
+            return False
+        if flt == "KEYS" and not f.keys:
+            return False
+        if flt == "REPLACES" and not f.replaced:
+            return False
+        return True
+
+    def draw_features(self, context, layout):
+        split = layout.split(factor=0.24)
+        left = split.column()
+        col = left.column(align=True)
+        col.scale_y = 1.35
+        col.prop(self, "ui_category", expand=True)
+        left.separator()
+        left.prop(self, "experimental", text="Show Experimental", icon='EXPERIMENTAL', toggle=True)
+
+        right = split.column()
+        row = right.row(align=True)
+        row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features") if bpy.app.version >= (4, 1, 0) else row.prop(self, "ui_search", text="", icon='VIEWZOOM')
+        row = right.row(align=True)
+        row.prop(self, "ui_filter", expand=True)
+        right.separator(factor=0.5)
+
+        shown = [f for f in F.visible_features(self) if self._feature_matches(f)]
+        if not shown:
+            box = right.box()
+            box.label(text="No features match. Clear the search or the filter.", icon='INFO')
+        for f in shown:
+            self.draw_card(context, right, f)
+
+    def draw_card(self, context, layout, f):
+        wm = context.window_manager
+        enabled = getattr(self, f"enable_{f.id}")
+        is_open = getattr(wm, "keyops_open_feature", "") == f.id
+
+        box = layout.box()
+        col = box.column(align=True)
+        row = col.row(align=True)
+        row.prop(self, f"enable_{f.id}", text="")
+        sp = row.split(factor=0.5)
+        name = sp.row()
+        name.active = enabled
+        name.label(text=f.name + ("   (experimental)" if f.experimental else ""))
+        right = sp.row(align=True)
+        right.alignment = 'RIGHT'
+        text, icon = _impact(f)
+        badge = right.row()
+        badge.active = enabled
+        badge.alert = bool(f.replaced) and enabled and getattr(self, f"keys_{f.id}", False)
+        badge.label(text=text, icon=icon)
+        right.operator("wm.url_open", text="", icon='HELP', emboss=False).url = _docs(f)
+        right.operator("keyops.toggle_feature_card", text="", icon='DOWNARROW_HLT' if is_open else 'RIGHTARROW',
+                       emboss=False).feature_id = f.id
+
+        d = col.row()
+        d.active = False
+        d.separator(factor=2.6)
+        d.label(text=f.description)
+        if f.requires and not getattr(self, f"enable_{f.requires}"):
+            r = col.row()
+            r.separator(factor=2.6)
+            r.label(text=f"Needs {F.FEATURE_BY_ID[f.requires].name} to be on.", icon='LINKED')
+
+        if not is_open:
+            return
+        inner = box.column()
+        inner.separator(type='LINE') if bpy.app.version >= (4, 2, 0) else inner.separator()
+        if f.keys:
+            r = inner.row()
+            r.prop(self, f"keys_{f.id}", text="Use Shortcuts")
+            if not getattr(self, f"keys_{f.id}"):
+                s = r.row()
+                s.active = False
+                s.label(text="Off. Run it from the N-panel, menus or F3 search.")
+            keys_col = inner.column(align=True)
+            keys_col.active = getattr(self, f"keys_{f.id}") and enabled
+            for k in f.keys:
+                ks = keys_col.split(factor=0.28)
+                ks.label(text=k.key, icon='EVENT_K')
+                ks2 = ks.split(factor=0.6)
+                ks2.label(text=f"{k.action}  ·  {k.editor}")
+                ks2.label(text=f"Replaces {k.replaces}" if k.replaces else "Free key",
+                          icon='ERROR' if k.replaces else 'CHECKMARK')
+            sub = inner.row()
+            sub.active = False
+            sub.label(text="Rebind these in the Shortcuts tab.")
+        else:
+            sub = inner.row()
+            sub.active = False
+            sub.label(text="This feature adds tools, panels or menu entries. It has no shortcuts.")
+        sbox = inner.column()
+        if f.id in SETTINGS:
+            sbox.separator()
+            sbox.label(text="Settings", icon='PREFERENCES')
+            draw_settings(f.id, self, sbox.box().column())
+
+    # ---------------------------------------------------------------- Shortcuts
+    def draw_shortcuts(self, context, layout):
+        box = layout.box()
+        row = box.row()
+        sub = row.column(align=True)
+        sub.active = False
+        sub.label(text="Key Ops adds shortcuts on top of yours. Turning one off gives Blender's back.")
+        sub.label(text="Click a key to rebind it. Changes are saved in your keymap like any other shortcut.")
+        row.prop(self, "pause_shortcuts", text="Pause All", icon='PAUSE', toggle=True)
+        layout.prop(self, "ui_search", text="", icon='VIEWZOOM')
+
+        kc = context.window_manager.keyconfigs.user
+        q = self.ui_search.strip().lower()
+        drawn = False
+        for f in F.visible_features(self):
+            if not f.keys or not getattr(self, f"enable_{f.id}"):
+                continue
+            items = F.tracked_items(f.id)
+            if q and q not in f.name.lower() and not any(q in (kmi.name or "").lower() or q in kmi.type.lower() for _km, kmi in items):
+                continue
+            drawn = True
+            box = layout.box()
+            head = box.row()
+            head.label(text=f.name, icon='ERROR' if f.replaced else 'EVENT_K')
+            head.prop(self, f"keys_{f.id}", text="On")
+            col = box.column()
+            col.active = F.keys_active(f.id, self)
+            for km, kmi in items:
+                ukm = kc.keymaps.get(km.name)
+                ukmi = _find_user_item(ukm, kmi) if ukm else None
+                if ukmi:
+                    rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, ukm, ukmi, col, 0)
+            if not items:
+                col.label(text="No shortcuts registered yet.")
+        if not drawn:
+            layout.label(text="No features with shortcuts are on. Turn some on in Features, or pick a style on Home.", icon='INFO')
+
+    # ---------------------------------------------------------------- Pies
+    def draw_pies(self, context, layout):
+        box = layout.box()
+        col = box.column(align=True)
+        col.active = False
+        col.label(text="Pie menus open with a key, so each one adds a shortcut. Options marked 'on Shift A' or 'on Space'")
+        col.label(text="replace a Blender key with Key Ops' own shortcut. Your keymap itself is never edited.")
+        for f in F.visible_features(self):
+            if f.category == "PIES":
+                self.draw_card(context, layout, f)
+
+
+def _find_user_item(ukm, kmi):
+    """The user-keymap copy of one of our addon items (what rna_keymap_ui edits)."""
+    want = _keymap_item_to_display_item(None, kmi).get("properties", [])
+    candidates = [item for item in ukm.keymap_items
+                  if item.idname == kmi.idname and all(getattr(item.properties, n, None) == v for n, v in want)]
+    sig = (kmi.type, kmi.value, kmi.ctrl, kmi.shift, kmi.alt)
+    for item in candidates:
+        if (item.type, item.value, item.ctrl, item.shift, item.alt) == sig:
+            return item
+    return candidates[0] if candidates else None
