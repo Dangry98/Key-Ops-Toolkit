@@ -58,6 +58,16 @@ def run():
     check("toolkit N-panel registered (original design)", hasattr(bpy.types, "KEYOPS_PT_new_toolkit_panel"))
     tabs = [i.identifier for i in p.bl_rna.properties["ui_tab"].enum_items]
     check("tabs: Features, Pie Menus, Shortcuts last", tabs == ["FEATURES", "PIES", "SHORTCUTS"], str(tabs))
+    W = sys.modules[MOD + ".ui.welcome"]
+    BR = sys.modules[MOD + ".ui.branding"]
+    check("new install shows the welcome screen", W.first_screen(p) == 'WELCOME')
+    p.welcome_version = F.WELCOME_VERSION
+    p.last_seen_version = BR.version_text()
+    check("nothing shows again for the same version", W.first_screen(p) is None)
+    p.last_seen_version = "0.0.1"
+    check("an update shows What's New once", W.first_screen(p) == 'WHATS_NEW')
+    p.last_seen_version = ""
+    p.welcome_version = 0
     check("pies not in Features", not any(f.category == "PIES" or "pie" in f.id for f in F.FEATURES))
 
     # ---- welcome preset: Blender+
