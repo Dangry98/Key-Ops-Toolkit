@@ -56,7 +56,7 @@ def run():
 
     # ---- fresh install (before the welcome screen)
     check("fresh install binds zero shortcuts", F.live_shortcut_count() == 0, str(F.live_shortcut_count()))
-    check("fresh install: pies listed but none active", len(p.pies) == 8 and PM.live_count() == 0,
+    check("fresh install: pies listed but none active", len(p.pies) == 9 and PM.live_count() == 0,
           f"{len(p.pies)} pies, {PM.live_count()} keys")
     feats, keys, repl = F.stats(p)
     check("fresh install still turns UI features on", feats >= 10, f"{feats} features")
@@ -183,12 +183,12 @@ def run():
     check("a change is written to pie_menus.json", saved["data"]["pies"][0]["name"] == "Renamed Pie")
     p.pies.clear()
     PM.load_from_disk()
-    check("pies come back from the file (e.g. after reinstalling)", len(p.pies) >= 8 and p.pies[0].name == "Renamed Pie")
+    check("pies come back from the file (e.g. after reinstalling)", len(p.pies) >= 9 and p.pies[0].name == "Renamed Pie")
     tmp = os.path.join(tempfile.mkdtemp(), "keyops.json")
     bpy.ops.keyops.settings_export(filepath=tmp, scope="ALL")
     bundle = json.load(open(tmp))
     check("export writes every section", {"preferences", "pie_menus"} <= set(bundle["sections"]), str(list(bundle["sections"])))
-    check("export includes feature switches automatically", "enable_auto_delete" in bundle["sections"]["preferences"])
+    check("export includes feature switches automatically", "enable_auto_delete" in bundle["sections"]["preferences"]["data"])
     cad_before = p.enable_cad_decimate
     p.enable_cad_decimate = not cad_before
     p.pies[0].name = "Changed"
@@ -196,8 +196,8 @@ def run():
     check("import restores feature settings", p.enable_cad_decimate == cad_before)
     check("import restores pie menus", p.pies[0].name == "Renamed Pie")
     n_pies = len(p.pies)
-    bundle["sections"]["pie_menus"]["pies"][0]["uid"] = "imported01"
-    bundle["sections"]["pie_menus"]["pies"][0]["name"] = "Shared Pie"
+    bundle["sections"]["pie_menus"]["data"]["pies"][0]["uid"] = "imported01"
+    bundle["sections"]["pie_menus"]["data"]["pies"][0]["name"] = "Shared Pie"
     json.dump(bundle, open(tmp, "w"))
     bpy.ops.keyops.settings_import(filepath=tmp, scope="PIES", mode="ADD")
     check("import with Add keeps your pies and adds new ones", len(p.pies) == n_pies + 1 and p.pies[-1].name == "Shared Pie")
@@ -208,6 +208,86 @@ def run():
     except RuntimeError as e:
         res = str(e)
     check("importing a wrong file is refused with a clear message", "not a Key Ops settings file" in str(res), str(res))
+
+    # ---- file versioning: old files migrate (with a backup), newer files are never overwritten
+    import glob
+    v1 = {"format": "keyops-settings", "version": 1, "section": "pie_menus",
+          "data": {"pies": [{"uid": "old1", "name": "Old Pie", "enabled": True, "editor": "3D View Generic",
+                             "key": "J", "ctrl": True, "future_field": "keep me",
+                             "items": [{"kind": "OPERATOR", "label": "Cube", "idname": "mesh.primitive_cube_add",
+                                        "props": "", "icon": "MESH_CUBE"}]}]}}
+    json.dump(v1, open(pie_file, "w"))
+    for f in glob.glob(os.path.join(user_dir, "pie_menus.backup-*")):
+        os.remove(f)
+    PM.load_from_disk()
+    names = [x.name for x in p.pies]
+    check("an old (schema 1) file loads and migrates", "Old Pie" in names and p.pies[0].menu_type == "PIE", str(names))
+    check("a backup is kept before migrating", len(glob.glob(os.path.join(user_dir, "pie_menus.backup-schema1-*"))) == 1)
+    check("presets added since that file appear once, switched off",
+          any(x.preset == "view" and not x.enabled for x in p.pies) and sum(x.preset == "view" for x in p.pies) == 1)
+    resaved = json.load(open(pie_file))
+    check("the file is rewritten in the current schema", resaved["schema"] == PM.PIE_SCHEMA)
+    check("unknown fields from other versions are kept", resaved["data"]["pies"][0].get("future_field") == "keep me")
+    newer = dict(resaved, schema=99)
+    json.dump(newer, open(pie_file, "w"))
+    PM.load_from_disk()
+    p.pies[0].name = "Should not be saved"
+    S.flush_now()
+    check("a file from a newer Key Ops is never overwritten", json.load(open(pie_file))["schema"] == 99 and S.read_only("pie_menus"))
+    S._read_only.clear()
+    open(pie_file, "w").write("{ not json")
+    ok = PM.load_from_disk()
+    check("a broken file is set aside, not deleted", not ok and glob.glob(os.path.join(user_dir, "pie_menus.unreadable-*")))
+    p.pies.clear()
+    PM.install_presets(p, "BLENDER_PLUS")
+    S.flush_now()
+
+    # ---- popup menus and macros
+    view = next(x for x in p.pies if x.preset == "view")
+    blender_view = ["view3d.view_axis"] * 6 + ["view3d.view_camera", "view3d.view_selected"]
+    check("View pie matches Blender's View pie slot for slot", [i.idname for i in view.items] == blender_view and view.key == "SPACE")
+    bpy.ops.keyops.pie_add(menu_type="MENU")
+    menu = p.pies[-1]
+    p.active_pie = len(p.pies) - 1
+    bpy.ops.keyops.menu_item_add()
+    bpy.ops.keyops.menu_item_add()
+    PM.apply_action(menu.items[0], "O:mesh.primitive_cube_add")
+    PM.apply_action(menu.items[2], "O:mesh.primitive_uv_sphere_add")
+    p.pie_slot = 2
+    bpy.ops.keyops.menu_item_move(direction=-1)
+    check("popup menus hold any number of items and can be reordered",
+          menu.menu_type == "MENU" and len(menu.items) == 3 and menu.items[1].idname == "mesh.primitive_uv_sphere_add")
+    p.pie_slot = 0
+    bpy.ops.keyops.slot_make_macro()
+    it = menu.items[0]
+    bpy.ops.keyops.macro_step_add()
+    it.steps[1].idname, it.steps[1].props = "transform.translate", "value=(3, 0, 0)"
+    check("an item becomes a macro, keeping its operator as step 1", it.kind == "MACRO" and it.steps[0].idname == "mesh.primitive_cube_add")
+    n_obj = len(bpy.data.objects)
+    bpy.ops.wm.keyops_run_macro(pie=menu.uid, slot=0)
+    newest = bpy.context.object
+    check("running a macro runs every step", len(bpy.data.objects) == n_obj + 1 and abs(newest.location.x - 3) < 1e-4,
+          f"{len(bpy.data.objects) - n_obj} new, x={newest.location.x:.2f}")
+    check("commands from the Info editor are understood",
+          PM.parse_command("bpy.ops.mesh.primitive_monkey_add(size=2, location=(0, 0, 1))")
+          == ("mesh.primitive_monkey_add", "size=2, location=(0, 0, 1)"))
+    bpy.context.window_manager.keyops_paste_command = "bpy.ops.object.shade_smooth()"
+    check("pasting a command adds it to the macro", it.steps[-1].idname == "object.shade_smooth")
+    S.flush_now()
+    saved = json.load(open(pie_file))["data"]["pies"][-1]
+    check("popup menus and macro steps are saved", saved["menu_type"] == "MENU" and len(saved["items"][0]["steps"]) == 3)
+    tmp2 = os.path.join(tempfile.mkdtemp(), "one.json")
+    S.export_file(tmp2, ["pie_menus"], {"pie_menus": lambda d: dict(d, pies=[x for x in d["pies"] if x["uid"] == menu.uid])})
+    check("export can include just the menus you pick", [x["name"] for x in json.load(open(tmp2))["sections"]["pie_menus"]["data"]["pies"]] == ["My Menu"])
+
+    old_export = {"format": "keyops-settings", "version": 1,
+                  "sections": {"pie_menus": {"pies": [{"uid": "fromold", "name": "From Old Export", "key": "K",
+                                                       "items": []}]}}}
+    tmp3 = os.path.join(tempfile.mkdtemp(), "old.json")
+    json.dump(old_export, open(tmp3, "w"))
+    bpy.ops.keyops.settings_import(filepath=tmp3, scope="PIES", mode="ADD")
+    check("files exported by an earlier Key Ops still import", any(x.name == "From Old Export" and x.menu_type == "PIE"
+                                                               and len(x.items) == 8 for x in p.pies))
 
     # ---- disable: Blender's own keymap untouched, our items gone
     addon_utils.disable(MOD, default_set=True)
