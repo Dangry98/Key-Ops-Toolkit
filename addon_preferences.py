@@ -132,6 +132,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     pie_slot: IntProperty(default=0) # type: ignore
     pie_show_more: BoolProperty(name="More Options", default=False) # type: ignore
     pie_show_settings: BoolProperty(name="Pie Settings", default=False) # type: ignore
+    pie_show_feel: BoolProperty(name="How Pies Feel", default=False) # type: ignore
     pie_customize: BoolProperty(name="Customize", default=False,
                                 description="Edit labels and commands, add your own pies, change where a pie works") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
