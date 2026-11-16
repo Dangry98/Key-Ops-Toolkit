@@ -37,16 +37,38 @@ def register():
     bpy.utils.register_class(NewToolkitPanel)
     register_xray_select()
 
-    # Fresh install -> quiet (no shortcuts) until the welcome screen. Upgrade from 0.2 -> keep everything.
-    features.migrate()
-    # Register every enabled feature from the registry (replaces the old if/elif dispatcher)
-    features.sync_all()
     pie_menus.register()
-    welcome.schedule_welcome()
+    if _prefs_ready():
+        _finish_register()
+    else:
+        # Enabled from the command line: preferences don't exist until Blender finishes starting
+        bpy.app.timers.register(_finish_register_when_ready, first_interval=0.1)
 
     if debug:
         print(f"{__package__} registered in {time.time() - start:.4f}s, "
               f"{features.live_shortcut_count() + pie_menus.live_count()} shortcuts active")
+
+
+def _prefs_ready():
+    from .utils.pref_utils import KeyOpsPrefsMock, get_keyops_prefs
+    return not isinstance(get_keyops_prefs(), KeyOpsPrefsMock)
+
+
+def _finish_register():
+    # Fresh install -> quiet (no shortcuts) until the welcome screen. Upgrade from 0.2 -> keep everything.
+    features.migrate()
+    # Register every enabled feature from the registry (replaces the old if/elif dispatcher)
+    features.sync_all()
+    pie_menus.sync_keymaps()
+    welcome.schedule_welcome()
+
+
+def _finish_register_when_ready(tries=[0]):
+    tries[0] += 1
+    if _prefs_ready():
+        _finish_register()
+        return None
+    return 0.2 if tries[0] < 100 else None
 
 
 def unregister():
