@@ -265,6 +265,13 @@ def _values_changed():
         settings_store.save_soon("values")
 
 
+def _append_targets(text):
+    """Blender menus, headers and panels whose name contains the typed text (Add To search)."""
+    text = text.strip().lower()
+    names = [n for n in dir(bpy.types) if ("_MT_" in n or "_HT_" in n or "_PT_" in n) and not n.startswith("KEYOPS")]
+    return [n for n in sorted(names) if text in n.lower()][:300]
+
+
 _EDITOR_IDS = [e[0] for e in EDITORS]
 _EDITOR_LABELS = {e[0]: e[1] for e in EDITORS}
 
@@ -346,6 +353,20 @@ class KeyOpsPie(PropertyGroup):
         name="Show When", update=_changed,
         description="Optional Python test, e.g. C.object and C.object.type == 'MESH'. "
                     "C is the context, obj the active object. When it's false, the key does what Blender does") # type: ignore
+    append_to: StringProperty(name="Add To", update=_sync_update, search=lambda self, context, text: _append_targets(text),
+                              description="Also show this menu inside one of Blender's menus, headers or panels, "
+                                          "e.g. VIEW3D_MT_object_context_menu (right-click menu in Object Mode)") # type: ignore
+    append_as: EnumProperty(name="As", update=_sync_update, items=(
+        ("BUTTON", "Button", "A button that opens this menu"),
+        ("ITEMS", "Items", "This menu's items, placed right there"))) # type: ignore
+    tags: StringProperty(name="Tags", update=_changed,
+                         description="Words to group your menus by, separated by commas, e.g. modeling, uv. "
+                                     "Use the filter beside the search to show one tag") # type: ignore
+    radius: IntProperty(name="Pie Size", default=0, min=0, max=1000, subtype='PIXEL', update=_changed,
+                        description="How far from the mouse the buttons sit. 0 uses Blender's Pie Menu Radius") # type: ignore
+    threshold: IntProperty(name="Flick Distance", default=0, min=0, max=1000, subtype='PIXEL', update=_changed,
+                           description="How far to move the mouse before a direction is chosen. "
+                                       "0 uses Blender's Pie Menu Threshold") # type: ignore
     items: CollectionProperty(type=KeyOpsPieItem) # type: ignore
 
 
@@ -392,7 +413,8 @@ def install_presets(prefs, style):
 # ---------------------------------------------------------------- saving to pie_menus.json
 
 PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", "ctrl", "shift", "alt",
-              "key_event", "only_mode", "columns", "dialog_mode", "stack_reset", "key_mod", "condition")
+              "key_event", "only_mode", "columns", "dialog_mode", "stack_reset", "key_mod", "condition", "radius", "threshold",
+              "append_to", "append_as", "tags")
 ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script")
 STEP_FIELDS = ("idname", "props", "interactive")
 PIE_SCHEMA = 5  # bump when the saved layout changes, and add a migration below
@@ -548,8 +570,121 @@ def _remove_pie_keymaps():
     _pie_keymaps.clear()
 
 
+def pie_keymap_names(pie):
+    """The keymaps a menu's key goes into."""
+    names = []
+    for ed in editor_names(pie):
+        for name in (_VIEWPORT_KEYMAPS if ed == "3D View Generic" else (ed,)):
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def _pie_value(pie):
+    return 'PRESS' if pie.menu_type in {"STICKY", "MODAL"} or pie.key_event == "HOLD" else pie.key_event
+
+
+def _values_clash(a, b):
+    """A press fires before a click or drag on the same key, so those clash; a double click doesn't."""
+    return a == b or ('PRESS' in (a, b) and 'DOUBLE_CLICK' not in (a, b))
+
+
+def _kmi_label(kmi):
+    name = getattr(kmi.properties, "name", "") if kmi.idname in {"wm.call_menu", "wm.call_menu_pie", "wm.call_panel"} else ""
+    cls = getattr(bpy.types, name, None) if name else None
+    return (getattr(cls, "bl_label", "") or name) if name else (kmi.name or kmi.idname)
+
+
+def key_conflicts(pie):
+    """(clashes, replaces): other Key Ops menus and shortcuts on the same key where they overlap,
+    and Blender's own shortcuts this key takes over."""
+    if pie.key in ("", "NONE") or pie.menu_type == "PANEL":
+        return [], []
+    prefs = get_keyops_prefs()
+    mine = set(pie_keymap_names(pie))
+    keys = (pie.key, pie.ctrl, pie.shift, pie.alt, pie.key_mod)
+    value = _pie_value(pie)
+    clashes, replaces = [], []
+    for other in prefs.pies:
+        if other.uid == pie.uid or not other.enabled or other.menu_type == "PANEL":
+            continue
+        if (other.key, other.ctrl, other.shift, other.alt, other.key_mod) != keys or not _values_clash(value, _pie_value(other)):
+            continue
+        theirs = set(pie_keymap_names(other))
+        if mine & theirs or "Window" in mine | theirs:
+            clashes.append(other.name)
+    wm = bpy.context.window_manager
+    # an editor's own keys win over window-wide ones (Frames, Window, Screen), so those are replaced too
+    look_in = mine | {"Frames", "Window", "Screen"} | ({"3D View"} if "3D View Generic" in mine else set())
+    for kc, keyops_only in ((wm.keyconfigs.addon, True), (wm.keyconfigs.user, False)):
+        if kc is None:
+            continue
+        for km in kc.keymaps:
+            if km.name not in look_in:
+                continue
+            for kmi in km.keymap_items:
+                if not kmi.active or kmi.idname == "wm.keyops_call_pie" or kmi.type != pie.key:
+                    continue
+                if not (kmi.any or (bool(kmi.ctrl), bool(kmi.shift), bool(kmi.alt)) == (pie.ctrl, pie.shift, pie.alt)):
+                    continue
+                if kmi.key_modifier != pie.key_mod or not _values_clash(value, kmi.value):
+                    continue
+                if kmi.idname.startswith("keyops."):
+                    if keyops_only:
+                        clashes.append(f"Key Ops: {kmi.name or kmi.idname}")
+                elif not keyops_only:
+                    text = f"{_kmi_label(kmi)} ({km.name})"
+                    if text not in replaces:
+                        replaces.append(text)
+    return clashes, replaces
+
+
+_appended = []  # (Blender class, draw function) added with Add To
+
+
+def _append_draw(uid):
+    def draw(self, context):
+        pie = find_pie(uid)
+        if pie is None or not pie.enabled or not condition_ok(context, pie):
+            return
+        if pie.only_mode != "ANY" and context.mode != pie.only_mode:
+            return
+        layout = self.layout
+        if pie.append_as == "ITEMS":
+            for i, item in enumerate(pie.items):
+                if not _is_empty(item):
+                    draw_item(layout, context, item, uid, i, slider=pie.menu_type in {"DIALOG", "PANEL"})
+        else:
+            op = layout.operator("wm.keyops_call_pie", text=pie.name, icon=TYPE_ICON.get(pie.menu_type, 'NONE'))
+            op.pie, op.direct = uid, True
+    return draw
+
+
+def _remove_appends():
+    for cls, fn in _appended:
+        try:
+            cls.remove(fn)
+        except Exception:  # noqa: BLE001  the class may be gone already
+            pass
+    _appended.clear()
+
+
+def sync_appends():
+    _remove_appends()
+    prefs = get_keyops_prefs()
+    for pie in getattr(prefs, "pies", ()):
+        name = pie.append_to.strip()
+        cls = getattr(bpy.types, name, None) if name else None
+        if not pie.enabled or cls is None or not hasattr(cls, "append"):
+            continue
+        fn = _append_draw(pie.uid)
+        cls.append(fn)
+        _appended.append((cls, fn))
+
+
 def sync_keymaps():
     _remove_pie_keymaps()
+    sync_appends()
     kc = bpy.context.window_manager.keyconfigs.addon
     prefs = get_keyops_prefs()
     if kc is None or not getattr(prefs, "pies_installed", False) or prefs.pause_shortcuts:
@@ -559,12 +694,7 @@ def sync_keymaps():
             continue
         # Mode keymaps (Object Mode, Mesh) are checked before "3D View Generic", so a
         # viewport-wide pie also goes into them, or Blender's own Shift A / Ctrl J would win.
-        names = []
-        for ed in editor_names(pie):
-            for name in (_VIEWPORT_KEYMAPS if ed == "3D View Generic" else (ed,)):
-                if name not in names:
-                    names.append(name)
-        for name in names:
+        for name in pie_keymap_names(pie):
             km = kc.keymaps.new(name=name, space_type='EMPTY')
             value = 'PRESS' if pie.menu_type in {"STICKY", "MODAL"} or pie.key_event == "HOLD" else pie.key_event
             kmi = km.keymap_items.new("wm.keyops_call_pie", pie.key, value, ctrl=pie.ctrl, shift=pie.shift, alt=pie.alt,
@@ -755,6 +885,30 @@ def run_keymap_item(kmi):
     getattr(getattr(bpy.ops, mod), name)('INVOKE_DEFAULT', **props)
 
 
+_saved_pie_feel = None  # Blender's own pie radius and threshold while a pie with its own is open
+
+
+def apply_pie_feel(pie):
+    """Use this pie's own size and flick distance until it closes. Returns True when anything changed."""
+    global _saved_pie_feel
+    if not (pie.radius or pie.threshold):
+        return False
+    view = bpy.context.preferences.view
+    if _saved_pie_feel is None:
+        _saved_pie_feel = (view.pie_menu_radius, view.pie_menu_threshold)
+    view.pie_menu_radius = pie.radius or _saved_pie_feel[0]
+    view.pie_menu_threshold = pie.threshold or _saved_pie_feel[1]
+    return True
+
+
+def restore_pie_feel():
+    global _saved_pie_feel
+    if _saved_pie_feel is not None:
+        view = bpy.context.preferences.view
+        view.pie_menu_radius, view.pie_menu_threshold = _saved_pie_feel
+        _saved_pie_feel = None
+
+
 _condition_errors = set()
 
 
@@ -868,8 +1022,13 @@ class WM_OT_keyops_call_pie(Operator):
         def draw(menu, ctx):
             draw_pie_items(menu.layout.menu_pie(), ctx, items, uid)
 
+        self._restoring = apply_pie_feel(pie)
+        if self._restoring:
+            # Added before the pie, so the pie's own handler sits on top: the first event that reaches
+            # this operator comes after the pie has closed, and Blender's settings go back then.
+            context.window_manager.modal_handler_add(self)
         context.window_manager.popup_menu_pie(event, draw, title=pie.name)
-        return {'FINISHED'}
+        return {'RUNNING_MODAL'} if self._restoring else {'FINISHED'}
 
     # ---- dialog / popup panel
     def draw(self, context):
@@ -959,6 +1118,11 @@ class WM_OT_keyops_call_pie(Operator):
             return {'CANCELLED'}
         if getattr(self, "_hold", None):
             return self._modal_hold(context, event)
+        if getattr(self, "_restoring", False):
+            if event.type.startswith("TIMER"):
+                return {'PASS_THROUGH'}
+            restore_pie_feel()
+            return {'FINISHED', 'PASS_THROUGH'}
         if pie.menu_type == "STICKY":
             if event.type == self._key and event.value == 'RELEASE':
                 if self._restore is not None:
@@ -1615,7 +1779,13 @@ class KEYOPS_OT_pie_set_key(Operator):
         prefs = get_keyops_prefs()
         if 0 <= props.index < len(prefs.pies):
             pie = prefs.pies[props.index]
-            return f"{key_text(pie)} in {editor_text(pie)}.\n{cls.bl_description}"
+            text = f"{key_text(pie)} in {editor_text(pie)}."
+            clashes, replaces = key_conflicts(pie)
+            if clashes:
+                text += "\nSame key as: " + ", ".join(clashes)
+            if replaces:
+                text += "\nReplaces Blender's: " + ", ".join(replaces[:4]) + (", ..." if len(replaces) > 4 else "")
+            return f"{text}\n{cls.bl_description}"
         return cls.bl_description
 
     def invoke(self, context, event):
@@ -1756,13 +1926,29 @@ class KEYOPS_OT_settings_import(Operator, ImportHelper):
         return {'FINISHED'}
 
 
+def pie_tags(pie):
+    return [t for t in (x.strip().lower() for x in pie.tags.split(",")) if t]
+
+
+def all_tags():
+    return sorted({t for p in getattr(get_keyops_prefs(), "pies", ()) for t in pie_tags(p)})
+
+
+def _filter_tag(wm):
+    return wm.keyops_menu_filter_tag.strip().lower() or "ANY"
+
+
 def _filter_active(wm):
-    return bool(wm.keyops_menu_filter_types) or wm.keyops_menu_filter_state != "ALL" or wm.keyops_menu_filter_editor != "ANY"
+    return bool(wm.keyops_menu_filter_types) or wm.keyops_menu_filter_state != "ALL" \
+        or wm.keyops_menu_filter_editor != "ANY" or _filter_tag(wm) != "ANY"
 
 
 def _menu_matches(wm, pie):
     flt = wm.keyops_menu_filter.strip().lower()
-    if flt and flt not in pie.name.lower() and flt not in key_text(pie).lower():
+    if flt and flt not in pie.name.lower() and flt not in key_text(pie).lower() and flt not in pie.tags.lower():
+        return False
+    tag = _filter_tag(wm)
+    if tag != "ANY" and tag not in pie_tags(pie):
         return False
     if wm.keyops_menu_filter_types and pie.menu_type not in wm.keyops_menu_filter_types:
         return False
@@ -1784,6 +1970,7 @@ class KEYOPS_OT_pie_filter_clear(Operator):
         wm.keyops_menu_filter_types = set()
         wm.keyops_menu_filter_state = "ALL"
         wm.keyops_menu_filter_editor = "ANY"
+        wm.keyops_menu_filter_tag = ""
         return {'FINISHED'}
 
 
@@ -1808,6 +1995,9 @@ class KEYOPS_OT_pie_filter_popup(Operator):
         layout.row(align=True).prop(wm, "keyops_menu_filter_state", expand=True)
         layout.label(text="Works In")
         layout.prop(wm, "keyops_menu_filter_editor", text="")
+        if all_tags():
+            layout.label(text="Tag")
+            layout.prop(wm, "keyops_menu_filter_tag", text="", icon='BOOKMARKS')
         if _filter_active(wm):
             layout.separator()
             layout.operator("keyops.pie_filter_clear", icon='X')
@@ -2358,7 +2548,7 @@ def draw_pies_tab(prefs, context, layout):
             k.label(text="Sidebar")
         else:
             capturing = KEYOPS_OT_pie_set_key.capturing == i
-            k.alert = capturing
+            k.alert = capturing or (p.enabled and bool(key_conflicts(p)[0]))
             k.active = capturing or p.enabled or i == active
             k.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(p),
                        emboss=False).index = i
@@ -2425,7 +2615,7 @@ def draw_slot_editor(prefs, layout, pie):
         tools.operator("keyops.menu_item_move", text="", icon='TRIA_UP').direction = -1
         tools.operator("keyops.menu_item_move", text="", icon='TRIA_DOWN').direction = 1
     else:
-        tools.operator_menu_enum("keyops.slot_swap", "target", text="Move to", icon='ARROW_LEFTRIGHT')
+        tools.operator_menu_enum("keyops.slot_swap", "target", text="", icon='ARROW_LEFTRIGHT')
     tools.operator("keyops.slot_copy", text="", icon='COPYDOWN')
     tools.operator("keyops.slot_paste", text="", icon='PASTEDOWN')
     if is_menu:
@@ -2509,9 +2699,10 @@ def draw_slot_editor(prefs, layout, pie):
     if prefs.pie_show_settings:
         c = pbox.column()
         c.prop(pie, "name", text="Name")
+        c.prop(pie, "tags", text="Tags", icon='BOOKMARKS')
         c.prop(pie, "menu_type", text="Type")
-        we = c.split(factor=0.4)
-        we.label(text="Works In")
+        we = c.split(factor=0.25)
+        we.label(text="Works In:")
         we.prop_menu_enum(pie, "editor_set", text=editor_text(pie))
         c.prop(pie, "only_mode", text="Only In")
         c.prop(pie, "condition", text="Show When", icon='SCRIPT')
@@ -2525,6 +2716,17 @@ def draw_slot_editor(prefs, layout, pie):
             c.row().prop(pie, "dialog_mode", expand=True)
         if pie.menu_type == "STACK":
             c.prop(pie, "stack_reset")
+        c.prop(pie, "append_to", text="Add To", icon='ADD')
+        if pie.append_to.strip():
+            c.row().prop(pie, "append_as", expand=True)
+            if not hasattr(bpy.types, pie.append_to.strip()):
+                warn = c.row()
+                warn.alert = True
+                warn.label(text="Blender has no menu, header or panel with that name", icon='ERROR')
+        if pie.menu_type == "PIE":
+            feel = c.row(align=True)
+            feel.prop(pie, "radius")
+            feel.prop(pie, "threshold")
         r = c.row(align=True)
         if pie.preset in PRESET_BY_ID:
             r.operator("keyops.pie_reset", text="Reset to Preset")
@@ -2701,6 +2903,9 @@ def register():
         items=[(t[0], t[1], t[2], t[3], 1 << i) for i, t in enumerate(MENU_TYPES)])
     bpy.types.WindowManager.keyops_menu_filter_state = EnumProperty(name="Show", items=[
         ("ALL", "All", "On and off menus"), ("ON", "On", "Only menus that are on"), ("OFF", "Off", "Only menus that are off")])
+    bpy.types.WindowManager.keyops_menu_filter_tag = StringProperty(
+        name="Tag", description="Show only menus with this tag",
+        search=lambda self, context, text: [t for t in all_tags() if text.strip().lower() in t])
     bpy.types.WindowManager.keyops_menu_filter_editor = EnumProperty(
         name="Works In", items=[("ANY", "Anywhere", "Menus for any editor")] + [(e[0], e[1], e[2]) for e in EDITORS])
     bpy.types.WindowManager.keyops_script_text = StringProperty()
@@ -2716,6 +2921,8 @@ def register():
 
 
 def unregister():
+    restore_pie_feel()
+    _remove_appends()
     from . import settings_store
     settings_store.flush_now()  # don't lose a change made just before disabling
     _remove_pie_keymaps()
@@ -2729,6 +2936,7 @@ def unregister():
     del bpy.types.WindowManager.keyops_menu_filter_types
     del bpy.types.WindowManager.keyops_menu_filter_state
     del bpy.types.WindowManager.keyops_menu_filter_editor
+    del bpy.types.WindowManager.keyops_menu_filter_tag
     del bpy.types.WindowManager.keyops_script_text
     del bpy.types.WindowManager.keyops_no_lag_pies
     for cls in reversed(classes):
