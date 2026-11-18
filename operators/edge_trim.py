@@ -14,7 +14,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty
 from mathutils import Vector
 from mathutils.geometry import intersect_line_line
 
-from .resample_edges import find_chains
+from itertools import combinations
 
 Z_UP = Vector((0.0, 0.0, 1.0))
 
@@ -84,6 +84,68 @@ def guess_side(frames):
     return -1.0 if score < 0 else 1.0
 
 
+def _pair_score(v, a, b):
+    """How well two edges at v continue each other: straight on scores highest; level pairs (a loop around a
+    box top) win over vertical ones when the angles tie."""
+    da = (a.other_vert(v).co - v.co).normalized()
+    db = (b.other_vert(v).co - v.co).normalized()
+    level = abs(da.cross(db).normalized().dot(Z_UP)) if da.cross(db).length > 1e-6 else 1.0
+    return -da.dot(db) + 0.5 * level
+
+
+def trim_chains(bm):
+    """The selected edges as ordered chains (verts, closed), also when the selection branches: where three or
+    more edges meet, the two that continue each other best carry on as one chain and the others end there.
+    A box outline (top loop and its upright edges) gives the top loop plus one chain per upright edge."""
+    selected = [e for e in bm.edges if e.select]
+    at = {}
+    for e in selected:
+        for v in e.verts:
+            at.setdefault(v, []).append(e)
+    partner = {}  # (vertex, edge) -> the edge the chain continues on at that vertex
+    for v, edges in at.items():
+        free = list(edges)
+        if len(free) == 2:
+            pairs = [tuple(free)]
+        else:
+            pairs = []
+            for a, b in sorted(combinations(free, 2), key=lambda p: -_pair_score(v, *p)):
+                if a in free and b in free and _pair_score(v, a, b) > -0.5:
+                    pairs.append((a, b))
+                    free.remove(a)
+                    free.remove(b)
+        for a, b in pairs:
+            partner[(v, a)], partner[(v, b)] = b, a
+
+    def walk(v, e):
+        verts, edges = [v], [e]
+        while True:
+            v = e.other_vert(v)
+            nxt = partner.get((v, e))
+            if nxt is None or nxt in edges:
+                closed = nxt is not None and nxt is edges[0]
+                if not closed:
+                    verts.append(v)
+                return verts, edges, closed
+            verts.append(v)
+            edges.append(nxt)
+            e = nxt
+
+    used, chains = set(), []
+    for e in selected:  # open chains first: start at an end (a vertex where the edge doesn't carry on)
+        for v in e.verts:
+            if e not in used and (v, e) not in partner:
+                verts, edges, _closed = walk(v, e)
+                used.update(edges)
+                chains.append((verts, False))
+    for e in selected:  # what's left are loops
+        if e not in used:
+            verts, edges, closed = walk(e.verts[0], e)
+            used.update(edges)
+            chains.append((verts, closed))
+    return chains, 0
+
+
 def _profile(up, side, opts, a, b):
     """The L's three points (flange A end, corner, flange B end) as offsets from the edge, in one frame."""
     corner = up * opts.offset
@@ -110,7 +172,7 @@ def _mitre(p, off_prev, t_prev, off_next, t_next, limit):
 
 def make_trims(bm, opts):
     """Build an L trim along every selected chain; returns (chains done, branching selections skipped, new faces)."""
-    chains, skipped = find_chains(bm)
+    chains, skipped = trim_chains(bm)
     uv = bm.loops.layers.uv.active or bm.loops.layers.uv.new("UVMap")
     new_faces = []
     for f in bm.faces:
@@ -125,7 +187,14 @@ def make_trims(bm, opts):
     v_corner = opts.v_min + (opts.v_max - opts.v_min) * (a / total if total > 0 else 0.5)
     limit = 4.0 * (opts.offset + max(a, b))
     corner_edges = []
-    for verts, closed in chains:
+
+    def chain_length(verts, closed):
+        n = len(verts)
+        return sum((verts[(i + 1) % n].co - verts[i].co).length for i in range(n if closed else n - 1))
+    spans = [chain_length(v, c) for v, c in chains]
+    all_length = sum(spans) or 1.0
+    u_start = 0.0  # Fit to Sheet: the chains share U 0 to 1, end to end, so none overlap and density matches
+    for (verts, closed), span in zip(chains, spans):
         n = len(verts)
         frames = _segment_frames(verts, closed, opts.profile)
         sign = guess_side(frames) * (-1.0 if opts.flip_side else 1.0)  # best guess, or the other side
@@ -150,13 +219,19 @@ def make_trims(bm, opts):
         for i in range(1, n + (1 if closed else 0)):
             lengths.append(lengths[-1] + (rows[i % n][1].co - rows[i - 1][1].co).length)
         total_len = lengths[-1] or 1.0
-        u_per_metre = 1.0 / total_len if opts.u_mode == "FIT" else opts.u_scale
+        if opts.u_mode == "FIT":  # this chain's share of the strip, in proportion to its length
+            u_per_metre = (span / all_length) / total_len
+            u_base = u_start
+            u_start += span / all_length
+        else:
+            u_per_metre, u_base = opts.u_scale, 0.0
         for i in range(len(lengths) - 1):
             j = (i + 1) % n
             _t, up_s, side_s = segs[i]
             # wrap: faces point away from the edge they cover; upright: into the L, the side you see
             facing = up_s if opts.profile == "WRAP" else up_s + side_s
-            u0, u1 = lengths[i] * u_per_metre + opts.u_offset, lengths[i + 1] * u_per_metre + opts.u_offset
+            u0 = u_base + lengths[i] * u_per_metre + opts.u_offset
+            u1 = u_base + lengths[i + 1] * u_per_metre + opts.u_offset
             for k0, k1, v0, v1 in ((0, 1, opts.v_max, v_corner), (1, 2, v_corner, opts.v_min)):
                 quad = [rows[i][k0], rows[j][k0], rows[j][k1], rows[i][k1]]
                 uvs = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
@@ -258,7 +333,7 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
             bm.normal_update()
             bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
         if not done:
-            self.report({'WARNING'}, "Select one or more edge chains or loops (no branches)")
+            self.report({'WARNING'}, "Select the edges (or faces) to put trims on")
             return {'CANCELLED'}
         if self.separate:
             before = set(bpy.data.objects)
