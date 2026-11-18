@@ -19,10 +19,10 @@ from .branding import BRAND_DIR, version_text
 
 ACCENT = (0.949, 0.294, 0.376, 1.0)       # logo pink
 ACCENT_SOFT = (0.949, 0.294, 0.376, 0.16)
-CARD = (0.13, 0.13, 0.14, 0.98)
-CARD_EDGE = (0.26, 0.26, 0.28, 1.0)
-TILE = (0.18, 0.18, 0.19, 1.0)
-TILE_HOVER = (0.22, 0.22, 0.235, 1.0)
+CARD = (0.107, 0.107, 0.107, 1.0)       # matches the dark boxes in Preferences
+CARD_EDGE = (0.22, 0.22, 0.22, 1.0)
+TILE = (0.155, 0.155, 0.155, 1.0)
+TILE_HOVER = (0.195, 0.195, 0.195, 1.0)
 TEXT = (0.92, 0.92, 0.93, 1.0)
 BUTTON = (0.70, 0.31, 0.42, 1.0)          # calmer brand rose (logo gradient, toned down)
 BUTTON_HOVER = (0.78, 0.36, 0.48, 1.0)
