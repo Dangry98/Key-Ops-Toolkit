@@ -1213,42 +1213,33 @@ def draw_modifier_panel(self, context, draw_header=False):
         col = box.column(align=True)
         if draw_header:
             col.label(text="Modifiers", icon_value=get_icon("modifier"))
-        row = col.row(align=True)
-        col = box.column(align=False) 
+        # Create: the Fast tools first, then lattices
+        col = box.column(align=True)
+        col.label(text="Create")
+        grid = col.column(align=True)
+        row = grid.row(align=True)
+        row.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")
+        row.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")
+        row.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")
+        row = grid.row(align=True)
+        row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
+        for n in (3, 4):
+            op = row.operator("keyops.add_modifier", text=f"FFD {n}x")
+            op.subdivisions = n
+            op.type = "LATTICE"
 
-        row = col.row(align=True)
-        column = row.column(align=True) 
+        # UV
+        col = box.column(align=True)
+        col.label(text="UV")
+        column = col.column(align=True)
         row = column.split(factor=0.57, align=True)
-        row.scale_y = 1.15
-
-        if bpy.context.mode == 'EDIT_MESH':
-            row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"   
-            row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-        else:   
-            row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
-            row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
+        row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
+        row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
         row = column.split(factor=0.57, align=True)
         row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
         row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
-
         if prefs.enable_uv_tools:
-            row = column.split(align=True)
-            row.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
-
-        row = layout.row(align=True)
-        box = row.box()
-
-        row = box.row(align=True)
-        row.label(text="Create")
-        row = box.row(align=True)
-        row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
-        operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 3x")
-        operation_FFD2X.subdivisions = 3
-        operation_FFD2X.type = "LATTICE"
-
-        operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 4x")
-        operation_FFD2X.subdivisions = 4
-        operation_FFD2X.type = "LATTICE"
+            column.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
 
 class ModifierPanel(bpy.types.Panel):
     bl_description = "Modifier Operations"

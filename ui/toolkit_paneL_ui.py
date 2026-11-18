@@ -270,7 +270,6 @@ class NewToolkitPanel(bpy.types.Panel):
     def draw_header_preset(self, context):
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("keyops.shortcut_cheatsheet", text="", icon='QUESTION', emboss=False)
         row.operator("preferences.addon_show", text="Prefs", icon='PREFERENCES', emboss=True).module = get_addon_name()
 
     def draw(self, context):
