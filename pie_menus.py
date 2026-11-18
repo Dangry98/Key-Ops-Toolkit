@@ -27,6 +27,7 @@ EDITORS = (
     ("3D View Generic", "3D Viewport", "Any mode in the 3D Viewport"),
     ("Object Mode", "Object Mode", "Only in Object Mode"),
     ("Mesh", "Edit Mesh", "Only in mesh Edit Mode"),
+    ("Object Mode, Mesh", "Object & Edit Mesh", "In Object Mode and mesh Edit Mode"),
     ("Sculpt", "Sculpt Mode", "Only in Sculpt Mode"),
     ("Weight Paint", "Weight Paint", "Only in Weight Paint Mode"),
     ("UV Editor", "UV Editor", "Only in the UV Editor"),
@@ -129,9 +130,9 @@ PRESETS = (
             ("UV Editor", "UV", "UV Editing"), ("Scripting", "SCRIPT", "Scripting"),
             ("Texture Paint", "BRUSHES_ALL", "Texture Paint"), ("Geometry Nodes", "GEOMETRY_NODES", "Geometry Nodes"),
             ("Sculpting", "SCULPTMODE_HLT", "Sculpting")))),
-    dict(id="utility", name="Utility", editor="3D View Generic", key="U", styles=set(), items=(
+    dict(id="utility", name="Utility", editor="Object Mode, Mesh", key="U", styles=set(), items=(
         (P, "Live Unwrap", "", "scene.tool_settings.use_edge_path_live_unwrap", ""),
-        (M, "UV Mapping", "", "VIEW3D_MT_uv_map", ""),
+        (M, "UV Mapping Menu", "", "VIEW3D_MT_uv_map", ""),
         _op("Seam by Angle", "MOD_EDGESPLIT", "keyops.seam_by_angle"),
         _op("Unfold and Pack", "UV_FACESEL", "uv.unwrap"),
         (P, "Correct Face Attributes", "", "scene.tool_settings.use_transform_correct_face_attributes", ""),
@@ -139,7 +140,7 @@ PRESETS = (
         (P, "Auto Merge", "", "scene.tool_settings.use_mesh_automerge", ""), _)),
     dict(id="uv_space", name="UV Unwrap", editor="UV Editor", key="SPACE", styles=set(), items=(
         _op("Straighten Quads", "UV_ISLANDSEL", "keyops.streighten_selection"),
-        _op("Isolate Island", "", "keyops.isolate_uv_island"),
+        _op("Isolate Island (Toggle)", "", "keyops.isolate_uv_island"),
         _op("Quick Pack", "CON_SAMEVOL", "uv.keyops_quick_pack"),
         _op("Unwrap in Place", "STICKY_UVS_VERT", "uv.keyops_unwrap_in_place"),
         _op("Unwrap and Pack", "UV_FACESEL", "uv.unwrap"),
@@ -150,7 +151,7 @@ PRESETS = (
         _op("Select Overlapping", "", "uv.select_overlap"),
         _op("Orient Island to Edge", "", "keyops.orient_island_to_edge"),
         _op("Stack Similar Islands", "CON_SIZELIKE", "keyops.stack_similar_islands"),
-        _op("Sharp Edges from Islands", "MOD_EDGESPLIT", "keyops.sharp_from_uv_islands"),
+        _op("Sharp Edges from UV Islands", "MOD_EDGESPLIT", "keyops.sharp_from_uv_islands"),
         _op("Seams from Islands", "", "uv.seams_from_islands"),
         _op("Mirror Selected Seams", "MOD_MIRROR", "keyops.mirror_seams"),
         _op("Select Similar Islands", "", "keyops.select_similar_islands"), _)),
@@ -514,7 +515,7 @@ def sync_keymaps():
             continue
         # Mode keymaps (Object Mode, Mesh) are checked before "3D View Generic", so a
         # viewport-wide pie also goes into them, or Blender's own Shift A / Ctrl J would win.
-        names = _VIEWPORT_KEYMAPS if pie.editor == "3D View Generic" else (pie.editor,)
+        names = _VIEWPORT_KEYMAPS if pie.editor == "3D View Generic" else tuple(n.strip() for n in pie.editor.split(","))
         for name in names:
             km = kc.keymaps.new(name=name, space_type='EMPTY')
             value = 'PRESS' if pie.menu_type in {"STICKY", "MODAL"} else pie.key_event
@@ -541,6 +542,16 @@ def _parse_props(text):
 
 def _icon(name):
     return name if name in _ICONS else 'NONE'
+
+
+# Menus that have a mode-specific version, as Blender's own Shift A does
+_MODE_MENUS = {("VIEW3D_MT_add", "EDIT_MESH"): "VIEW3D_MT_mesh_add"}
+# Pie items Key Ops 0.2 only drew in Object Mode; elsewhere the items after them move up a slot
+_OBJECT_MODE_ONLY = {"keyops.make_single_user"}
+
+
+def _menu_for_mode(context, name):
+    return _MODE_MENUS.get((name, context.mode), name)
 
 
 def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
@@ -581,7 +592,7 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
     label = item.label or item.idname
     try:
         if item.kind == M:
-            layout.operator("wm.call_menu", text=label, icon=_icon(item.icon)).name = item.idname
+            layout.operator("wm.call_menu", text=label, icon=_icon(item.icon)).name = _menu_for_mode(context, item.idname)
         elif item.kind == P:
             data, prop = _resolve(context, item.idname)
             if slider:  # dialogs and panels show settings as real fields and sliders
@@ -594,6 +605,14 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
                 setattr(op, name, value)
     except Exception:
         layout.label(text=f"{label} (check command)", icon='ERROR')
+
+
+def draw_pie_items(layout, context, items, pie_uid):
+    """The eight slots of a pie, in Blender's order: left, right, bottom, top, then the corners."""
+    for i, item in enumerate(items[:8]):
+        if context.mode != 'OBJECT' and item.idname.strip() in _OBJECT_MODE_ONLY:
+            continue
+        draw_item(layout, context, item, pie_uid, i)
 
 
 _stack_state = {}  # menu id -> (next index, time of last press)
@@ -627,7 +646,7 @@ def run_item(context, pie, index):
     elif item.kind == PANEL_ITEM:
         bpy.ops.wm.call_panel(name=item.idname.strip())
     elif item.kind == M:
-        bpy.ops.wm.call_menu(name=item.idname)
+        bpy.ops.wm.call_menu(name=_menu_for_mode(context, item.idname))
     elif item.kind == P:
         data, prop = _resolve(context, item.idname)
         if isinstance(getattr(data, prop), bool):
@@ -705,9 +724,7 @@ class WM_OT_keyops_call_pie(Operator):
             return {'RUNNING_MODAL'}
 
         def draw(menu, ctx):
-            layout = menu.layout.menu_pie()
-            for i, item in enumerate(items[:8]):
-                draw_item(layout, ctx, item, uid, i)
+            draw_pie_items(menu.layout.menu_pie(), ctx, items, uid)
 
         context.window_manager.popup_menu_pie(event, draw, title=pie.name)
         return {'FINISHED'}
@@ -2028,9 +2045,9 @@ def draw_pies_tab(prefs, context, layout):
     r = side.row(align=True)
     r.operator("keyops.pie_new_popup", text="New", icon='ADD')
     r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
+    r.operator("keyops.pie_remove", text="", icon='X')
     r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
-    r.operator("keyops.pie_remove", text="", icon='X')
     draw_pie_feel(prefs, side)
     draw_values(context, side)
     layout = outer.column()
