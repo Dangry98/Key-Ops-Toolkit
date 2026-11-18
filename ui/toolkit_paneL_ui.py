@@ -160,7 +160,7 @@ class ToggleToolkitPanelEnum(bpy.types.Operator):
     type: bpy.props.StringProperty(
         name="ID",
         description="ID of the panel to toggle",
-        default="toolkit_panel_mode"
+        default="OBJECT"
     )
 
     def invoke(self, context, event):
@@ -171,6 +171,10 @@ class ToggleToolkitPanelEnum(bpy.types.Operator):
     def execute(self, context):
         wm = context.window_manager
         global ev
+        if self.type not in {item[0] for item in get_toolkit_panel_items(None, context)}:
+            ev = []
+            self.report({'WARNING'}, f"Unknown or disabled toolkit panel: {self.type}")
+            return {'CANCELLED'}
         if "shift" in ev:
             wm.toolkit_panel_mode ^= {self.type}
         else:

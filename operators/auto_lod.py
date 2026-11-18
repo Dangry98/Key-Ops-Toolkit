@@ -40,8 +40,9 @@ def delete_loose_edge_node_group():
     boolean_math = delete_loose_edge.nodes.new("FunctionNodeBooleanMath")
     boolean_math.name = "Boolean Math"
     boolean_math.operation = 'NOT'
-    #Boolean_001
-    boolean_math.inputs[1].default_value = False
+    #Boolean_001 (Blender 5.3+ has no second input for NOT)
+    if len(boolean_math.inputs) > 1:
+        boolean_math.inputs[1].default_value = False
     
     #node Delete Geometry
     delete_geometry = delete_loose_edge.nodes.new("GeometryNodeDeleteGeometry")

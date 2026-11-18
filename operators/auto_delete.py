@@ -60,7 +60,7 @@ class AutoDelete(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.mode == 'EDIT'
+        return context.mode == 'EDIT_MESH'
 
     # def invoke(self, context, event):
     #     prefs = get_keyops_prefs()

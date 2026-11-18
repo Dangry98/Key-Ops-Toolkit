@@ -2,7 +2,7 @@ import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR
+from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR, set_uv_island_select_mode, can_run_ops
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
 #Only an very old version is still available, but I doubt it still works in new version of Blender  https://alexbel.gumroad.com/l/NbMya
@@ -209,7 +209,8 @@ class UVCut(bpy.types.Operator):
         if context.tool_settings.use_uv_select_sync:
             bpy.ops.keyops.smart_uv_sync()
             self.report({'WARNING'}, "UV Sync needs to be disabled for this operation")
-            bpy.ops.uv.select_mode(type='EDGE')
+            if bpy.ops.uv.select_mode.poll():
+                bpy.ops.uv.select_mode(type='EDGE')
             return {'CANCELLED'}
 
         bpy.ops.uv.mark_seam('EXEC_DEFAULT', True)
@@ -325,9 +326,13 @@ class UnwrapInPlace(bpy.types.Operator):
             #layout.prop(self, "apply_modifier")
 
     def execute(self, context):
+        if not hasattr(bpy.types, "GEOMETRY_OT_execute_node_group"):
+            self.report({'WARNING'}, "Unwrap In Place needs geometry node tools, which are not available in this Blender version")
+            return {'CANCELLED'}
+
         visibility_modifier_dict_list = {}
 
-        def modifier_toggle_visability_based2(): 
+        def modifier_toggle_visability_based2():
             active_object_name = bpy.context.view_layer.objects.active.name
 
             if active_object_name not in visibility_modifier_dict_list:
@@ -566,6 +571,9 @@ class AutoSeam(bpy.types.Operator):
         if bpy.context.mode == 'EDIT_MESH':
             self.auto_seam(context)
         if bpy.context.mode == 'OBJECT':
+            if context.active_object is None or context.active_object.type != 'MESH':
+                self.report({'WARNING'}, "Seam by Angle needs an active mesh object")
+                return {'CANCELLED'}
             bpy.ops.object.mode_set(mode='EDIT')
             self.auto_seam(context)
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -604,11 +612,16 @@ class ToggleSmoothSharp(bpy.types.Operator):
                     disable_auto_smooth(obj)
                                     
         elif bpy.context.mode == 'OBJECT':
-            for obj in context.selected_objects:
-                if obj.type == 'MESH':
-                    if bpy.app.version > (4, 1, 0):
-                        bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=3.14159, ignore_sharp=False)
-                    else:
+            meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+            if meshes:
+                if bpy.app.version < (4, 1, 0):
+                    bpy.ops.object.shade_smooth()
+                    for obj in meshes:
+                        obj.data.auto_smooth_angle = 3.141590118408203
+                        obj.data.use_auto_smooth = True
+                else:
+                    bpy.ops.object.shade_smooth(keep_sharp_edges=True)
+                    for obj in meshes:
                         disable_auto_smooth(obj)
         return {'FINISHED'}
 
@@ -619,6 +632,8 @@ class OrientIslandToEdge(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.select_more, bpy.ops.uv.align_rotation, message="Orient Island to Edge only works in the UV Editor"):
+            return {'CANCELLED'}
         if bpy.context.scene.tool_settings.use_uv_select_sync:
             edge_mode = False
             if bpy.context.tool_settings.mesh_select_mode[1]:
@@ -641,7 +656,7 @@ class RemoveSeam(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        return context.mode == 'EDIT_MESH'
     
     def execute(self, context):
         bpy.ops.mesh.mark_seam(clear=True)
@@ -796,7 +811,7 @@ class SelectSimilarUVIsland(bpy.types.Operator):
 
 
         bpy.ops.uv.select_mode(type='FACE')
-        bpy.ops.uv.select_mode(type='ISLAND')
+        set_uv_island_select_mode(context)
         bpy.ops.uv.select_similar(type='AREA_3D', threshold=self.treshold)
 
         if has_synced:
