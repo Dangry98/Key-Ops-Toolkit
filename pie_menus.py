@@ -1452,13 +1452,30 @@ class KEYOPS_OT_settings_import(Operator, ImportHelper):
         return {'FINISHED'}
 
 
-class KEYOPS_MT_pie_new(bpy.types.Menu):
-    bl_idname = "KEYOPS_MT_pie_new"
+class KEYOPS_OT_pie_new_popup(Operator):
+    bl_idname = "keyops.pie_new_popup"
     bl_label = "New"
+    bl_description = "Make a new pie menu, popup menu, dialog, panel or special key"
+    bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=600)
+
+    def execute(self, context):
+        return {'FINISHED'}
 
     def draw(self, context):
+        layout = self.layout
+        layout.label(text="What do you want to make?")
+        layout.separator(factor=0.5)
+        col = layout.column(align=True)
         for tid, name, desc, icon, _n in MENU_TYPES:
-            self.layout.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
+            row = col.row(align=True)
+            split = row.split(factor=0.34, align=True)
+            split.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
+            sub = split.row()
+            sub.active = False
+            sub.label(text=desc)
 
 
 class KEYOPS_MT_pie_presets(bpy.types.Menu):
@@ -1951,7 +1968,7 @@ def draw_pies_tab(prefs, context, layout):
         k.active = False
         k.label(text=key_text(p))
     r = side.row(align=True)
-    r.menu("KEYOPS_MT_pie_new", text="New", icon='ADD')
+    r.operator("keyops.pie_new_popup", text="New", icon='ADD')
     r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
     r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
@@ -2253,7 +2270,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
-           KEYOPS_OT_macro_step_move, KEYOPS_MT_pie_new, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
+           KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
            KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
