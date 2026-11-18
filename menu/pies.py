@@ -2,20 +2,12 @@ import bpy.types
 import os
 from bpy.types import Menu
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import operator_exists, set_uv_island_select_mode
+from ..utils.utilities import can_run_ops, set_uv_island_select_mode
 
 
 def _in_uv_editor(context):
     space = context.space_data
     return context.mode == 'EDIT_MESH' and space is not None and space.type == 'IMAGE_EDITOR'
-
-
-def _uv_toolkit_poll(cls, context, idname):
-    # The straighten operators come from the external "UV Toolkit" add-on
-    if not operator_exists(idname):
-        cls.poll_message_set("Requires the UV Toolkit add-on")
-        return False
-    return context.mode == 'EDIT_MESH'
 
 
 registered_workspace_pie_keymaps = []
@@ -234,6 +226,8 @@ class MakeSingleUser(bpy.types.Operator):
         return context.mode == 'OBJECT' and context.active_object is not None
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.object.make_single_user, message="Make Single User only works in Object Mode"):
+            return {'CANCELLED'}
         bpy.ops.object.make_single_user(object=self.object, obdata=self.obdata, material=self.materials, animation=self.object_animation, obdata_animation=self.object_animation_data)
         return {'FINISHED'}
 
@@ -301,11 +295,24 @@ class UnwrapingOp(bpy.types.Operator):
         return context.mode == 'EDIT_MESH' and space is not None and space.type == 'VIEW_3D'
 
     def execute(self, context):
+        unwrap_ops = {
+            "unwrap": (bpy.ops.uv.unwrap, {}),
+            "smart_project": (bpy.ops.uv.smart_project, {}),
+            "lightmap_pack": (bpy.ops.uv.lightmap_pack, {}),
+            "follow_active_quads": (bpy.ops.uv.follow_active_quads, {}),
+            "cube_project": (bpy.ops.uv.cube_project, {}),
+            "cylinder_project": (bpy.ops.uv.cylinder_project, {}),
+            "sphere_project": (bpy.ops.uv.sphere_project, {}),
+            "project_from_view": (bpy.ops.uv.project_from_view, {"scale_to_bounds": False}),
+            "project_from_view_bounds": (bpy.ops.uv.project_from_view, {"scale_to_bounds": True}),
+            "reset": (bpy.ops.uv.reset, {}),
+        }
+        unwrap_op, kwargs = unwrap_ops[self.unwrap_options]
+        if not can_run_ops(self, unwrap_op, message="UV mapping needs a mesh in Edit Mode"):
+            return {'CANCELLED'}
+
         try:
-            if self.unwrap_options == "project_from_view_bounds":
-                bpy.ops.uv.project_from_view(scale_to_bounds=True)
-            else:
-                getattr(bpy.ops.uv, self.unwrap_options)()
+            unwrap_op(**kwargs)
         except RuntimeError as e:
             # e.g. Follow Active Quads without an active face: show Blender's message, not a traceback
             self.report({'WARNING'}, str(e).replace("Error: ", "").strip())
@@ -315,57 +322,126 @@ class UnwrapingOp(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ---- UV straightening, built on Blender's own Follow Active Quads (no other add-on needed)
+
+def _square_face_uvs(face, uv, axis_edge=None):
+    """Turn one quad's UVs into an axis-aligned rectangle with the same centre and average side lengths.
+    With axis_edge (a pair of the face's verts), that edge decides which way the rectangle lines up."""
+    loops = list(face.loops)
+    pts = [l[uv].uv.copy() for l in loops]
+    centre = sum(pts, pts[0] * 0) / 4
+    w = ((pts[1] - pts[0]).length + (pts[2] - pts[3]).length) / 2
+    h = ((pts[3] - pts[0]).length + (pts[2] - pts[1]).length) / 2
+    start = 0
+    if axis_edge is not None:
+        verts = [l.vert for l in loops]
+        for i in range(4):  # rotate the corner order so the reference edge is the first side
+            if {verts[i], verts[(i + 1) % 4]} == set(axis_edge):
+                start = i
+                break
+        w, h = ((w, h) if start % 2 == 0 else (h, w))
+    d = pts[(start + 1) % 4] - pts[start]
+    horizontal = abs(d.x) >= abs(d.y)
+    sx = 1 if (d.x if horizontal else d.y) >= 0 else -1
+    other = pts[(start + 3) % 4] - pts[start]
+    sy = 1 if (other.y if horizontal else other.x) >= 0 else -1
+    half_w, half_h = w / 2, h / 2
+    corners = [(-half_w, -half_h), (half_w, -half_h), (half_w, half_h), (-half_w, half_h)]
+    for k in range(4):
+        cx, cy = corners[k]
+        offset = (cx * sx, cy * sy) if horizontal else (cy * sy, cx * sx)
+        loops[(start + k) % 4][uv].uv = (centre.x + offset[0], centre.y + offset[1])
+
+
+def _uv_island(face, uv):
+    """Faces connected to this one through shared, matching UVs."""
+    def key(l):
+        return (l.vert.index, round(l[uv].uv.x, 5), round(l[uv].uv.y, 5))
+    island, stack = {face}, [face]
+    while stack:
+        f = stack.pop()
+        for l in f.loops:
+            for other in l.edge.link_faces:
+                if other in island or other.hide:
+                    continue
+                mine = {key(l), key(l.link_loop_next)}
+                theirs = {key(ol) for ol in other.loops if ol.edge is l.edge}
+                theirs |= {key(ol.link_loop_next) for ol in other.loops if ol.edge is l.edge}
+                if mine == theirs:
+                    island.add(other)
+                    stack.append(other)
+    return island
+
+
 class StreightenSelection(bpy.types.Operator):
-    bl_description = "Streighten Selected"
+    bl_description = "Straighten the selected UV quads into a grid"
     bl_idname = "keyops.streighten_selection"
-    bl_label = "Streighten Selected"
+    bl_label = "Straighten Quads"
     bl_options = {'REGISTER', 'UNDO'}
 
     pine_island : bpy.props.BoolProperty(
         name="Pin Island",
-        description="Pin Island",
+        description="Pin the straightened UVs",
         default=True) # type: ignore
 
     @classmethod
     def poll(cls, context):
-        return _uv_toolkit_poll(cls, context, "uv.toolkit_straighten")
+        return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
-            if bpy.context.scene.tool_settings.use_uv_select_sync == True:
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                bpy.ops.keyops.smart_uv_sync()
-                bpy.ops.uv.toolkit_straighten(gridify=False)
-                bpy.ops.keyops.smart_uv_sync()
+        import bmesh
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        uv = bm.loops.layers.uv.verify()
+        quads = [f for f in bm.faces if f.select and len(f.verts) == 4]
+        if not quads:
+            self.report({'WARNING'}, "Select some quads")
+            return {'CANCELLED'}
+        active = bm.faces.active if bm.faces.active in quads else quads[0]
+        bm.faces.active = active
+        _square_face_uvs(active, uv)
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.uv.follow_active_quads(mode='LENGTH_AVERAGE')
+        if self.pine_island:
+            bpy.ops.uv.pin()
+        return {'FINISHED'}
 
-            else:
-                bpy.ops.uv.toolkit_straighten(gridify=False)
 
-            if self.pine_island:
-                bpy.ops.uv.pin()   
-
-            return {'FINISHED'}
-    
 class StreightenAfterEdge(bpy.types.Operator):
-    bl_description = "Streighten After Edge"
+    bl_description = "Straighten the UV island of the selected edge, with that edge lined up horizontally or vertically"
     bl_idname = "keyops.streighten_after_edge"
-    bl_label = "Streighten After Edge"
+    bl_label = "Straighten after Edge"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
-        return _uv_toolkit_poll(cls, context, "uv.toolkit_straighten_island")
+        return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
-        if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
-            bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-            bpy.ops.keyops.smart_uv_sync()
-            bpy.ops.uv.toolkit_straighten_island()
-            bpy.ops.keyops.smart_uv_sync()
-
-        else:
-            bpy.ops.uv.toolkit_straighten_island()
-
+        import bmesh
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        uv = bm.loops.layers.uv.verify()
+        active = bm.select_history.active
+        edge = active if isinstance(active, bmesh.types.BMEdge) and active.select else \
+            next((e for e in bm.edges if e.select), None)
+        if edge is None:
+            self.report({'WARNING'}, "Select an edge to straighten after")
+            return {'CANCELLED'}
+        quad = next((f for f in edge.link_faces if len(f.verts) == 4 and not f.hide), None)
+        if quad is None:
+            self.report({'WARNING'}, "The edge needs a quad beside it")
+            return {'CANCELLED'}
+        island = _uv_island(quad, uv)
+        for f in bm.faces:
+            f.select = f in island
+        bm.select_flush(True)
+        bm.faces.active = quad
+        _square_face_uvs(quad, uv, axis_edge=edge.verts)
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.uv.follow_active_quads(mode='LENGTH_AVERAGE')
         return {'FINISHED'}
+
 
 class StackSimilarIslands(bpy.types.Operator):
     bl_description = "Stack Similar Islands"
@@ -378,6 +454,8 @@ class StackSimilarIslands(bpy.types.Operator):
         return _in_uv_editor(context)
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.copy, bpy.ops.uv.paste, message="Needs a mesh in Edit Mode in the UV Editor"):
+            return {'CANCELLED'}
         bpy.ops.uv.copy()
         bpy.ops.uv.paste()
         return {'FINISHED'}
@@ -408,6 +486,8 @@ class SelectSimilarIslands(bpy.types.Operator):
         return _in_uv_editor(context)
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.select_similar, message="Select Similar Islands only works in the UV Editor"):
+            return {'CANCELLED'}
         bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
         if bpy.context.tool_settings.use_uv_select_sync:
             bpy.ops.keyops.smart_uv_sync()

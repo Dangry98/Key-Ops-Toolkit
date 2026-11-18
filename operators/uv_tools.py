@@ -2,7 +2,7 @@ import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR, set_uv_island_select_mode, operator_exists
+from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR, set_uv_island_select_mode, operator_exists, can_run_ops
 from ..utils.node_groups import get_node_group
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
@@ -219,7 +219,7 @@ class SmartUVSync(bpy.types.Operator):
         uv_sync_enable = not tool_settings.use_uv_select_sync
         tool_settings.use_uv_select_sync = uv_sync_enable
 
-        if context.scene.smart_uv_sync_enable:
+        if context.scene.keyops.smart_uv_sync_enable:
             self.sync_uv_selction_mode(context, uv_sync_enable)
             if BLENDER_VERSION < (5,0,0):
                 self.sync_selected_elements(context, uv_sync_enable)
@@ -231,7 +231,6 @@ class SmartUVSync(bpy.types.Operator):
 def register_uv_tools():
     bpy.utils.register_class(SmartUVSync)
     # bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
-    bpy.types.Scene.smart_uv_sync_enable = bpy.props.BoolProperty(name="Enable", default=True, description="Right Click to Toggle Sync Mode and UV Selection, can be slow on very large meshes")
     bpy.utils.register_class(UVCut)
     bpy.utils.register_class(SharpFromUVIslands)
     bpy.utils.register_class(UnwrapInPlace)
@@ -240,6 +239,7 @@ def register_uv_tools():
     bpy.utils.register_class(OrientIslandToEdge)
     bpy.utils.register_class(UnwrapSelected)
     bpy.utils.register_class(QuickPack)
+    bpy.utils.register_class(SelectSimilarUVIsland)
     bpy.utils.register_class(IsolateUVIsland)
     bpy.utils.register_class(RemoveSeam)
     # bpy.utils.register_class(SelectSimilarUVIsland)
@@ -252,7 +252,6 @@ def unregister_uv_tools():
     clear_registered_keymaps(registered_uv_tools_keymaps)
     bpy.utils.unregister_class(SmartUVSync)
     # bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
-    del bpy.types.Scene.smart_uv_sync_enable
     bpy.utils.unregister_class(UVCut)
     bpy.utils.unregister_class(SharpFromUVIslands)
     bpy.utils.unregister_class(UnwrapInPlace)
@@ -260,6 +259,7 @@ def unregister_uv_tools():
     bpy.utils.unregister_class(ToggleSmoothSharp)
     bpy.utils.unregister_class(OrientIslandToEdge)
     bpy.utils.unregister_class(UnwrapSelected)
+    bpy.utils.unregister_class(SelectSimilarUVIsland)
     bpy.utils.unregister_class(QuickPack)
     bpy.utils.unregister_class(IsolateUVIsland)
     bpy.utils.unregister_class(RemoveSeam)
@@ -285,7 +285,8 @@ class UVCut(bpy.types.Operator):
         if context.tool_settings.use_uv_select_sync:
             bpy.ops.keyops.smart_uv_sync()
             self.report({'WARNING'}, "UV Sync needs to be disabled for this operation")
-            bpy.ops.uv.select_mode(type='EDGE')
+            if bpy.ops.uv.select_mode.poll():
+                bpy.ops.uv.select_mode(type='EDGE')
             return {'CANCELLED'}
 
         bpy.ops.uv.mark_seam('EXEC_DEFAULT', True)
@@ -403,9 +404,14 @@ class UnwrapInPlace(bpy.types.Operator):
             #layout.prop(self, "apply_modifier")
 
     def execute(self, context):
+        # operators are listed in bpy.ops, not bpy.types (they were never found there, so this always failed)
+        if "execute_node_group" not in dir(bpy.ops.geometry):
+            self.report({'WARNING'}, "Unwrap In Place needs geometry node tools, which are not available in this Blender version")
+            return {'CANCELLED'}
+
         visibility_modifier_dict_list = {}
 
-        def modifier_toggle_visability_based2(): 
+        def modifier_toggle_visability_based2():
             active_object_name = bpy.context.view_layer.objects.active.name
 
             if active_object_name not in visibility_modifier_dict_list:
@@ -650,6 +656,9 @@ class AutoSeam(bpy.types.Operator):
         if bpy.context.mode == 'EDIT_MESH':
             self.auto_seam(context)
         if bpy.context.mode == 'OBJECT':
+            if context.active_object is None or context.active_object.type != 'MESH':
+                self.report({'WARNING'}, "Seam by Angle needs an active mesh object")
+                return {'CANCELLED'}
             bpy.ops.object.mode_set(mode='EDIT')
             self.auto_seam(context)
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -688,12 +697,16 @@ class ToggleSmoothSharp(bpy.types.Operator):
                     disable_auto_smooth(obj)
                                     
         elif bpy.context.mode == 'OBJECT':
-            for obj in context.selected_objects:
-                if obj.type == 'MESH':
-                    if bpy.app.version < (4, 1, 0):
-                        bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=3.14159, ignore_sharp=False)
-                    else:
-                        bpy.ops.object.shade_smooth(keep_sharp_edges=True)
+            meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+            if meshes:
+                if bpy.app.version < (4, 1, 0):
+                    bpy.ops.object.shade_smooth()
+                    for obj in meshes:
+                        obj.data.auto_smooth_angle = 3.141590118408203
+                        obj.data.use_auto_smooth = True
+                else:
+                    bpy.ops.object.shade_smooth(keep_sharp_edges=True)
+                    for obj in meshes:
                         disable_auto_smooth(obj)
         return {'FINISHED'}
 
@@ -708,6 +721,8 @@ class OrientIslandToEdge(bpy.types.Operator):
         return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
+        if not can_run_ops(self, bpy.ops.uv.select_more, bpy.ops.uv.align_rotation, message="Orient Island to Edge only works in the UV Editor"):
+            return {'CANCELLED'}
         if bpy.context.scene.tool_settings.use_uv_select_sync:
             edge_mode = False
             if bpy.context.tool_settings.mesh_select_mode[1]:
@@ -782,15 +797,15 @@ class UnwrapSelected(bpy.types.Operator):
 
     def execute(self, context):
         if context.tool_settings.use_uv_select_sync:
-            if bpy.context.scene.smart_uv_sync_enable == False:
-                bpy.context.scene.smart_uv_sync_enable = True
+            if bpy.context.scene.keyops.smart_uv_sync_enable == False:
+                bpy.context.scene.keyops.smart_uv_sync_enable = True
                 self.reset_uv_sync = True
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
             bpy.ops.keyops.smart_uv_sync()
             bpy.ops.uv.unwrap(method=self.method, margin=0.001, correct_aspect=self.corret_aspect, use_subsurf_data=self.use_subsurf_data, fill_holes=self.fill_holes)
             bpy.ops.keyops.smart_uv_sync()
             if self.reset_uv_sync:
-                bpy.context.scene.smart_uv_sync_enable = False
+                bpy.context.scene.keyops.smart_uv_sync_enable = False
         else:
             bpy.ops.uv.unwrap()
 
@@ -912,7 +927,7 @@ class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
 
         row.scale_y = 1.5
         row.operator("keyops.smart_uv_sync", text="Smart UV Sync", icon='UV_SYNC_SELECT')
-        row.prop(context.scene, "smart_uv_sync_enable", toggle=True, text="Enable")
+        row.prop(context.scene.keyops, "smart_uv_sync_enable", toggle=True, text="Enable")
 
         #uv islands  
         row = layout.row()

@@ -80,6 +80,7 @@ class MayaNavigation(bpy.types.Operator):
         return bpy.app.version >= (5, 1, 0) and context.mode == "SCULPT" and prefs.maya_navigation_sculpt_navigation
 
     def invoke(self, context, event):
+        mask_keymap = None
         for km in bpy.context.window_manager.keyconfigs.user.keymaps:
             for kmi in km.keymap_items:
                 if kmi.name == "Sculpt":

@@ -35,8 +35,7 @@ class FastKnife(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (context.space_data.type == 'VIEW_3D'
-            and context.object
-            and context.object.mode == 'EDIT')
+            and context.mode == 'EDIT_MESH')
 
 
     def addVertOnFace(self, co, face):
@@ -232,6 +231,9 @@ class FastKnife(bpy.types.Operator):
         self.prefs = FAST_KNIFE_PREFS
 
         self.bmesh = bmesh.from_edit_mesh(self.object.data)
+        self.bmesh.verts.ensure_lookup_table()
+        self.bmesh.edges.ensure_lookup_table()
+        self.bmesh.faces.ensure_lookup_table()
 
         self.initial_vertices = [v for v in self.bmesh.verts if v.select]
         vert_len = len(self.initial_vertices)

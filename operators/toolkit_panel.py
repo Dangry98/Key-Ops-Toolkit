@@ -15,7 +15,30 @@ from .set_flow import register_set_flow, unregister_set_flow
 from .fast_mirror import register_fast_mirror, unregister_fast_mirror
 from ..utils.node_groups import get_node_group
 
+from .subobject_modes import draw_mode_row
+
 BLENDER_VERSION = bpy.app.version
+
+EDIT_MESH_TYPES = {"change_hard_bevel_width", "un_subdivide_cylinder", "subdivide_cylinder", "change_cylinder_segments_modifier", "set_vertex_color"}
+OBJECT_MODE_TYPES = {"unique_collection_duplicat", "high", "low", "cleanup", "duplicate_linked_modifiers", "duplicate_linked_modifiers_and_move"}
+SWITCH_TO_OBJECT_MODE_TYPES = {"Smart_Join_Objects", "set_sphere_normal", "seprate_objects_by"}
+
+
+def move_selected_to_collection(context, collection):
+    for obj in context.selected_objects:
+        if collection not in obj.users_collection:
+            collection.objects.link(obj)
+        for coll in list(obj.users_collection):
+            if coll != collection:
+                coll.objects.unlink(obj)
+
+
+def move_selected_to_new_collection(context, name):
+    collection = bpy.data.collections.new(name)
+    context.scene.collection.children.link(collection)
+    move_selected_to_collection(context, collection)
+
+
 registered_toolkit_panel_keymaps = []
 
 def register_toolkit_panel_keymaps():
@@ -72,7 +95,7 @@ def register_toolkit_panel_keymaps():
 def make_duplicate_linked(self, context):
     node_group = get_node_group("Duplicate Linked Modifiers")
 
-    supported_objects = ['MESH', 'CURVE', 'TEXT', 'SURFACE']
+    supported_objects = ['MESH', 'CURVE', 'FONT']  # Geometry Nodes modifiers are not supported on surfaces
 
     og_selected_objects = bpy.context.selected_objects
     og_selected_meshes = [obj for obj in og_selected_objects if obj.type in supported_objects]
@@ -104,14 +127,16 @@ def make_duplicate_linked(self, context):
 
         if obj.modifiers.get("Duplicate Linked Modifiers") is None:
             mod = obj.modifiers.new('Duplicate Linked Modifiers', 'NODES')
+            if mod is None:
+                continue
             mod.node_group = node_group
             if not self.instance:
                 mod.show_in_editmode = False    
 
         #add option to only duplate the shoruce object so the modifers is not wrong! Go after socket name? Works, but not when adding a modifier :(
         if BLENDER_VERSION >= (5,2,0):
-            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_2.value = bpy.data.objects[names[iteration]]
-            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_3.value = self.instance
+            obj.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_2.value = bpy.data.objects[names[iteration]]
+            obj.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_3.value = self.instance
         else:
             obj.modifiers["Duplicate Linked Modifiers"]["Socket_2"] = bpy.data.objects[names[iteration]]
             obj.modifiers["Duplicate Linked Modifiers"]["Socket_3"] = self.instance
@@ -135,10 +160,6 @@ def select_atribute(attribute_name):
     C.object.data.attributes.active = set_act
     set_act_index = C.object.data.attributes.find(ip_name)
     C.object.data.attributes.active_index = set_act_index
-
-def get_scale(obj):
-    s = obj.scale
-    return (s[0] + s[1] + s[2]) / 3
 
 def get_description(type: str) -> str:
     if type == "offset_uv":
@@ -288,6 +309,18 @@ class ToolkitPanel(bpy.types.Operator):
             layout.label(text="Clear Normals", icon="X")
 
     def execute(self, context):
+        if self.type in EDIT_MESH_TYPES and context.mode != 'EDIT_MESH':
+            self.report({'WARNING'}, "Only works in mesh Edit Mode")
+            return {'CANCELLED'}
+
+        if self.type in OBJECT_MODE_TYPES and context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Only works in Object Mode")
+            return {'CANCELLED'}
+
+        # These switch to Object Mode themselves
+        if self.type in SWITCH_TO_OBJECT_MODE_TYPES or (self.type == "Instant_Apply_Modifiers" and (self.convert_to_options != "Insta_Apply_Modifiers" or context.mode != 'EDIT_MESH')):
+            if context.mode != 'OBJECT' and context.active_object is not None:
+                bpy.ops.object.mode_set(mode='OBJECT')
 
         def add_UV_offset_modifier(obj):
             if obj.modifiers.get("Offset UV") is None:
@@ -310,6 +343,7 @@ class ToolkitPanel(bpy.types.Operator):
 
         def set_offset_uv_true_false(obj, true_false=True):
             if obj.data.total_vert_sel > 0:
+                bpy.context.view_layer.objects.active = obj  # select_atribute works on the active object
                 named_attributes = obj.data.attributes
                 attribute_name = "Offset_UV"
                 set_act = named_attributes.get(attribute_name)
@@ -342,9 +376,9 @@ class ToolkitPanel(bpy.types.Operator):
 
                     if context.mode == 'EDIT_MESH':
                         if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            selection_input = bpy.context.object.modifiers["Triplanar UV Mapping"].properties.inputs.Socket_2
-                            selection_input.attribute_name = "Triplanar_UV_Mapping"
-                            selection_input.type = "ATTRIBUTE"
+                            triplanar_mod = bpy.context.object.modifiers["Triplanar UV Mapping"]
+                            triplanar_mod.properties.inputs.Socket_2.attribute_name = "Triplanar_UV_Mapping"
+                            triplanar_mod.properties.inputs.Socket_2.type = "ATTRIBUTE"
                         else:
                             bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
                             bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
@@ -477,9 +511,10 @@ class ToolkitPanel(bpy.types.Operator):
                 f.select = True
 
         elif self.type == "set_sphere_normal":
-            current_selectded_objects = bpy.context.selected_objects
-            if bpy.context.mode == 'EDIT_MESH':
-                bpy.ops.object.editmode_toggle()
+            current_selectded_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+            if not current_selectded_objects:
+                self.report({'WARNING'}, "No mesh objects selected")
+                return {'CANCELLED'}
 
             if self.set_orgin_to_geometry == True:
                 bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
@@ -506,8 +541,14 @@ class ToolkitPanel(bpy.types.Operator):
                 data_transfer_modifier.object = sphere_object
 
         elif self.type == "set_normal_from_selection":
-            if bpy.context.mode == 'OBJECT':
-                bpy.ops.object.editmode_toggle()
+            if context.active_object is None or context.active_object.type != 'MESH':
+                self.report({'WARNING'}, "Needs an active mesh object")
+                return {'CANCELLED'}
+            if bpy.context.mode != 'EDIT_MESH':
+                bpy.ops.object.mode_set(mode='EDIT')
+            if context.active_object.data.total_vert_sel == 0:
+                self.report({'WARNING'}, "Nothing selected")
+                return {'CANCELLED'}
             bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
             bpy.ops.mesh.separate(type='SELECTED')
             duplicated_object = bpy.context.selected_objects[1]
@@ -529,99 +570,7 @@ class ToolkitPanel(bpy.types.Operator):
             data_transfer_modifier.mix_factor = self.mix_factor
             data_transfer_modifier.object = duplicated_object
             
-        elif self.type == "set_bevel_segment_amount":
-            new_selected_meshes = bpy.context.selected_objects
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    if bpy.context.scene.bevel_segments_type == 'ALL':
-                        for modifier in modifiers: 
-                            if modifier.type == 'BEVEL':
-                                modifier.segments = bpy.context.scene.bevel_segment_amount
-
-                    elif bpy.context.scene.bevel_segments_type == 'TOP':
-                        if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                            modifiers[0].segments = bpy.context.scene.bevel_segment_amount
-
-                    elif bpy.context.scene.bevel_segments_type == 'BOTTOM':
-                        if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                            modifiers[-1].segments = bpy.context.scene.bevel_segment_amount
-                    elif bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
-                        if bpy.context.scene.compensate_for_scale == True:
-                            bevel_offset = bpy.context.scene.bevel_offset / get_scale(selected_obj)
-                        else:
-                            bevel_offset = bpy.context.scene.bevel_offset
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                if modifier.width < bevel_offset:
-                                    modifier.segments = bpy.context.scene.bevel_segment_amount
-
-        elif self.type == "bevel_segment_amount_by_%":
-            new_selected_meshes = bpy.context.selected_objects
-
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    if bpy.context.scene.bevel_segments_type == 'ALL':
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.bevel_segment_by_percent / 100)
-                                modifier.segments = int(segment_amount)
-                    if bpy.context.scene.bevel_segments_type == 'TOP':
-                        if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                            segment_amount = modifiers[0].segments + (modifiers[0].segments * bpy.context.scene.bevel_segment_by_percent / 100)
-                            modifiers[0].segments = int(segment_amount)
-                    if bpy.context.scene.bevel_segments_type == 'BOTTOM':
-                        if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                            segment_amount = modifiers[-1].segments + (modifiers[-1].segments * bpy.context.scene.bevel_segment_by_percent / 100)
-                            modifiers[-1].segments = int(segment_amount)
-                    if bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
-                        if bpy.context.scene.compensate_for_scale == True:
-                            bevel_offset = bpy.context.scene.bevel_offset / get_scale(selected_obj)
-                        else:
-                            bevel_offset = bpy.context.scene.bevel_offset
-                        for modifier in selected_obj.modifiers:  
-                            if modifier.type == 'BEVEL':
-                                if modifier.width < bevel_offset:
-                                    segment_amount = modifier.segments + (modifier.segments * bpy.context.scene.bevel_segment_by_percent / 100)
-                                    modifier.segments = int(segment_amount)
-                                                            
-        elif self.type == "hide_bevels_by_offset":
-            new_selected_meshes = bpy.context.selected_objects
-
-            for selected_obj in new_selected_meshes:
-                if selected_obj.type == 'MESH':
-                    modifiers = selected_obj.modifiers
-                    num_modifiers = len(modifiers)
-
-                    for modifier in selected_obj.modifiers:
-                        if modifier.type == 'BEVEL':
-                            if bpy.context.scene.compensate_for_scale == True:
-                                bevel_offset = bpy.context.scene.bevel_offset / get_scale(selected_obj)
-                            else:
-                                bevel_offset = bpy.context.scene.bevel_offset
-                            if bpy.context.scene.bevel_segments_type == 'ALL':
-                                if modifier.width < bevel_offset:
-                                    modifier.show_viewport = False
-                            if bpy.context.scene.bevel_segments_type == 'TOP':
-                                if num_modifiers > 0 and modifiers[0].type == 'BEVEL':
-                                    if modifiers[0].width < bevel_offset:
-                                        modifiers[0].show_viewport = False
-                            if bpy.context.scene.bevel_segments_type == 'BOTTOM':
-                                if num_modifiers > 0 and modifiers[-1].type == 'BEVEL':
-                                    if modifiers[-1].width < bevel_offset:
-                                        modifiers[-1].show_viewport = False
-                            if bpy.context.scene.bevel_segments_type == 'BY_OFFSET':
-                                if modifier.width < bevel_offset:
-                                    modifier.show_viewport = False
-
         elif self.type == "seprate_objects_by":
-            if bpy.context.mode == 'EDIT_MESH':
-                bpy.ops.object.mode_set(mode='OBJECT')
             if self.seprate_by == "MATERIAL":
                 bpy.ops.mesh.separate(type='MATERIAL')
             elif self.seprate_by == "LOOSE":
@@ -634,7 +583,7 @@ class ToolkitPanel(bpy.types.Operator):
                 self.default_name = "high"
         
             bpy.ops.object.duplicate()
-            bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name=self.default_name)
+            move_selected_to_new_collection(context, self.default_name)
 
             objects_to_duplicate = [obj for obj in context.selected_objects if obj.data and obj.data.users > 1]
 
@@ -746,7 +695,7 @@ class ToolkitPanel(bpy.types.Operator):
                         object_eval = obj.evaluated_get(depsgraph)
                         mesh_from_eval = bpy.data.meshes.new_from_object(object_eval, depsgraph=depsgraph)
 
-                        if obj.mode == 'OBJECT':
+                        if obj.mode != 'EDIT':
                             obj.data = mesh_from_eval
                         else:
                             bm = bmesh.from_edit_mesh(obj.data)
@@ -780,8 +729,6 @@ class ToolkitPanel(bpy.types.Operator):
                         if obj == active_object:
                             active_object = new_obj
                
-                    #clear the evaluated mesh
-                    object_eval.to_mesh_clear()
                     bpy.context.view_layer.objects.active = active_object
                    
                 else:
@@ -795,7 +742,7 @@ class ToolkitPanel(bpy.types.Operator):
             elif self.convert_to_options == "Curves":
                 bpy.ops.object.convert(target='CURVES')
             elif self.convert_to_options == "Grease_Pencil":
-                bpy.ops.object.convert(target='GPENCIL')
+                bpy.ops.object.convert(target='GREASEPENCIL' if BLENDER_VERSION >= (4, 3, 0) else 'GPENCIL')
             return {'FINISHED'}
 
         elif self.type == "toggle_high_low":
@@ -815,25 +762,23 @@ class ToolkitPanel(bpy.types.Operator):
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "low":
                     bpy.context.scene.collection.children[0].name = "high"
                 else:
-                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="high")
+                    move_selected_to_new_collection(context, "high")
             else:
-                get_index_of_high = bpy.context.scene.collection.children.find("high") + 1
-                bpy.ops.object.move_to_collection(collection_index=get_index_of_high)
+                move_selected_to_collection(context, bpy.context.scene.collection.children["high"])
 
         elif self.type == "low":
             if bpy.context.scene.collection.children.get("low") is None:
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "high":
                     bpy.context.scene.collection.children[0].name = "low"
                 else:
-                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="low")
+                    move_selected_to_new_collection(context, "low")
             else:
-                get_index_of_low = bpy.context.scene.collection.children.find("low") + 1
-                bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
+                move_selected_to_collection(context, bpy.context.scene.collection.children["low"])
 
         elif self.type == "un_subdivide_cylinder":
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.total_vert_sel > 0:
                     context.view_layer.objects.active = obj
                     if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is None:
@@ -842,7 +787,7 @@ class ToolkitPanel(bpy.types.Operator):
                     obj.data.update()
                     bpy.ops.mesh.attribute_set(value_bool=True)
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.total_vert_sel > 0:    
                     mesh = obj.data
                     bm = bmesh.from_edit_mesh(mesh)
@@ -880,7 +825,7 @@ class ToolkitPanel(bpy.types.Operator):
                     bmesh.update_edit_mesh(mesh)
                     bm.free()
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is not None:
                     context.view_layer.objects.active = obj
                     bpy.ops.mesh.select_by_attribute()
@@ -1000,12 +945,11 @@ class ToolkitPanel(bpy.types.Operator):
             bpy.ops.object.delete(use_global=False)
 
         elif self.type == "set_vertex_color":
-            if bpy.context.space_data.shading.color_type != 'VERTEX':
-                bpy.context.space_data.shading.color_type = 'VERTEX'
+            space = context.space_data
+            if space is not None and space.type == 'VIEW_3D' and space.shading.color_type != 'VERTEX':
+                space.shading.color_type = 'VERTEX'
 
-            selection = set(bpy.context.selected_objects)
-            active = set([context.active_object])
-            selection = set(selection).union(set(active))
+            selection = [o for o in context.objects_in_mode if o.type == 'MESH']
 
             for obj in selection:
                 if obj.data.total_vert_sel > 0: 
@@ -1018,8 +962,12 @@ class ToolkitPanel(bpy.types.Operator):
                     set_act_index = obj.data.attributes.find(active_attribute)
                     obj.data.attributes.active_index = set_act_index
 
+            if not any(obj.data.total_vert_sel > 0 for obj in selection):
+                self.report({'WARNING'}, "Nothing selected")
+                return {'CANCELLED'}
+
             if self.ovveride_color != True:
-                color = bpy.context.scene.vertex_color
+                color = bpy.context.scene.keyops.vertex_color
             else:
                 color = self.ovveride_color_vec
             bpy.ops.mesh.attribute_set(value_color=(color[0], color[1], color[2], color[3]))
@@ -1036,6 +984,16 @@ class ToolkitPanel(bpy.types.Operator):
 def register_toolkit_panel():
     from .snap_to_floor import register_snap_to_floor
     from .parent_used_objects import register_parent_used_objects
+    from .resample_edges import register_resample_edges
+    from .mesh_cleanup import register_mesh_cleanup
+    from .extract_geometry import register_extract_geometry
+    register_extract_geometry()
+    from .edge_trim import register_edge_trim
+    from .subobject_modes import register_sub_object_modes
+    register_sub_object_modes()
+    register_edge_trim()
+    register_resample_edges()
+    register_mesh_cleanup()
     register_set_flow()
     register_fast_mirror()
     register_snap_to_floor()
@@ -1054,7 +1012,6 @@ def register_toolkit_panel():
     bpy.utils.register_class(AddBooleanModifier)
     bpy.utils.register_class(BooleanScroll)
     register_toolkit_panel_keymaps()
-    bpy.types.Scene.vertex_color = bpy.props.FloatVectorProperty(name="Vertex Color", subtype='COLOR', size=4, min=0.0, max=1.0, update=update_vertex_color, default=(1.0, 1.0, 1.0, 0.3))
     # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
     bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
     bpy.context.window_manager.live_booleans = True
@@ -1062,6 +1019,16 @@ def register_toolkit_panel():
 def unregister_toolkit_panel():
     from .snap_to_floor import unregister_snap_to_floor
     from .parent_used_objects import unregister_parent_used_objects
+    from .resample_edges import unregister_resample_edges
+    from .mesh_cleanup import unregister_mesh_cleanup
+    from .extract_geometry import unregister_extract_geometry
+    unregister_extract_geometry()
+    from .edge_trim import unregister_edge_trim
+    from .subobject_modes import unregister_sub_object_modes
+    unregister_sub_object_modes()
+    unregister_edge_trim()
+    unregister_resample_edges()
+    unregister_mesh_cleanup()
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     unregister_fast_mirror()
     unregister_set_flow()
@@ -1080,7 +1047,6 @@ def unregister_toolkit_panel():
     bpy.utils.unregister_class(AddBooleanModifier)
     bpy.utils.unregister_class(BooleanScroll)
     # bpy.utils.unregister_class(NewToolkitPanel)
-    del bpy.types.Scene.vertex_color
     # del bpy.types.Scene.RGB_Enum
     del bpy.types.WindowManager.live_booleans
     if ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered:
@@ -1097,7 +1063,7 @@ def toggle_realtime_booleans(self, context):
         
 def update_vertex_color(self, context):
     bpy.ops.keyops.toolkit_panel(type="set_vertex_color")  
-    #bpy.ops.mesh.attribute_set(value_color=(bpy.context.scene.vertex_color[0], bpy.context.scene.vertex_color[1], bpy.context.scene.vertex_color[2], bpy.context.scene.vertex_color[3]))
+    #bpy.ops.mesh.attribute_set(value_color=(bpy.context.scene.keyops.vertex_color[0], bpy.context.scene.keyops.vertex_color[1], bpy.context.scene.keyops.vertex_color[2], bpy.context.scene.keyops.vertex_color[3]))
 
 def click_rgb_enum(self, context):
     if bpy.context.scene.RGB_Enum == 'R':
@@ -1174,77 +1140,37 @@ def draw_modifier_panel(self, context, draw_header=False):
         prefs = get_keyops_prefs()
 
         box = layout.box()
-        # Header and "Create" share one aligned column so there's no box gap between them
         col = box.column(align=True)
-        col.scale_y = 1.1
         if draw_header:
             col.label(text="Modifiers", icon_value=get_icon("modifier"))
-
-        # Fast modifier tools: click adjusts the existing modifier, Ctrl + click adds a new one
-        # (Fast Mirror lives in the Object Toolkit)
+        # Create: the Fast tools first, then lattices
+        col = box.column(align=True)
         col.label(text="Create")
-        if prefs.enable_add_modifier_pie:
-            row = col.row(align=True)
-            row.scale_y = 1.2
-            row.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")
-            row.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")
-            row.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")
-
-        # Lattice / FFD
-        row = col.row(align=True)
+        grid = col.column(align=True)
+        row = grid.row(align=True)
+        row.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")
+        row.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")
+        row.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")
+        row = grid.row(align=True)
         row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
-        for subdivisions in (3, 4):
-            op = row.operator("keyops.add_modifier", text=f"FFD {subdivisions}x")
-            op.subdivisions = subdivisions
+        for n in (3, 4):
+            op = row.operator("keyops.add_modifier", text=f"FFD {n}x")
+            op.subdivisions = n
             op.type = "LATTICE"
 
-        # UV modifiers side by side, each with an icon-only remove button
-        # Same column as Create, just a small gap before the UV label
-        col.separator(factor=0.3)
+        # UV
+        col = box.column(align=True)
         col.label(text="UV")
-        for label, icon, add_type, remove_type in (
-            ("Offset UV", "AREA_JOIN", "offset_uv", "Remove_Offset_UV"),
-            ("Triplanar UV", "AXIS_SIDE", "Triplanar_UV_Mapping", "Remove_Triplanar_UV_Mapping"),
-        ):
-            row = col.split(factor=0.65, align=True)
-            row.operator("keyops.toolkit_panel", text=label, icon=icon).type = add_type
-            row.operator("keyops.toolkit_panel", text="Remove").type = remove_type
-
+        column = col.column(align=True)
+        row = column.split(factor=0.57, align=True)
+        row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
+        row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
+        row = column.split(factor=0.57, align=True)
+        row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
+        row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
         if prefs.enable_uv_tools:
-            col.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
+            column.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
 
-
-        # if context.mode == 'OBJECT':
-        #     # header, panel_changde_meshes = box.panel(idname="Set Bevel",  default_closed=False)
-        #     # header.label(text="Set Bevel", icon = "MOD_BEVEL")
-        #     # if panel_changde_meshes:
-        #     box = layout.box()
-
-        #     layout = box
-        #     col = layout.column(align=False)
-        #     row = col.row(align=False)
-        #     row.label(text="Set Bevel", icon = "MOD_BEVEL")
-        #     row = col.row(align=True)
-
-        #     row.prop(context.scene, "bevel_segments_type", text="Set")
-        #     row = col.row(align=False)
-        #     col = layout.column(align=True)
-
-        #     row = col.row(align=True)
-        #     row.operator("keyops.toolkit_panel", text="Set Value", icon= "MOD_BEVEL").type = "set_bevel_segment_amount" 
-        #     row.operator("keyops.toolkit_panel", text="Set by %", icon= "MOD_BEVEL").type = "bevel_segment_amount_by_%"
-        #     row = col.row(align=True)
-        #     row.prop(context.scene, "bevel_segment_amount", text="")
-        #     row.prop(context.scene, "bevel_segment_by_percent", text="")
-
-        #     row = layout.row()
-        #     row.scale_x = 0.4
-        #     row.operator("keyops.toolkit_panel", text="Hide by Offset", icon= "MOD_BEVEL").type = "hide_bevels_by_offset"
-        #     sub = row.row()
-        #     sub.prop(context.scene, "compensate_for_scale", text="")
-        #     subrow = sub.row(align=False)
-        #     subrow.scale_x = 0.4
-        #     subrow.prop(context.scene, "bevel_offset", text="")
 class ModifierPanel(bpy.types.Panel):
     bl_description = "Modifier Operations"
     bl_label = "Modifiers"
@@ -1265,23 +1191,56 @@ class ModifierPanel(bpy.types.Panel):
     def draw(self, context):
        draw_modifier_panel(self, context, draw_header=False)
 
-    def register():
-        bpy.types.Scene.bevel_segment_amount = bpy.props.IntProperty(name="Bevel Segment Amount", default=2, min=1, max=128)
-        bpy.types.Scene.bevel_segment_by_percent = bpy.props.IntProperty(name="Bevel Segment By %", default=-50, min=-100, max=100, subtype='FACTOR')
-        bpy.types.Scene.bevel_offset = bpy.props.FloatProperty(name="Bevel Offset", default=0.1, min=-0.0, max=10.0)
-        bpy.types.Scene.compensate_for_scale = bpy.props.BoolProperty(name="Compensate for Scale", default=True, description="Compensate for Scale")
-        bpy.types.Scene.bevel_segments_type = bpy.props.EnumProperty(name="bevel_segments_type", items=[('ALL', 'All Bevelse', 'All Bevelse'), ('TOP', 'First Bevel', 'First Bevel'), ('BOTTOM', 'Last Bevel', 'Last Bevel'), ('BY_OFFSET', 'By Bevel Offset', 'By Bevel Offset')], default='ALL', description="Set based on bevel settings")
-    def unregister():
-        del bpy.types.Scene.bevel_segment_amount
-        del bpy.types.Scene.bevel_segment_by_percent
-        del bpy.types.Scene.bevel_offset
-        del bpy.types.Scene.compensate_for_scale
-        del bpy.types.Scene.bevel_segments_type
 
 def draw_edge_flow(row):
     row.operator("mesh.set_mesh_edge_flow", text="Set Flow")
 
-# click vert, edge andface again should go to object mode!        
+
+# Edit Toolkit layout helpers: every section is a label plus an aligned column of buttons,
+# two per row. A button wrapped in _wide() (or an odd one at the end) spans the whole row.
+def _op(idname, text, **props):
+    def draw(layout):
+        op = layout.operator(idname, text=text)
+        for name, value in props.items():
+            setattr(op, name, value)
+    return draw
+
+
+def _menu_op(menu, text):
+    def draw(layout):
+        layout.operator("wm.call_menu", text=text).name = menu
+    return draw
+
+
+def _wide(draw):
+    draw.wide = True
+    return draw
+
+
+def _section(box, label, items, first=False):
+    items = [item for item in items if item is not None]
+    if not items:
+        return
+    if label:
+        if not first:
+            box.separator(factor=0.5)
+        box.label(text=label)
+    col = box.column(align=True)
+    row = None
+    for item in items:
+        if getattr(item, "wide", False):
+            item(col.row(align=True))
+            row = None
+            continue
+        if row is None:
+            row = col.row(align=True)
+            item(row)
+        else:
+            item(row)
+            row = None
+
+
+# click vert, edge andface again should go to object mode!
 def draw_edit_mode_panel(self, context, draw_header=False):
     sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
     prefs = get_keyops_prefs()
@@ -1298,310 +1257,138 @@ def draw_edit_mode_panel(self, context, draw_header=False):
     sub.alignment = 'RIGHT'
     sub.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
 
-    new_layoute = True
-    if new_layoute:
-        if show_blender_ops:
-            row = box.row(align=True)
-            row.scale_x = 2.15
-            row.scale_y = 1.5
-            row.alignment = 'CENTER'
-            row.template_header_3D_mode()
-            row.operator("mesh.region_to_loop", text="", icon="MESH_CAPSULE")
-            row.operator("mesh.select_linked", text="", icon="SNAP_VOLUME")
-
-        # Selection
-        row = box.row(align=False)
-        row.label(text="Selection")
-        if not show_blender_ops:
-            row = box.row(align=False)
-            row.operator("keyops.select_similar", text="Similar")
-            row.operator("keyops.select_thin_triangles", text="Thin Triangles")
-
-            row = box.row(align=False)
-            row = box.row(align=False)
-            row.label(text="Edit Mesh")
-            row = box.row(align=False)
-            if prefs.enable_fast_merge:
-                row.operator("mesh.connect2", text="Connect")
-            draw_edge_flow(row)
-
-    if new_layoute and show_blender_ops:
-        row = box.row(align=False)
-        row.scale_x = 1.25
+    if show_blender_ops:
+        row = box.row(align=True)
+        row.scale_x = 2.15
         row.scale_y = 1.5
-        row.operator("mesh.select_more", text="", icon="ADD")
-        row.operator("mesh.select_less", text="", icon="REMOVE")
-
-        if BLENDER_VERSION >= (5, 1, 0):
-            row.operator("mesh.select_edge_loop_multi", text="Loop")
-            row.operator("mesh.select_edge_ring_multi", text="Ring")
-        else:
-            row.operator("mesh.loop_multi_select", text="Loop").ring=False
-            row.operator("mesh.loop_multi_select", text="Ring").ring=True
-
-        row = box.row(align=False)
-        row.operator("mesh.region_to_loop", text="Boundary")
-        row.operator("mesh.loop_to_region", text="Inner Region")
-        row = box.row(align=False)
-
-        if sel_mode[2]:
-            row.operator("mesh.faces_select_linked_flat", text="By Angle")
-        else:
-            row.operator("mesh.edges_select_sharp", text="Edge Angle")
-        row.operator("keyops.select_similar", text="Similar")
-        # Checker deselect
-        row = box.row(align=False)
         row.alignment = 'CENTER'
-        row.operator("mesh.select_nth", text="Checker Deselect")
-        if sel_mode[0] or sel_mode[1]:
-            row = box.row(align=False)
-            row.operator("mesh.select_non_manifold", text="Non Manifold")
-        row.operator("mesh.select_face_by_sides", text="Ngons").type = 'GREATER'
-        row = box.row(align=False)
-        row.alignment = 'CENTER'
-        row.operator("keyops.select_thin_triangles", text="Thin Triangles")
+        # Vertex, Edge, Face plus the Border and Element modes, as one row of modes
+        draw_mode_row(row, context)
 
-        # Edit vertices
-        row = box.row(align=False)
-        row = box.row(align=False)
+    vert_mode, edge_mode, face_mode = sel_mode
+    fast_merge = prefs.enable_fast_merge
 
-        if sel_mode[0]:
-            row.label(text="Edit Vertices")
-        if sel_mode[1]:
-            row.label(text="Edit Edges")
-        if sel_mode[2]:
-            row.label(text="Edit Polygons")
-
-        row = box.row(align=False)
-        row.alignment = 'CENTER'
-        if sel_mode[0]:
-            row.operator("mesh.delete", text="Remove").type = 'VERT'
-        if sel_mode[1]:
-            row.operator("mesh.dissolve_mode", text="Remove")
-            row.operator("mesh.rip", text="Split")
-            # row.operator("mesh.mark_seam", text="Mark", icon="EDGE_SEAM") # should be a smart seam toggle!
-        if sel_mode[2]:
-            row.operator("mesh.delete", text="Remove").type = 'FACE'
-
-        row = box.row(align=False)
-        row.operator("wm.call_menu", text="Extrude").name = "VIEW3D_MT_edit_mesh_extrude"
-        row.operator("mesh.remove_doubles", text="Weld")
-        row = box.row(align=False)
-        if sel_mode[0]:
-            row.operator("mesh.bevel", text="Chamfer").affect = 'VERTICES'
-        else:
-            row.operator("mesh.bevel", text="Bevel").affect = 'EDGES'
-
-        if prefs.enable_fast_merge:
-            row.operator("mesh.connect2", text="Connect")
-       
-        if sel_mode[2]:
-            row.operator("mesh.inset", text="Inset")
-
-        if sel_mode[0]:
-            row = box.row(align=False)
-            row.operator("mesh.edge_face_add", text="Fill")
-            draw_edge_flow(row)
-           
-              
-            row = box.row(align=False)
-            row.alignment = 'CENTER'
-            row.operator("mesh.dissolve_limited", text="Limited Dissolve")
-        # Edit edges
-        if sel_mode[1]:
-            row = box.row(align=False)
-            row.operator("mesh.edge_face_add", text="Fill")
-            draw_edge_flow(row)
-            row = box.row(align=False)
-            row.alignment = 'CENTER'
-            if sel_mode[0]:
-                row = box.row(align=False)
-                row.alignment = 'CENTER'
-            row.operator("mesh.dissolve_limited", text="Limited Dissolve")
-            row.operator("mesh.bridge_edge_loops", text="Bridge")
-            # row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
-        # Edit polygons
-        if sel_mode[2]:
-            row = box.row(align=False)
-            row.operator("mesh.bridge_edge_loops", text="Bridge")
-            row.operator("mesh.flip_normals", text="Flip")
-
-            row = box.row(align=False)
-            row.operator("mesh.edge_face_add", text="Fill")
-            draw_edge_flow(row)
-            row = box.row(align=False)
-            row.alignment = 'CENTER'
-            row.operator("mesh.dissolve_limited", text="Limited Dissolve")
-
-    if new_layoute:
-        # UV
-        row = box.row(align=True)
-        row.label(text="UV")
-        row = box.row(align=False)
-        row.menu("VIEW3D_MT_uv_map", text="UV Unwrap", icon="UV")
-        row = box.row(align=False)
-        row.operator("mesh.mark_seam", text="Mark Seam", icon=safe_icon("EDGE_SEAM")).clear = False  # icon is 5.0+
-        row.operator("mesh.mark_seam", text="Clear Seam").clear = True
-        if prefs.enable_uv_tools:
-            row = box.row(align=False)
-            row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
-
-    if new_layoute:
-        # Vertex color
-        row = box.row(align=True)
-        row.label(text="Vertex Color")
-        row = box.row(align=False)
-        row.operator("keyops.toolkit_panel", text="Set Color").type = "set_vertex_color"
-        row.prop(context.scene, "vertex_color", text="")
-        # row = box.row(align=False)
-        # row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
-
-    if new_layoute and show_blender_ops:
-        # Edit geometry
-        row = box.row(align=False)
-        row = box.row(align=False)
-
-        row.label(text="Edit Geometry")
-        # row = box.row(align=False)
-        # row.alignment = 'CENTER'
-        # # Repeat last operator
-        # row.operator("screen.repeat_last", text="Repeat Last")
-        row = box.row(align=False)
-        row.alignment = 'RIGHT'
-        # Correct face attributes
-        row.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Preserve UVs")
-        popover_kw = {"space_type": 'VIEW_3D', "region_type": 'UI', "category": "Tool"}
-        row.popover_group(context=".mesh_edit", **popover_kw)
-        row = box.row(align=False)
-        row.operator("mesh.merge", text="Merge Center").type = 'CENTER'
-        row.operator("mesh.edge_collapse", text="Collapse")
-        # Separate
-        row = box.row(align=False)
-        row.operator("mesh.separate", text="Separate")
-        row.operator("mesh.rip_move", text="Rip")
-        row = box.row(align=False)
-        row.operator("mesh.bisect", text="Slice Plane")
-        row.operator("mesh.knife_tool", text="Cut")
-        row = box.row(align=False)
-        row.operator("mesh.subdivide", text="Subdivide")
-        row.operator("mesh.unsubdivide", text="Un-Subdivide")
-
-        if BLENDER_VERSION >= (5, 0, 0):
-            has_flatten = operator_exists("mesh.flatten")
-            has_circle = operator_exists("mesh.circularize")
-            has_relax = operator_exists("mesh.relax_edge_loops")
-
-            if has_flatten or has_circle:
-                row = box.row(align=False)
-                if has_flatten:
-                    row.operator("mesh.flatten", text="Make Planar")
-                if has_circle:
-                    row.operator("mesh.circularize", text="Circle")
-
-            if has_relax:
-                row = box.row(align=False)
-                row.alignment = 'CENTER'
-                row.operator("mesh.relax_edge_loops", text="Relax")
-
-        row = box.row(align=False)
-        row.operator("mesh.hide", text="Hide Selected")
-        row.operator("mesh.reveal", text="Unhide All")
-        row = box.row(align=False)
-        row.alignment = 'CENTER'
-        row.operator("mesh.hide", text="Hide Unselected").unselected = True
-
-    if new_layoute:
-        # Cylinder
-        row = box.row(align=False)
-        row.label(text="Cylinder", icon="MESH_CYLINDER")
-        row.operator("keyops.toolkit_panel", text="from Edge", icon="MOD_SCREW").type = "change_cylinder_segments_modifier"
-        row = box.row(align=False)
-        row.operator("keyops.toolkit_panel", text="Un-Subdivide").type = "un_subdivide_cylinder"
-        row.operator("keyops.toolkit_panel", text="Subdivide").type = "subdivide_cylinder"
+    # Selection
+    if show_blender_ops:
+        loop_ring = ([_op("mesh.select_edge_loop_multi", "Loop"), _op("mesh.select_edge_ring_multi", "Ring")]
+                     if BLENDER_VERSION >= (5, 1, 0) else
+                     [_op("mesh.loop_multi_select", "Loop", ring=False), _op("mesh.loop_multi_select", "Ring", ring=True)])
+        _section(box, "Selection", [
+            _op("mesh.select_more", "More"), _op("mesh.select_less", "Less"),
+            *loop_ring,
+            _op("mesh.region_to_loop", "Boundary"), _op("mesh.loop_to_region", "Inner Region"),
+            _op("mesh.faces_select_linked_flat", "By Angle") if face_mode else _op("mesh.edges_select_sharp", "Edge Angle"),
+            _op("keyops.select_similar", "Similar"),
+            _op("mesh.select_nth", "Checker Deselect"),
+            _op("mesh.select_non_manifold", "Non Manifold") if (vert_mode or edge_mode) else None,
+            _op("mesh.select_face_by_sides", "Ngons", type='GREATER'),
+            _op("keyops.select_thin_triangles", "Thin Triangles"),
+        ], first=True)
     else:
-        # UV
-        col = box.column(align=True)
+        _section(box, "Selection", [
+            _op("keyops.select_similar", "Similar"),
+            _op("keyops.select_thin_triangles", "Thin Triangles"),
+        ], first=True)
 
-        if prefs.enable_uv_tools:
-            row = col.row(align=True)
-            row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
-        row = col.row(align=True)
+    # Edit vertices / edges / polygons
+    if show_blender_ops:
+        title = ("Edit Mesh" if sum(sel_mode) > 1 else
+                 "Edit Vertices" if vert_mode else "Edit Edges" if edge_mode else "Edit Polygons")
+        items = {}
+        if vert_mode:
+            items["remove"] = _op("mesh.delete", "Remove", type='VERT')
+        if edge_mode:
+            items.setdefault("remove", _op("mesh.dissolve_mode", "Remove"))
+            items["split"] = _op("mesh.rip", "Split")
+        if face_mode:
+            items.setdefault("remove", _op("mesh.delete", "Remove", type='FACE'))
+        items["extrude"] = _menu_op("VIEW3D_MT_edit_mesh_extrude", "Extrude")
+        items["weld"] = _op("mesh.remove_doubles", "Weld")
+        items["bevel"] = (_op("mesh.bevel", "Chamfer", affect='VERTICES') if vert_mode and not (edge_mode or face_mode)
+                          else _op("mesh.bevel", "Bevel", affect='EDGES'))
+        if fast_merge:
+            items["connect"] = _op("mesh.connect2", "Connect")
+        if face_mode:
+            items["inset"] = _op("mesh.inset", "Inset")
+            items["flip"] = _op("mesh.flip_normals", "Flip")
+        if edge_mode or face_mode:
+            items["bridge"] = _op("mesh.bridge_edge_loops", "Bridge")
+        items["fill"] = _op("mesh.edge_face_add", "Fill")
+        items["flow"] = _op("mesh.set_mesh_edge_flow", "Set Flow")
+        items["dissolve"] = _op("mesh.dissolve_limited", "Limited Dissolve")
+        if vert_mode or edge_mode:
+            items["resample"] = _op("keyops.resample_edges", "Resample Edges")
+            items["trim"] = _op("keyops.edge_trim", "Make Trim")
+        _section(box, title, list(items.values()))
+    else:
+        _section(box, "Edit Mesh", [
+            _op("mesh.connect2", "Connect") if fast_merge else None,
+            _op("mesh.set_mesh_edge_flow", "Set Flow"),
+            _op("keyops.resample_edges", "Resample Edges"),
+            _op("keyops.edge_trim", "Make Trim"),
+        ])
 
-        # Edit mesh
-        row = col.row(align=True)
-        row.operator("mesh.extrude_edge_along_normals", text="Extrude Edge Along Normals")
-        row = col.row(align=True)
-        row.operator("mesh.flip_normals", text="Flip")
-        row.operator("mesh.normals_make_consistent", text="Recalculate")
-        row = col.row(align=True)
-        row.operator("mesh.remove_doubles", text="Weld")
-        row.operator("mesh.bridge_edge_loops", text="Bridge")
-        row = col.row(align=True)
-        if prefs.enable_fast_merge:
-            row.operator("mesh.connect2", text="Connect")
-        row.operator("mesh.subdivide", text="Subdivide")
-        row = col.row(align=True)
-        row.operator("mesh.edge_face_add", text="Fill")
+    # UV
+    _section(box, "UV", [
+        _wide(lambda layout: layout.menu("VIEW3D_MT_uv_map", text="UV Unwrap")),
+        _op("mesh.mark_seam", "Mark Seam", clear=False),
+        _op("mesh.mark_seam", "Clear Seam", clear=True),
+        _wide(_op("keyops.seam_by_angle", "Seam by Angle")) if prefs.enable_uv_tools else None,
+    ])
 
-        row = col.row(align=True)
-        row.operator("mesh.dissolve_limited", text="Limited Dissolve")
-        row = col.row(align=True)
-        if sel_mode[0] or sel_mode[1]:
-            row.operator("mesh.rip_move", text="Rip")
-        else:
-            row.operator("mesh.split", text="Split")
-        row.operator("mesh.separate", text="Separate")
+    # Vertex color
+    _section(box, "Vertex Color", [
+        _op("keyops.toolkit_panel", "Set Color", type="set_vertex_color"),
+        lambda layout: layout.prop(context.scene.keyops, "vertex_color", text=""),
+    ])
 
-        if prefs.experimental:
-            row = box.row(align=False)
-            row.operator("keyops.toolkit_panel", text="Change Hard Bevel Width", icon="MOD_BEVEL").type = "change_hard_bevel_width"
+    # Edit geometry
+    if show_blender_ops:
+        box.separator(factor=0.5)
+        row = box.row(align=True)
+        row.label(text="Edit Geometry")
+        sub = row.row(align=True)
+        sub.alignment = 'RIGHT'
+        sub.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Preserve UVs")
+        sub.popover_group(context=".mesh_edit", space_type='VIEW_3D', region_type='UI', category="Tool")
 
-        # Vertex color
-        col = box
-        row = col.row(align=True)
-        row.label(text="Vertex Color")
-        row = col.row(align=False)
-        row.operator("keyops.toolkit_panel", text="Set Color").type = "set_vertex_color"
-        row.prop(context.scene, "vertex_color", text="")
-        # row = col.row(align=False)
-        # row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
+        loop_tools = []
+        if BLENDER_VERSION >= (5, 3, 0):  # these LoopTools-style tools are built into Blender from 5.3
+            if operator_exists("mesh.flatten"):
+                loop_tools.append(_op("mesh.flatten", "Make Planar"))
+            if operator_exists("mesh.circularize"):
+                loop_tools.append(_op("mesh.circularize", "Circle"))
+            if operator_exists("mesh.relax_edge_loops"):
+                loop_tools.append(_op("mesh.relax_edge_loops", "Relax"))
+        if len(loop_tools) % 2:
+            loop_tools[-1] = _wide(loop_tools[-1])
 
-        # Select
-        col = box.column(align=True)
-        row = col.row(align=True)
-        row.label(text="Select")
-        row = col.row(align=True)
-        row.operator("mesh.select_more", text="More", icon="ADD")
-        row.operator("mesh.select_less", text="Less", icon="REMOVE")
-        row = col.row(align=True)
-        row = col.row(align=True)
-        row.operator("mesh.region_to_loop", text="Boundary")
-        row.operator("mesh.loop_to_region", text="Inner Region")
-        row = col.row(align=True)
+        _section(box, None, [
+            _op("mesh.merge", "Merge Center", type='CENTER'), _op("mesh.edge_collapse", "Collapse"),
+            _op("mesh.separate", "Separate"), _op("mesh.rip_move", "Rip"),
+            _op("mesh.bisect", "Slice Plane"), _op("mesh.knife_tool", "Cut"),
+            _op("mesh.subdivide", "Subdivide"), _op("mesh.unsubdivide", "Un-Subdivide"),
+            *loop_tools,
+            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+            _op("mesh.hide", "Hide Selected"), _op("mesh.reveal", "Unhide All"),
+            _op("mesh.hide", "Hide Unselected", unselected=True),
+        ])
+    else:
+        _section(box, "Edit Geometry", [
+            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+        ])
 
-        if sel_mode[2]:
-            row.operator("mesh.faces_select_linked_flat", text="By Angle")
-        else:
-            row.operator("mesh.edges_select_sharp", text="Edge Angle")
-        row.operator("keyops.select_similar", text="Similar")
-        # Checker deselect
-        row = col.row(align=True)
-        row.operator("mesh.select_nth", text="Checker Deselect")
-        row = col.row(align=True)
-        row.operator("mesh.select_non_manifold", text="Non Manifold")
-        row.operator("mesh.select_face_by_sides", text="Ngons").type = 'GREATER'
-        row = col.row(align=True)
-        row.operator("keyops.select_thin_triangles", text="Thin Triangles")
+    # Cylinder
+    _section(box, "Cylinder", [
+        _wide(_op("keyops.toolkit_panel", "Cylinder from Edge", type="change_cylinder_segments_modifier")),
+        _op("keyops.toolkit_panel", "Un-Subdivide", type="un_subdivide_cylinder"),
+        _op("keyops.toolkit_panel", "Subdivide", type="subdivide_cylinder"),
+    ])
 
-        # Cylinder
-        col = box.column(align=True)
-        row = col.row(align=True)
-        row.label(text="Cylinder", icon="MESH_CYLINDER")
-        row = col.row(align=True)
-        row.operator("keyops.toolkit_panel", text="Un-Subdivide").type = "un_subdivide_cylinder"
-        row.operator("keyops.toolkit_panel", text="Subdivide").type = "subdivide_cylinder"
-        row = col.row(align=True)
-        row.operator("keyops.toolkit_panel", text="Cylinder from Edge", icon="MOD_SCREW").type = "change_cylinder_segments_modifier"
+    if prefs.experimental:
+        _section(box, None, [
+            _op("keyops.toolkit_panel", "Change Hard Bevel Width", type="change_hard_bevel_width"),
+        ])
 
 
 class EditModePanel(bpy.types.Panel):
@@ -1667,6 +1454,10 @@ class ObjectModePanel(bpy.types.Panel):
         row = col.row(align=True)
         row.scale_y = 1.15
         row.operator("object.smart_apply_scale", text="Smart Apply Scale", icon = "FREEZE")
+        row = col.row(align=True)
+        row.scale_y = 1.15
+        row.operator("keyops.mesh_cleanup", text="Clean Up", icon="BRUSH_DATA")
+        row.operator("keyops.extract_geometry", text="Extract", icon="DUPLICATE")
         row = col.row(align=True)
         row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
 

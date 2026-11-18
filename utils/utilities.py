@@ -8,44 +8,6 @@ BLENDER_VERSION = bpy.app.version
 BLENDER_VERSION_MAJOR_POINT_MINOR = float(bpy.app.version_string[0:4].strip("."))
 
 
-def _addon_name_matches(module_name, addon_names):
-    if not module_name or not addon_names:
-        return False
-
-    module_name = str(module_name).strip().lower()
-    if not module_name:
-        return False
-
-    module_tail = module_name.split(".")[-1]
-    module_short = module_tail.split("_")[-1]
-
-    for addon_name in addon_names:
-        name = str(addon_name).strip().lower()
-        if not name:
-            continue
-
-        name_tail = name.split(".")[-1]
-        if (
-            module_name == name
-            or module_name.endswith(f".{name}")
-            or module_tail == name
-            or module_tail == name_tail
-            or module_short == name
-            or module_short == name_tail
-        ):
-            return True
-
-    return False
-
-
-def is_addon_enabled(*addon_names):
-    addons = getattr(getattr(bpy.context, "preferences", None), "addons", None)
-    if addons is None:
-        return False
-
-    return any(_addon_name_matches(module_name, addon_names) for module_name in addons.keys())
-
-
 def get_blender_key_icon(key_name):
     mapping = {
         'Ctrl': 'EVENT_CTRL',
@@ -237,7 +199,7 @@ def force_show_obj(objs, select=True):
     return selected_objs
 
 def get_obj_coords(obj, depsgraph=None, worldspace=True):
-    if obj.mode == "EDIT":
+    if obj.mode == "EDIT" and obj.type == 'MESH':
         bm = bmesh.from_edit_mesh(obj.data)
         verts = [v for v in bm.verts if v.select] if obj.data.total_vert_sel else bm.verts
         if not verts:
@@ -298,6 +260,14 @@ def get_AABB_bounding_box_coords(objs):
         ]
 
     return coords
+
+def can_run_ops(op, *inner_ops, message="Not available in the current context"):
+    """Check the poll of every operator an operator calls, report a warning if one can not run."""
+    for inner in inner_ops:
+        if not inner.poll():
+            op.report({'WARNING'}, message)
+            return False
+    return True
 
 def select_loop():
     if BLENDER_VERSION >= (5, 1, 0):
