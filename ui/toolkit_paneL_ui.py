@@ -45,7 +45,65 @@ def get_toolkit_panel_items(scene, context):
 
     return items
 
+NPANEL_PROPOSAL = False  # True: the cleaner layout proposal (same buttons, same operators)
+
+
+def _subheading(col, text):
+    col.separator(factor=0.8)
+    r = col.row()
+    r.active = False
+    r.label(text=text)
+
+
+def draw_object_panel_clean(self, context):
+    """Proposal: same sections and operators, one button height, quiet sub-headings."""
+    layout = self.layout
+    wm = context.window_manager
+    box = layout.box()
+    box.label(text="Object Toolkit", icon_value=get_icon("mesh_cube"))
+    col = box.column(align=True)
+    col.scale_y = 1.25
+    pairs = (
+        (("keyops.toolkit_panel", "Combine", get_icon("union"), None, "Smart_Join_Objects"),
+         ("keyops.toolkit_panel", "Separate", get_icon("slice"), None, "seprate_objects_by")),
+        (("keyops.toolkit_panel", "Apply Modifiers", get_icon("mesh"), None, "Instant_Apply_Modifiers"),
+         ("object.smart_apply_scale", "Freeze Scale", 0, "FREEZE", None)),
+        (("keyops.snap_to_floor", "Snap to Floor", 0, "VIEW_PERSPECTIVE", None),
+         ("keyops.toolkit_panel", "Clear Normals", 0, "X", "clear_custom_normals")),
+        (("keyops.fast_mirror", "Fast Mirror", 0, "MOD_MIRROR", None),
+         ("keyops.select_similar", "Select Similar", 0, "POINTCLOUD_POINT", None)),
+    )
+    for pair in pairs:
+        row = col.row(align=True)
+        for idname, text, icon_value, icon, type_ in pair:
+            if icon_value:
+                op = row.operator(idname, text=text, icon_value=icon_value)
+            else:
+                op = row.operator(idname, text=text, icon=icon)
+            if type_:
+                op.type = type_
+    col.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
+
+    _subheading(col, "Duplicate Linked")
+    row = col.row(align=True)
+    row.operator("object.duplicate_move_linked", text="Mesh", icon="LINKED")
+    row.operator("keyops.toolkit_panel", text="Modifiers", icon="LINKED").type = "duplicate_linked_modifiers"
+
+    if context and context.mode == 'OBJECT':
+        _subheading(col, "Boolean")
+        grid = col.grid_flow(row_major=True, columns=4, even_columns=True, align=True)
+        for kind, icon in (("DIFFERENCE", "difference"), ("UNION", "union"), ("INTERSECT", "intersect"), ("SLICE", "slice")):
+            grid.operator("object.add_boolean_modifier_operator", text="", icon_value=get_icon(icon)).type = kind
+        col.separator(factor=0.4)
+        row = col.row(align=False)
+        row.prop(wm, "live_booleans", text="Realtime")
+        scroll_icon = "EVENT_CAPSLOCK" if BLENDER_VERSION <= (4, 2, 99) else "MOUSE_MMB_SCROLL"
+        row.operator("object.boolean_scroll", text="Boolean Scroll", icon=scroll_icon)
+
+
 def draw_object_panel(self, context):
+    if NPANEL_PROPOSAL:
+        return draw_object_panel_clean(self, context)
     layout = self.layout
     wm = context.window_manager
     
@@ -64,7 +122,7 @@ def draw_object_panel(self, context):
     row = col.row(align=True)
     row.scale_y = 1.4
     row.operator("keyops.toolkit_panel", text="Combine", icon_value=get_icon("union")).type = "Smart_Join_Objects"
-    row.operator("keyops.toolkit_panel", text="Seperate", icon_value=get_icon("slice")).type = "seprate_objects_by"
+    row.operator("keyops.toolkit_panel", text="Separate", icon_value=get_icon("slice")).type = "seprate_objects_by"
 
     row = col.row(align=True)
     row.scale_y = 1.4
@@ -145,7 +203,6 @@ def update_ui(self, context):
     # update the UI when properties change
     # This function can be used to refresh the UI or perform other actions
     bpy.app.timers.register(redraw_ui, persistent=True, first_interval=0.01)
-    print("UI updated with new properties")
 
 
     # Add a Blender timer to periodically refresh the UI
@@ -213,7 +270,8 @@ class NewToolkitPanel(bpy.types.Panel):
     def draw_header_preset(self, context):
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("preferences.addon_show", text="Prefs", icon='PREFERENCES', emboss=True).module = get_addon_name()
+        row.operator("keyops.shortcut_cheatsheet", text="", icon='QUESTION', emboss=False)
+        row.operator("preferences.addon_show", text="", icon='PREFERENCES', emboss=False).module = get_addon_name()
 
     def draw(self, context):
         global show_object_panel
