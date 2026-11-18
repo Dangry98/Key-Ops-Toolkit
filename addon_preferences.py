@@ -181,14 +181,9 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                     description="Take colours and corner rounding from your Blender theme's pie menus") # type: ignore
     marking_antialias: BoolProperty(name="Anti-aliasing", default=True,
                                     description="Smooth lines and box edges. Off draws them crisp, pixel by pixel") # type: ignore
-    marking_shadow: BoolProperty(name="Shadows", default=False, description="Soft shadows under the items") # type: ignore
-    marking_show_title: BoolProperty(name="Menu Name", default=True,
-                                     description="Show the menu's name above the centre, like Blender's pie menus") # type: ignore
-    marking_show_numbers: BoolProperty(name="Number Keys", default=True,
-                                       description="Show the number key that picks each item (1 to 9 work either way)") # type: ignore
-    marking_center: EnumProperty(name="Centre", default="PIE", items=(
-        ("PIE", "Pie", "Blender's pie centre: a thick ring that lights up toward the item"),
-        ("RING", "Ring", "A small hollow ring where the key was pressed"),
+    marking_shadow: BoolProperty(name="Shadows", default=True, description="Soft shadows under the items, like Blender's menus") # type: ignore
+    marking_center: EnumProperty(name="Centre", default="RING", items=(
+        ("RING", "Ring", "A hollow ring where the key was pressed"),
         ("DOT", "Dot", "A filled dot with the border colour around it"))) # type: ignore
     marking_text_align: EnumProperty(name="Text", default="LEFT", items=(
         ("LEFT", "Left", "Labels start at the left of their box"),

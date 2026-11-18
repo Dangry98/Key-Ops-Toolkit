@@ -31,20 +31,15 @@ MARK_HIGHLIGHT = (0.278, 0.447, 0.702, 1.0)   # Blender's default selection blue
 MARK_TEXT_HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
 MARK_LINE = (0.278, 0.447, 0.702, 0.85)       # the mark line, in the highlight colour
 MARK_RING = (0.90, 0.90, 0.91, 0.9)
-# Sizes follow Blender's own pie menu at its default Pie Menu Radius (100 px)
-MARK_LINE_WIDTH = 0.0  # Blender's pie has no trail; the centre ring points at the item instead
-MARK_BOX_H = 28      # box height (Blender's pie buttons are 1.4 widget units)
-MARK_PAD = 10        # space each side of the label
-MARK_FONT = 11       # label size (Blender's widget text)
+MARK_LINE_WIDTH = 2.0
+MARK_BOX_H = 22      # box height
+MARK_PAD = 14        # space each side of the label
+MARK_FONT = 11       # label size
 MARK_CORNER = 4      # corner rounding
-MARK_SIDE = 105      # left/right boxes: inner edge this far beside the centre
-MARK_DIAG_X = 75     # corner boxes: inner edge this far beside the centre ...
-MARK_DIAG_Y = 74     # ... and their middle this far above or below it
-MARK_TOP = 120       # top/bottom boxes: middle this far above or below the centre
-# Blender's pie number keys: the numpad layout (8 is up, 4 left, 6 right, 2 down, corners in between)
-DIRECTION_NUMBERS = {"SW": 1, "S": 2, "SE": 3, "W": 4, "E": 6, "NW": 7, "N": 8, "NE": 9}
-NUMBER_KEYS = {**{k: n for n, k in enumerate(("ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"), 1)},
-               **{f"NUMPAD_{n}": n for n in range(1, 10)}}
+MARK_SIDE = 64       # left/right boxes: inner edge this far beside the centre
+MARK_DIAG_X = 46     # corner boxes: inner edge this far beside the centre ...
+MARK_DIAG_Y = 36     # ... and their middle this far above or below it
+MARK_TOP = 66        # top/bottom boxes: middle this far above or below the centre
 MARK_LAYOUT = {      # direction: (horizontal side, inner edge offset, vertical offset of the box middle)
     "E": (1, MARK_SIDE, 0), "W": (-1, MARK_SIDE, 0),
     "NE": (1, MARK_DIAG_X, MARK_DIAG_Y), "NW": (-1, MARK_DIAG_X, MARK_DIAG_Y),
@@ -60,12 +55,11 @@ def _look():
         class Defaults:
             marking_item_color, marking_border_color, marking_text_color = MARK_ITEM, MARK_BORDER, MARK_TEXT
             marking_highlight_color, marking_highlight_text_color = MARK_HIGHLIGHT, MARK_TEXT_HIGHLIGHT
-            marking_line_color, marking_center_color, marking_center, marking_text_align = MARK_LINE, MARK_RING, "PIE", "LEFT"
-            marking_show_title, marking_show_numbers = True, True
+            marking_line_color, marking_center_color, marking_center, marking_text_align = MARK_LINE, MARK_RING, "RING", "LEFT"
             marking_line_width, marking_box_height, marking_padding, marking_font_size = MARK_LINE_WIDTH, MARK_BOX_H, MARK_PAD, MARK_FONT
             marking_corner, marking_side, marking_diag_x, marking_diag_y, marking_top = MARK_CORNER, MARK_SIDE, MARK_DIAG_X, MARK_DIAG_Y, MARK_TOP
             marking_delay = SHOW_DELAY
-            marking_use_theme, marking_antialias, marking_shadow = True, True, False
+            marking_use_theme, marking_antialias, marking_shadow = True, True, True
         return Defaults
     return p
 
@@ -168,17 +162,6 @@ def _circle(cx, cy, r, color, width=1.5, segments=32):
     _poly(_circle_points(cx, cy, r, segments), color, width, closed=True)
 
 
-def _pie_centre(cx, cy, s, ring, edge, lit, angle):
-    """Blender's pie centre: a thick dark ring; a lit arc on it points at the item under the mouse."""
-    r, t = 15 * s, 7 * s
-    _poly(_circle_points(cx, cy, r + t / 2 + 0.5 * s, 48), edge, 1.0 * s, closed=True)
-    _poly(_circle_points(cx, cy, r, 48), ring, t, closed=True)
-    if angle is not None:
-        arc = [(cx + r * math.cos(angle + a), cy + r * math.sin(angle + a))
-               for a in (math.radians(d) for d in range(-35, 36, 5))]
-        _poly(arc, lit, t)
-
-
 class Level:
     """One open marking menu: which pie and where its centre is (window coordinates)."""
 
@@ -268,15 +251,10 @@ class MenuState:
             trail = [(lv.x - rx, lv.y - ry) for lv in self.levels] + [(self.mx - rx, self.my - ry)]
             _poly(trail, line_c, look.marking_line_width * s)
         level = self.levels[-1]
-        pie, active, dist_now = self._active(context)
-        for i, lv in enumerate(self.levels):  # a ring or a dot at every centre
+        pie, active, _dist = self._active(context)
+        for lv in self.levels:  # a ring or a dot at every centre
             if look.marking_center == "DOT":
                 _disc(lv.x - rx, lv.y - ry, 6 * s, centre_c, border)
-            elif look.marking_center == "PIE":  # Blender's pie centre: a thick ring, lit toward the mouse
-                top = i == len(self.levels) - 1
-                ang = math.atan2(self.my - lv.y, self.mx - lv.x)
-                lit = top and pie is not None and dist_now >= self._threshold(pie)
-                _pie_centre(lv.x - rx, lv.y - ry, s, item_c, border, high_c, ang if lit else None)
             else:
                 _circle(lv.x - rx, lv.y - ry, 5 * s, centre_c, 1.5 * s)
         if not shown or pie is None:
@@ -296,14 +274,6 @@ class MenuState:
                   "NE": (1, look.marking_diag_x, look.marking_diag_y), "NW": (-1, look.marking_diag_x, look.marking_diag_y),
                   "SE": (1, look.marking_diag_x, -look.marking_diag_y), "SW": (-1, look.marking_diag_x, -look.marking_diag_y),
                   "N": (0, 0, look.marking_top), "S": (0, 0, -look.marking_top)}
-        if look.marking_show_title:  # the menu's name above the centre, dim, like Blender's pie
-            blf.size(0, size)
-            tw = blf.dimensions(0, pie.name)[0]
-            blf.color(0, *text_c[:3], 0.6)
-            blf.position(0, cx - tw / 2, cy + 28 * s * k, 0)
-            blf.draw(0, pie.name)
-        numbers = look.marking_show_numbers
-        num_w = blf.dimensions(0, "8")[0] + 10 * s if numbers else 0
         boxes = []
         for direction, index in self._slots(context, pie).items():
             item = pie.items[index]
@@ -313,17 +283,15 @@ class MenuState:
             sub = item.kind == PM.SUB
             w, _h = blf.dimensions(0, label)
             arrow = 12 * s if sub else 0
-            bw = w + 2 * pad + arrow + num_w
-            if numbers:  # Blender's pie buttons keep room for an icon: never narrower than this
-                bw = max(bw, 3.4 * bh)
+            bw = w + 2 * pad + arrow
             side, inner, mid = layout[direction]
             bx = cx + inner * k if side > 0 else (cx - inner * k - bw if side < 0 else cx - bw / 2)
             by = cy + mid * k - bh / 2
-            boxes.append((bx, by, bw, w, arrow, label, sub, index == active, DIRECTION_NUMBERS.get(direction)))
+            boxes.append((bx, by, bw, w, arrow, label, sub, index == active))
         if look.marking_shadow:  # shadows first, so no box's shadow falls on another box
             for bx, by, bw, *_rest in boxes:
                 _shadow(bx, by, bw, bh, r, size=5 * s)
-        for bx, by, bw, w, arrow, label, sub, selected, number in boxes:
+        for bx, by, bw, w, arrow, label, sub, selected in boxes:
             if _smooth:  # fill, then the border as one smooth line along the same edge
                 _rounded(bx, by, bw, bh, r, high_c if selected else item_c, edge=border)
             else:  # crisp: a border box behind the item, pixel exact
@@ -331,14 +299,9 @@ class MenuState:
                 _rounded(bx, by, bw, bh, r, high_c if selected else item_c)
             colour = high_text_c if selected else text_c
             blf.color(0, *colour)
-            tx = bx + (bw - arrow - num_w - w) / 2 if look.marking_text_align == "CENTER" else bx + pad
-            ty = by + (bh - size * 0.72) / 2
-            blf.position(0, tx, ty, 0)
+            tx = bx + (bw - arrow - w) / 2 if look.marking_text_align == "CENTER" else bx + pad
+            blf.position(0, tx, by + (bh - size * 0.72) / 2, 0)
             blf.draw(0, label)
-            if numbers and number:  # the number key that picks it, dim on the right
-                blf.color(0, *colour[:3], colour[3] * 0.5)
-                blf.position(0, bx + bw - pad - arrow - blf.dimensions(0, str(number))[0], ty, 0)
-                blf.draw(0, str(number))
             if sub:  # a small triangle for items that open another marking menu
                 ax, ay, t = bx + bw - 10 * s, by + bh / 2, 3.5 * s
                 _tri(((ax - t * 0.7, ay - t), (ax - t * 0.7, ay + t), (ax + t * 0.7, ay)), colour)
@@ -416,8 +379,8 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
     def _finish(self, context):
         close_all()
 
-    def _pick(self, context, chosen=None):
-        pie, index = chosen if chosen else self.st._active(context)[:2]
+    def _pick(self, context):
+        pie, index, _dist = self.st._active(context)
         self._finish(context)
         if pie is not None and index is not None:
             try:
@@ -450,13 +413,6 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             self._finish(context)
             return {'CANCELLED'}
-        if event.type in NUMBER_KEYS and event.value == 'PRESS':  # 1 to 9 pick like in Blender's pie
-            pie = _pm().find_pie(st.levels[-1].uid)
-            direction = next((d for d, n in DIRECTION_NUMBERS.items() if n == NUMBER_KEYS[event.type]), None)
-            index = st._slots(context, pie).get(direction) if pie is not None and direction else None
-            if index is not None and not _pm()._is_empty(pie.items[index]):
-                return self._pick(context, (pie, index))
-            return {'RUNNING_MODAL'}
         if event.type == st.key and event.value == 'RELEASE' and not st.click_mode:
             _pie, index, _dist = st._active(context)
             if index is not None:
@@ -491,16 +447,13 @@ class KEYOPS_OT_marking_look_reset(bpy.types.Operator):
 
 
 LOOKS = {
-    # Blender: drawn like Blender's own pie menu, in your theme's pie colours: the menu name above a centre
-    # ring that points at the item, roomy boxes spread around it, number keys shown on the right
-    "BLENDER": dict(marking_use_theme=True, marking_antialias=True, marking_shadow=False, marking_center="PIE",
-                    marking_show_title=True, marking_show_numbers=True,
+    # modern: the Blender theme's pie colours and rounding, smooth edges, soft shadows
+    "BLENDER": dict(marking_use_theme=True, marking_antialias=True, marking_shadow=True, marking_center="RING",
                     marking_text_align="LEFT", marking_line_width=MARK_LINE_WIDTH, marking_box_height=MARK_BOX_H,
                     marking_padding=MARK_PAD, marking_font_size=MARK_FONT, marking_side=MARK_SIDE,
                     marking_diag_x=MARK_DIAG_X, marking_diag_y=MARK_DIAG_Y, marking_top=MARK_TOP),
     # classic: flat, square, crisp boxes in mid grey, packed close to the centre
     "CLASSIC": dict(marking_use_theme=False, marking_antialias=False, marking_shadow=False, marking_center="DOT",
-                    marking_show_title=False, marking_show_numbers=False,
                     marking_text_align="CENTER", marking_item_color=(0.322, 0.322, 0.322, 1.0),
                     marking_border_color=(0.0, 0.0, 0.0, 1.0), marking_text_color=(0.933, 0.933, 0.933, 1.0),
                     marking_highlight_color=(0.322, 0.522, 0.651, 1.0), marking_highlight_text_color=(0.933, 0.933, 0.933, 1.0),
@@ -516,8 +469,7 @@ class KEYOPS_OT_marking_look(bpy.types.Operator):
     bl_description = "Set every marking menu colour and size to one of the looks"
     bl_options = {'INTERNAL'}
     look: bpy.props.EnumProperty(items=(
-        ("BLENDER", "Blender", "Like Blender's own pie menus: your theme's pie colours, the menu name above a centre "
-                               "ring that points at the item, number keys on the right"),
+        ("BLENDER", "Blender", "Modern: your Blender theme's pie colours, rounded corners, smooth edges and soft shadows"),
         ("CLASSIC", "Classic", "Flat, square, crisp mid-grey boxes packed close to the centre, a filled centre dot"))) # type: ignore
 
     @classmethod
@@ -541,8 +493,6 @@ def draw_look_settings(prefs, layout):
     flags.prop(prefs, "marking_use_theme")
     flags.prop(prefs, "marking_antialias")
     flags.prop(prefs, "marking_shadow")
-    flags.prop(prefs, "marking_show_title")
-    flags.prop(prefs, "marking_show_numbers")
     col = layout.column(align=True)
     col.active = not prefs.marking_use_theme  # the theme decides these while it's used
     grid = col.grid_flow(columns=2, even_columns=True, align=True)
