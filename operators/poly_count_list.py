@@ -63,90 +63,6 @@ def get_obj_lookup_cache(scene, depsgraph):
     global obj_lookup_cache
     obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
 
-class PolyCountProperties(PropertyGroup):
-    polycount_use_selection_only: BoolProperty(  # type: ignore
-        name="Use selected only",
-        description="Compute stats only for selected objects",
-        default=False
-    )
-    auto_update_polycount: BoolProperty(  # type: ignore
-        name="Auto Update",
-        description="Auto update the list, might be slow in big scenes",
-        default=True
-    )
-    filter_list_show: EnumProperty(  # type: ignore
-        name="List Show",
-        description="Show",
-        items=[
-            ('TRIS', "", "Tris", 'MESH_DATA', 1),
-            ('VERT', "", "Vert", 'VERTEXSEL', 2),
-            ('EDGE', "", "Edge", 'EDGESEL', 4),
-            ('FACE', "", "Face", 'FACESEL', 8),
-            ('MS', "", "Show Object Modifier Execution Time", 'MODIFIER', 16)
-        ],
-        options={'ENUM_FLAG'},
-        default={'TRIS', 'VERT', 'MS'}
-    )
-    show_total_tris: BoolProperty(  # type: ignore
-        name="Show Total Tris",
-        description="Show Total Tris in the list",
-        default=True
-    )
-    filter_by: EnumProperty(  # type: ignore
-        name="Filter",
-        description="Filter",
-        items=[
-            ('ALL', "All", "", 'NONE', 0),
-            ('VISIBLE', "Visible", "", 'HIDE_OFF', 1),
-            ('COLLECTION', "Collection", "", '', 2)
-        ],
-        default='ALL'
-    )
-    my_collection: PointerProperty(name="Collection",type=bpy.types.Collection)  # type: ignore
-    child_collection: BoolProperty(name="Child", default=False, description="Show all objects in collections that are children of the current selected collection")  # type: ignore
-    show_collection_instances: BoolProperty(  # type: ignore
-        name="Collection Instances",
-        description="Show collection instances",
-        default=False
-    )
-    round_numbers: BoolProperty(  # type: ignore
-        name="Round Numbers",
-        description="Round the numbers, slower, but more readable",
-        default=True
-    )
-    show_only_enabled_collections: BoolProperty(  # type: ignore
-        name="Show Only Enabled Collections",
-        description="Show only enabled collections",
-        default=True
-    )
-    show_obj_type: BoolProperty(  # type: ignore
-        name="Show Object Type",
-        description="Warning: Slow in big scenes, shows the icon of the object type",
-        default=True
-    )
-    max_list_length: IntProperty(  # type: ignore
-        name="Max List Length",
-        description="Maximum number of objects to show in the list",
-        default=150,
-        min=1
-    )
-    update_rate: IntProperty(  # type: ignore
-        name="Update Rate",
-        description="Update rate",
-        default=1,
-        min=1
-    )
-    show_draw_time: BoolProperty(  # type: ignore
-        name="Show Draw Time",
-        description="Show the time it took to draw the list",
-        default=True
-    )
-    keyboard_navigation: BoolProperty(  # type: ignore
-        name="Keyboard Navigation",
-        description="Up/Down Arrow or W/S moves the active object through the list while hovering it (in the Toolkit N-panel or Scene Properties). Hold Shift to extend the selection",
-        default=True
-    )
-
 def deselect_all(context):
     for obj in context.selected_objects:
         obj.select_set(False)
@@ -178,7 +94,7 @@ def get_poly_count(context, force_update_all=False):
     obj_lookup_cache = {obj.name: obj for obj in bpy.data.objects}
     
     c = context
-    props = c.scene.polycount_props
+    props = c.scene.keyops.polycount_props
     filter_list_show = props.filter_list_show
     show_ms = 'MS' in filter_list_show
 
@@ -322,8 +238,6 @@ class PolyCountList(bpy.types.Operator):
     
 def register_polycount_list():
     bpy.utils.register_class(PolyCountList)
-    bpy.utils.register_class(PolyCountProperties)
-    bpy.types.Scene.polycount_props = PointerProperty(type=PolyCountProperties)
 
     bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
     bpy.utils.register_class(POLYCOUNT_OT_refresh)
@@ -337,8 +251,6 @@ def register_polycount_list():
 
 def unregister_polycount_list():
     bpy.utils.unregister_class(PolyCountList)
-    bpy.utils.unregister_class(PolyCountProperties)
-    del bpy.types.Scene.polycount_props
 
     bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
     bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
@@ -364,7 +276,7 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
     layout = self.layout
     global polycount_sorting_ascending, polycount_sorting, polycount, total_tris, ui_updates, last_draw_time, obj_lookup_cache, polycount, ms
 
-    props = context.scene.polycount_props
+    props = context.scene.keyops.polycount_props
     filter_list_show = props.filter_list_show
 
     show_tris = 'TRIS' in filter_list_show
@@ -588,7 +500,7 @@ class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
         global ms 
         layout = self.layout
         row = layout.row()
-        props = context.scene.polycount_props
+        props = context.scene.keyops.polycount_props
 
         if props.show_total_tris:
             row.scale_x = 1.5
@@ -614,7 +526,7 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.polycount_props
+        props = context.scene.keyops.polycount_props
 
         row = layout.row()
         row.label(text="Performance:")
@@ -683,7 +595,7 @@ class POLYCOUNT_PT_AutoUpdate_Settings(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.polycount_props
+        props = context.scene.keyops.polycount_props
 
         row = layout.row()
         row.label(text="Auto Update Settings:")
@@ -749,7 +661,7 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
 
 def get_list_objects(context):
     """Objects in the order the list shows them (only those that can be selected)."""
-    props = context.scene.polycount_props
+    props = context.scene.keyops.polycount_props
     view_layer_objects = context.view_layer.objects
     objects = []
     for item in polycount[:props.max_list_length]:
@@ -814,7 +726,7 @@ class POLYCOUNT_OT_walk(bpy.types.Operator):
         scene = context.scene
         if context.mode != 'OBJECT' or scene is None or not hasattr(scene, "polycount_props"):
             return False
-        if not scene.polycount_props.keyboard_navigation or not polycount:
+        if not scene.keyops.polycount_props.keyboard_navigation or not polycount:
             return False
         space, region = context.space_data, context.region
         if space is None or region is None:

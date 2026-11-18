@@ -38,7 +38,7 @@ wheels = [
 ]
 
 [permissions]
-files = "Export/Import .obj files and use of temp folder"
+files = "Import/export settings and .obj files, use of temp folder"
 
 [build]
 # Keep the docs site and dev files out of the extension zip
@@ -50,4 +50,5 @@ paths_exclude_pattern = [
   "/.vscode/",
   "/docs/",
   "/*.zip",
+  "/tests/",
 ]

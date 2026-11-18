@@ -298,6 +298,9 @@ class Connect(bpy.types.Operator):
         layout.prop(self, "set_flow")
 
     def execute(self, context):
+        if context.mode != 'EDIT_MESH':
+            self.report({'WARNING'}, "Connect only works in mesh Edit Mode")
+            return {'CANCELLED'}
         sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
         edit_mode_objects = [obj for obj in context.objects_in_mode if obj.type == 'MESH']
 

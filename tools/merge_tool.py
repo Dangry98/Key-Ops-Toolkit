@@ -405,6 +405,10 @@ class MergeTool(bpy.types.Operator):
         if context.space_data.type != 'VIEW_3D':
             self.report({'WARNING'}, "Active space must be a View3D")
             return {'CANCELLED'}
+
+        if context.mode != 'EDIT_MESH':
+            self.report({'WARNING'}, "Merge Tool only works in mesh Edit Mode")
+            return {'CANCELLED'}
         
         self._init_mesh_data(context)
         

@@ -102,19 +102,14 @@ class ModiKey(Operator):
 
                 elif self.type == 'delete':
                     if not has_Linked_modifiers:
-                        try:
-                            bpy.ops.object.ml_modifier_remove("INVOKE_DEFAULT")
-                        except:
-                            if bpy.context.object.mode == "OBJECT":
-                                obj.modifiers.remove(active_modifier)
-                            else:
-                                current_mode = bpy.context.object.mode
-                                bpy.ops.object.mode_set(mode='OBJECT')
-                                bpy.ops.ed.undo_push()
-                                    
-                                obj.modifiers.remove(active_modifier)
-
-                                bpy.ops.object.mode_set(mode=current_mode)
+                        if bpy.context.object.mode == "OBJECT":
+                            obj.modifiers.remove(active_modifier)
+                        else:
+                            current_mode = bpy.context.object.mode
+                            bpy.ops.object.mode_set(mode='OBJECT')
+                            bpy.ops.ed.undo_push()
+                            obj.modifiers.remove(active_modifier)
+                            bpy.ops.object.mode_set(mode=current_mode)
 
                 elif self.type == 'delete_named_modi_on_all_selected':
                     delete_modi_name = active_modifier.name
@@ -161,39 +156,20 @@ class ModiKey(Operator):
                             visibility_modifier_list = [mod for mod in visibility_modifier_list if mod not in hidden_modifiers]
                             visibility_modifier_dict_list[active_object_name] = visibility_modifier_list
 
-                    try:
-                        if bpy.context.mode == 'OBJECT':   
-                            try:
-                                bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
-                            except Exception as e:
-                                self.report({'ERROR'}, f"Failed to apply modifier: {e}")
-                                return {'CANCELLED'}
-                                                                
-                        else:
-                            if bpy.context.mode == 'EDIT_MESH':
-                                modifier_toggle_visability_based2()        
-                            bpy.ops.object.ml_modifier_apply("INVOKE_DEFAULT")
-                            if bpy.context.mode == 'EDIT_MESH':
-                                modifier_toggle_visability_based2()   
-                    except:
-                        if bpy.context.mode == 'OBJECT':
-                            instances = [o for o in bpy.data.objects if o.data == obj.data]
-
-                            if instances and len(instances) > 1:
-                                bpy.ops.object.modifier_apply("INVOKE_DEFAULT", modifier=active_modifier.name)
-
-                                self.report({'WARNING'}, f"Object has many users, can't apply modifier, consider making it single user")
-                                return {'FINISHED'}
-                            else:
-                                bpy.ops.object.modifier_apply(modifier=active_modifier.name)
-                          
-                        else:
-                            modifier_toggle_visability_based2()        
-                            bpy.ops.object.mode_set(mode='OBJECT')
-                            bpy.ops.ed.undo_push()
-                            bpy.ops.object.modifier_apply(modifier=active_modifier.name)
-                            bpy.ops.object.mode_set(mode='EDIT')
-                            modifier_toggle_visability_based2()        
+                    if bpy.context.mode == 'OBJECT':
+                        instances = [o for o in bpy.data.objects if o.data == obj.data]
+                        if instances and len(instances) > 1:
+                            bpy.ops.object.modifier_apply("INVOKE_DEFAULT", modifier=active_modifier.name)
+                            self.report({'WARNING'}, "Object has many users, can't apply modifier, consider making it single user")
+                            return {'FINISHED'}
+                        bpy.ops.object.modifier_apply(modifier=active_modifier.name)
+                    else:
+                        modifier_toggle_visability_based2()
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                        bpy.ops.ed.undo_push()
+                        bpy.ops.object.modifier_apply(modifier=active_modifier.name)
+                        bpy.ops.object.mode_set(mode='EDIT')
+                        modifier_toggle_visability_based2()
 
                     apply_time = time.time() - apply_time
                     if apply_time > 1:
@@ -347,7 +323,7 @@ class ModiKeyNoUndo(Operator):
                         bpy.context.space_data.context = 'OBJECT'
                     else:
                         bpy.context.space_data.context = 'DATA'
-        if self.type == "Material_Tab":
+        if self.type == "Material_Tab" and active_object is not None:
             if active_object.type == 'MESH' or active_object.type == 'CURVE' or active_object.type == 'SURFACE' or active_object.type == 'META' or active_object.type == 'FONT':
                 bpy.context.space_data.context = 'MATERIAL'
     

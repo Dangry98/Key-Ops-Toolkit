@@ -27,6 +27,9 @@ class MaterialSelectByActive(bpy.types.Operator):
     deselect: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'}) # type: ignore
 
     def execute(self, context):
+        if context.active_object is None:
+            self.report({'WARNING'}, "No active object")
+            return {'CANCELLED'}
         active_material = context.active_object.active_material
         obj_view_layer = set(context.view_layer.objects)
 
@@ -71,7 +74,7 @@ Alt - Clear from all selected objects"""
         if self.all_selected_objects:
             selected.extend(context.selected_objects)
 
-        for obj in selected:
+        for obj in [o for o in selected if o is not None]:
             material_indices = set()
             
             if obj.material_slots and obj.type == "MESH":
@@ -113,7 +116,7 @@ Alt - Hold to remove from all selected objects"""
         if self.all_selected_objects:
             objects.extend(context.selected_objects)
 
-        for obj in objects:
+        for obj in [o for o in objects if o is not None]:
             if obj.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
                 obj.data.materials.clear()
 
@@ -152,9 +155,11 @@ class AssignMaterial(bpy.types.Operator):
                 row.prop(self, "id")
 
     def execute(self, context):
-        mat = bpy.data.materials.get(self.mat_name)
         selection = set(context.selected_objects)
         active_object = bpy.context.object
+        if active_object is None:
+            self.report({'WARNING'}, "No active object")
+            return {'CANCELLED'}
         selection.add(active_object)
 
         if not self.mat_name:
@@ -162,6 +167,11 @@ class AssignMaterial(bpy.types.Operator):
                 self.report({'WARNING'}, "Active object has no material to assign")
                 return {'CANCELLED'}
             self.mat_name = active_object.active_material.name
+
+        mat = bpy.data.materials.get(self.mat_name)
+        if mat is None:
+            self.report({'WARNING'}, f"Material '{self.mat_name}' not found")
+            return {'CANCELLED'}
 
         if active_object:
             active_obj_index = active_object.active_material_index
