@@ -23,9 +23,10 @@ SECTORS = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")
 DIR_VECTORS = {d: (math.cos(i * math.pi / 4), math.sin(i * math.pi / 4)) for i, d in enumerate(SECTORS)}
 
 
-# Maya's default dark interface: mid-grey buttons, dark outline, light-grey text, Maya selection blue
-MAYA_ITEM = (0x5D / 255, 0x5D / 255, 0x5D / 255, 1.0)
-MAYA_BORDER = (0x2B / 255, 0x2B / 255, 0x2B / 255, 1.0)
+# Maya marking menu look: compact, square, dark items with light-grey text, Maya selection blue
+MAYA_RADIUS = 60   # px from the centre to the items (Blender's pie default is 100), unless the pie sets its own
+MAYA_ITEM = (0x3A / 255, 0x3A / 255, 0x3A / 255, 1.0)
+MAYA_BORDER = (0x22 / 255, 0x22 / 255, 0x22 / 255, 1.0)
 MAYA_TEXT = (0xBB / 255, 0xBB / 255, 0xBB / 255, 1.0)
 MAYA_HIGHLIGHT = (0x52 / 255, 0x85 / 255, 0xA6 / 255, 1.0)
 MAYA_TEXT_HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
@@ -104,8 +105,7 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         return bpy.context.preferences.system.ui_scale
 
     def _radius(self, pie):
-        view = bpy.context.preferences.view
-        return (pie.radius or view.pie_menu_radius) * self._scale()
+        return (pie.radius or MAYA_RADIUS) * self._scale()
 
     def _threshold(self, pie):
         view = bpy.context.preferences.view
@@ -232,7 +232,7 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         size = int(11 * s)
         blf.size(0, size)
         r = self._radius(pie)
-        pad_x, pad_y = 8 * s, 4 * s
+        pad_x, pad_y = 6 * s, 3 * s
         for direction, index in self._slots(context, pie).items():
             item = pie.items[index]
             if PM._is_empty(item):
@@ -248,8 +248,8 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
             bx = px if dx > 0.3 else (px - bw if dx < -0.3 else px - bw / 2)
             by = py if dy > 0.9 else (py - bh if dy < -0.9 else py - bh / 2)
             selected = index == active
-            _rounded(bx - 1, by - 1, bw + 2, bh + 2, 3 * s + 1, MAYA_BORDER)
-            _rounded(bx, by, bw, bh, 3 * s, MAYA_HIGHLIGHT if selected else MAYA_ITEM)
+            _rounded(bx - 1, by - 1, bw + 2, bh + 2, 0, MAYA_BORDER)  # square corners, as in Maya
+            _rounded(bx, by, bw, bh, 0, MAYA_HIGHLIGHT if selected else MAYA_ITEM)
             colour = MAYA_TEXT_HIGHLIGHT if selected else MAYA_TEXT
             blf.color(0, *colour)
             blf.position(0, bx + pad_x, by + pad_y + 1 * s, 0)
