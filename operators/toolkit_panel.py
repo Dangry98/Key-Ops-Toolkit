@@ -16,6 +16,27 @@ from .fast_mirror import register_fast_mirror, unregister_fast_mirror
 from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group
 
 BLENDER_VERSION = bpy.app.version
+
+EDIT_MESH_TYPES = {"change_hard_bevel_width", "un_subdivide_cylinder", "subdivide_cylinder", "change_cylinder_segments_modifier", "set_vertex_color"}
+OBJECT_MODE_TYPES = {"unique_collection_duplicat", "high", "low", "cleanup", "duplicate_linked_modifiers", "duplicate_linked_modifiers_and_move"}
+SWITCH_TO_OBJECT_MODE_TYPES = {"Smart_Join_Objects", "set_sphere_normal", "seprate_objects_by"}
+
+
+def move_selected_to_collection(context, collection):
+    for obj in context.selected_objects:
+        if collection not in obj.users_collection:
+            collection.objects.link(obj)
+        for coll in list(obj.users_collection):
+            if coll != collection:
+                coll.objects.unlink(obj)
+
+
+def move_selected_to_new_collection(context, name):
+    collection = bpy.data.collections.new(name)
+    context.scene.collection.children.link(collection)
+    move_selected_to_collection(context, collection)
+
+
 registered_toolkit_panel_keymaps = []
 
 def register_toolkit_panel_keymaps():
@@ -73,7 +94,7 @@ def make_duplicate_linked(self, context):
     if not bpy.data.node_groups.get("Duplicate Linked Modifiers"):
         duplicate_linked_modifiers_node_group()
 
-    supported_objects = ['MESH', 'CURVE', 'TEXT', 'SURFACE']
+    supported_objects = ['MESH', 'CURVE', 'FONT']  # Geometry Nodes modifiers are not supported on surfaces
 
     og_selected_objects = bpy.context.selected_objects
     og_selected_meshes = [obj for obj in og_selected_objects if obj.type in supported_objects]
@@ -105,14 +126,16 @@ def make_duplicate_linked(self, context):
 
         if obj.modifiers.get("Duplicate Linked Modifiers") is None:
             mod = obj.modifiers.new('Duplicate Linked Modifiers', 'NODES')
+            if mod is None:
+                continue
             mod.node_group = bpy.data.node_groups['Duplicate Linked Modifiers']
             if not self.instance:
                 mod.show_in_editmode = False    
 
         #add option to only duplate the shoruce object so the modifers is not wrong! Go after socket name? Works, but not when adding a modifier :(
         if BLENDER_VERSION >= (5,2,0):
-            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_2.value = bpy.data.objects[names[iteration]]
-            bpy.context.object.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_3.value = self.instance
+            obj.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_2.value = bpy.data.objects[names[iteration]]
+            obj.modifiers["Duplicate Linked Modifiers"].properties.inputs.Socket_3.value = self.instance
         else:
             obj.modifiers["Duplicate Linked Modifiers"]["Socket_2"] = bpy.data.objects[names[iteration]]
             obj.modifiers["Duplicate Linked Modifiers"]["Socket_3"] = self.instance
@@ -281,6 +304,18 @@ class ToolkitPanel(bpy.types.Operator):
             layout.label(text="Clear Normals", icon="X")
 
     def execute(self, context):
+        if self.type in EDIT_MESH_TYPES and context.mode != 'EDIT_MESH':
+            self.report({'WARNING'}, "Only works in mesh Edit Mode")
+            return {'CANCELLED'}
+
+        if self.type in OBJECT_MODE_TYPES and context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Only works in Object Mode")
+            return {'CANCELLED'}
+
+        # These switch to Object Mode themselves
+        if self.type in SWITCH_TO_OBJECT_MODE_TYPES or (self.type == "Instant_Apply_Modifiers" and (self.convert_to_options != "Insta_Apply_Modifiers" or context.mode != 'EDIT_MESH')):
+            if context.mode != 'OBJECT' and context.active_object is not None:
+                bpy.ops.object.mode_set(mode='OBJECT')
 
         def add_UV_offset_modifier(obj):
             if obj.modifiers.get("Offset UV") is None:
@@ -303,6 +338,7 @@ class ToolkitPanel(bpy.types.Operator):
 
         def set_offset_uv_true_false(obj, true_false=True):
             if obj.data.total_vert_sel > 0:
+                bpy.context.view_layer.objects.active = obj  # select_atribute works on the active object
                 named_attributes = obj.data.attributes
                 attribute_name = "Offset_UV"
                 set_act = named_attributes.get(attribute_name)
@@ -335,8 +371,13 @@ class ToolkitPanel(bpy.types.Operator):
                         active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
 
                     if context.mode == 'EDIT_MESH':
-                        bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                        bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
+                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                            triplanar_mod = bpy.context.object.modifiers["Triplanar UV Mapping"]
+                            triplanar_mod.properties.inputs.Socket_2.attribute_name = "Triplanar_UV_Mapping"
+                            triplanar_mod.properties.inputs.Socket_2.type = "ATTRIBUTE"
+                        else:
+                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
+                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
                         named_attributes = bpy.context.object.data.attributes
                         attribute_name = "Triplanar_UV_Mapping"
                         set_act = named_attributes.get(attribute_name)
@@ -417,7 +458,13 @@ class ToolkitPanel(bpy.types.Operator):
                     for mod in obj.modifiers:
                         if mod.name == "Offset UV":
                             active_uv_name = obj.data.uv_layers.active.name
-                            if obj.modifiers["Offset UV"]["Socket_5"] == "UVMap" and active_uv_name != "UVMap":
+                            if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                                uv_input = obj.modifiers["Offset UV"].properties.inputs.Socket_5
+                                if uv_input.value == "UVMap" and active_uv_name != "UVMap":
+                                    uv_input.value = active_uv_name
+                                    obj.modifiers["Offset UV"].show_group_selector = False
+                                    break
+                            elif obj.modifiers["Offset UV"]["Socket_5"] == "UVMap" and active_uv_name != "UVMap":
                                 obj.modifiers["Offset UV"]["Socket_5"] = active_uv_name
                                 obj.modifiers["Offset UV"].show_group_selector = False
                                 break
@@ -459,9 +506,10 @@ class ToolkitPanel(bpy.types.Operator):
                 f.select = True
 
         elif self.type == "set_sphere_normal":
-            current_selectded_objects = bpy.context.selected_objects
-            if bpy.context.mode == 'EDIT_MESH':
-                bpy.ops.object.editmode_toggle()
+            current_selectded_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+            if not current_selectded_objects:
+                self.report({'WARNING'}, "No mesh objects selected")
+                return {'CANCELLED'}
 
             if self.set_orgin_to_geometry == True:
                 bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
@@ -488,8 +536,14 @@ class ToolkitPanel(bpy.types.Operator):
                 data_transfer_modifier.object = sphere_object
 
         elif self.type == "set_normal_from_selection":
-            if bpy.context.mode == 'OBJECT':
-                bpy.ops.object.editmode_toggle()
+            if context.active_object is None or context.active_object.type != 'MESH':
+                self.report({'WARNING'}, "Needs an active mesh object")
+                return {'CANCELLED'}
+            if bpy.context.mode != 'EDIT_MESH':
+                bpy.ops.object.mode_set(mode='EDIT')
+            if context.active_object.data.total_vert_sel == 0:
+                self.report({'WARNING'}, "Nothing selected")
+                return {'CANCELLED'}
             bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
             bpy.ops.mesh.separate(type='SELECTED')
             duplicated_object = bpy.context.selected_objects[1]
@@ -512,8 +566,6 @@ class ToolkitPanel(bpy.types.Operator):
             data_transfer_modifier.object = duplicated_object
             
         elif self.type == "seprate_objects_by":
-            if bpy.context.mode == 'EDIT_MESH':
-                bpy.ops.object.mode_set(mode='OBJECT')
             if self.seprate_by == "MATERIAL":
                 bpy.ops.mesh.separate(type='MATERIAL')
             elif self.seprate_by == "LOOSE":
@@ -526,7 +578,7 @@ class ToolkitPanel(bpy.types.Operator):
                 self.default_name = "high"
         
             bpy.ops.object.duplicate()
-            bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name=self.default_name)
+            move_selected_to_new_collection(context, self.default_name)
 
             objects_to_duplicate = [obj for obj in context.selected_objects if obj.data and obj.data.users > 1]
 
@@ -638,7 +690,7 @@ class ToolkitPanel(bpy.types.Operator):
                         object_eval = obj.evaluated_get(depsgraph)
                         mesh_from_eval = bpy.data.meshes.new_from_object(object_eval, depsgraph=depsgraph)
 
-                        if obj.mode == 'OBJECT':
+                        if obj.mode != 'EDIT':
                             obj.data = mesh_from_eval
                         else:
                             bm = bmesh.from_edit_mesh(obj.data)
@@ -672,8 +724,6 @@ class ToolkitPanel(bpy.types.Operator):
                         if obj == active_object:
                             active_object = new_obj
                
-                    #clear the evaluated mesh
-                    object_eval.to_mesh_clear()
                     bpy.context.view_layer.objects.active = active_object
                    
                 else:
@@ -687,7 +737,7 @@ class ToolkitPanel(bpy.types.Operator):
             elif self.convert_to_options == "Curves":
                 bpy.ops.object.convert(target='CURVES')
             elif self.convert_to_options == "Grease_Pencil":
-                bpy.ops.object.convert(target='GPENCIL')
+                bpy.ops.object.convert(target='GREASEPENCIL' if BLENDER_VERSION >= (4, 3, 0) else 'GPENCIL')
             return {'FINISHED'}
 
         elif self.type == "toggle_high_low":
@@ -707,25 +757,23 @@ class ToolkitPanel(bpy.types.Operator):
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "low":
                     bpy.context.scene.collection.children[0].name = "high"
                 else:
-                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="high")
+                    move_selected_to_new_collection(context, "high")
             else:
-                get_index_of_high = bpy.context.scene.collection.children.find("high") + 1
-                bpy.ops.object.move_to_collection(collection_index=get_index_of_high)
+                move_selected_to_collection(context, bpy.context.scene.collection.children["high"])
 
         elif self.type == "low":
             if bpy.context.scene.collection.children.get("low") is None:
                 if len(bpy.context.scene.collection.children) == 1 and not bpy.context.scene.collection.children[0].name == "high":
                     bpy.context.scene.collection.children[0].name = "low"
                 else:
-                    bpy.ops.object.move_to_collection(collection_index=0, is_new=True, new_collection_name="low")
+                    move_selected_to_new_collection(context, "low")
             else:
-                get_index_of_low = bpy.context.scene.collection.children.find("low") + 1
-                bpy.ops.object.move_to_collection(collection_index=get_index_of_low)
+                move_selected_to_collection(context, bpy.context.scene.collection.children["low"])
 
         elif self.type == "un_subdivide_cylinder":
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.total_vert_sel > 0:
                     context.view_layer.objects.active = obj
                     if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is None:
@@ -734,7 +782,7 @@ class ToolkitPanel(bpy.types.Operator):
                     obj.data.update()
                     bpy.ops.mesh.attribute_set(value_bool=True)
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.total_vert_sel > 0:    
                     mesh = obj.data
                     bm = bmesh.from_edit_mesh(mesh)
@@ -772,7 +820,7 @@ class ToolkitPanel(bpy.types.Operator):
                     bmesh.update_edit_mesh(mesh)
                     bm.free()
 
-            for obj in bpy.context.selected_objects:
+            for obj in [o for o in context.objects_in_mode if o.type == 'MESH']:
                 if obj.data.attributes.get('Edge_Un_Subdivied_Cylinder') is not None:
                     context.view_layer.objects.active = obj
                     bpy.ops.mesh.select_by_attribute()
@@ -892,12 +940,11 @@ class ToolkitPanel(bpy.types.Operator):
             bpy.ops.object.delete(use_global=False)
 
         elif self.type == "set_vertex_color":
-            if bpy.context.space_data.shading.color_type != 'VERTEX':
-                bpy.context.space_data.shading.color_type = 'VERTEX'
+            space = context.space_data
+            if space is not None and space.type == 'VIEW_3D' and space.shading.color_type != 'VERTEX':
+                space.shading.color_type = 'VERTEX'
 
-            selection = set(bpy.context.selected_objects)
-            active = set([context.active_object])
-            selection = set(selection).union(set(active))
+            selection = [o for o in context.objects_in_mode if o.type == 'MESH']
 
             for obj in selection:
                 if obj.data.total_vert_sel > 0: 
@@ -909,6 +956,10 @@ class ToolkitPanel(bpy.types.Operator):
 
                     set_act_index = obj.data.attributes.find(active_attribute)
                     obj.data.attributes.active_index = set_act_index
+
+            if not any(obj.data.total_vert_sel > 0 for obj in selection):
+                self.report({'WARNING'}, "Nothing selected")
+                return {'CANCELLED'}
 
             if self.ovveride_color != True:
                 color = bpy.context.scene.keyops.vertex_color

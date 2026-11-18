@@ -330,7 +330,7 @@ class ModiKeyNoUndo(Operator):
                         bpy.context.space_data.context = 'OBJECT'
                     else:
                         bpy.context.space_data.context = 'DATA'
-        if self.type == "Material_Tab":
+        if self.type == "Material_Tab" and active_object is not None:
             if active_object.type == 'MESH' or active_object.type == 'CURVE' or active_object.type == 'SURFACE' or active_object.type == 'META' or active_object.type == 'FONT':
                 bpy.context.space_data.context = 'MATERIAL'
     

@@ -22,6 +22,11 @@ prefs = get_keyops_prefs()
 def random_name(size=5, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
 
+def rename_datablocks(*objects):
+    for obj in objects:
+        if obj.data:  # Empties have no data
+            obj.data.name = obj.name
+
 class QuickBakeName(bpy.types.Operator):
     bl_description = "Quick Bake Name tools"
     bl_idname = "keyops.quick_bake_name"
@@ -95,6 +100,9 @@ With more than two selected objects, the active object becomes _low and the rest
 
     def execute(self, context):
         if self.type == "RENAME": 
+            if not bpy.context.object:
+                self.report({'WARNING'}, "Please select an active object")
+                return {'CANCELLED'}
             new_name = self.new_name
             old_name = bpy.context.object.name.split("_low")[0]
             old_name = old_name.split("_high")[0]
@@ -127,7 +135,7 @@ With more than two selected objects, the active object becomes _low and the rest
         in_high_collection = False
         in_low_collection = False
 
-        if len(selected) == 1:
+        if len(selected) < 2:
             self.report({'WARNING'}, "Please select at least two objects")
             return {'CANCELLED'}
 
@@ -149,9 +157,14 @@ With more than two selected objects, the active object becomes _low and the rest
                 highest_poly_count_object = None
                 highest_poly_count = 0
 
+                depsgraph = bpy.context.evaluated_depsgraph_get()
                 for obj in selected:
-                    m = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
-                    poly_count = len(m.loop_triangles)
+                    obj_eval = obj.evaluated_get(depsgraph)
+                    poly_count = 0
+                    if obj.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
+                        m = obj_eval.to_mesh()
+                        poly_count = len(m.loop_triangles) if m else 0
+                        obj_eval.to_mesh_clear()
 
                     if poly_count > highest_poly_count:
                         highest_poly_count_object = obj
@@ -160,13 +173,15 @@ With more than two selected objects, the active object becomes _low and the rest
                 if highest_poly_count_object:
                     high_object = highest_poly_count_object
                     low_object = selected[0] if selected[1] == high_object else selected[1]
+                else:
+                    low_object = context.active_object if context.active_object in selected else selected[0]
+                    high_object = selected[0] if selected[1] == low_object else selected[1]
 
             if self.random_name:
                 low_object.name = random_name() + "_low"
                 high_object.name = low_object.name[:-4] + "_high"
                 if self.rename_datablock:
-                    low_object.data.name = low_object.name
-                    high_object.data.name = high_object.name
+                    rename_datablocks(low_object, high_object)
             else:
                 if low_object.name.endswith("_low"):
                     low_object.name = low_object.name[:-4]
@@ -177,8 +192,7 @@ With more than two selected objects, the active object becomes _low and the rest
                     high_object.name = low_object.name + "_high"
                     low_object.name = low_object.name + "_low"
                     if self.rename_datablock:
-                        low_object.data.name = low_object.name
-                        high_object.data.name = high_object.name
+                        rename_datablocks(low_object, high_object)
                 else:
                     self.report({'ERROR'}, "Name already exists, please rename the low poly object.")
             if self.hide:
@@ -188,6 +202,9 @@ With more than two selected objects, the active object becomes _low and the rest
 
         else:
             active_object = bpy.context.object
+            if active_object is None:
+                self.report({'WARNING'}, "Please select an active object, it will be set as low-poly")
+                return {'CANCELLED'}
             high_exists = False
             rename_count = 0
 

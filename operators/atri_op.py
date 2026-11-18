@@ -57,7 +57,7 @@ class AtriOP(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.mode == 'EDIT'
+        return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
         wm = bpy.context.window_manager
@@ -80,6 +80,9 @@ class AtriOP(bpy.types.Operator):
                 bpy.ops.mesh.attribute_set('EXEC_DEFAULT', True, value_color=(0.0, 0.0, 0.0, 0.0))
 
         elif self.type == "Select":
+            if not active_type or active_type.data_type != "BOOLEAN":
+                self.report({'WARNING'}, "The active attribute must be a boolean attribute")
+                return {'CANCELLED'}
             # need to change to the select mode first of the attribute, otherwise it will not work
             if active_type and active_type.domain == "POINT":
                 context.tool_settings.mesh_select_mode = (True, False, False)
