@@ -786,12 +786,18 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
         layout.label(text=f"{label} (check command)", icon='ERROR')
 
 
+def pie_slots(context, items):
+    """(direction, item index) for the items a pie shows here, in Blender's slot order
+    (left, right, bottom, top, then the corners). Skipped items move the later ones up a slot."""
+    shown = [i for i, item in enumerate(items[:8])
+             if not (context.mode != 'OBJECT' and item.idname.strip() in _OBJECT_MODE_ONLY)]
+    return list(zip(ORDER, shown))
+
+
 def draw_pie_items(layout, context, items, pie_uid):
-    """The eight slots of a pie, in Blender's order: left, right, bottom, top, then the corners."""
-    for i, item in enumerate(items[:8]):
-        if context.mode != 'OBJECT' and item.idname.strip() in _OBJECT_MODE_ONLY:
-            continue
-        draw_item(layout, context, item, pie_uid, i)
+    """The eight slots of a pie, drawn by Blender."""
+    for _direction, i in pie_slots(context, items):
+        draw_item(layout, context, items[i], pie_uid, i)
 
 
 _stack_state = {}  # menu id -> (next index, time of last press)
@@ -1019,6 +1025,12 @@ class WM_OT_keyops_call_pie(Operator):
             context.window_manager.modal_handler_add(self)
             self._show(context)
             return {'RUNNING_MODAL'}
+
+        if getattr(get_keyops_prefs(), "pie_style", "BLENDER") == "MAYA":
+            # the key to watch for release: the pie's key when a key opened it, else whatever was pressed (Try It)
+            key = pie.key if event.type == pie.key or event.type.startswith("TIMER") or event.type == 'NONE' else event.type
+            bpy.ops.wm.keyops_marking_menu('INVOKE_DEFAULT', pie=uid, key=key)
+            return {'FINISHED'}
 
         def draw(menu, ctx):
             draw_pie_items(menu.layout.menu_pie(), ctx, items, uid)
@@ -2776,7 +2788,12 @@ def _set_no_lag(self, value):
 def draw_pie_feel(prefs, layout):
     """The no-lag option. It's Blender's own pie animation setting, shown here so it's easy to find:
     the person changes it, Key Ops never writes Blender's preferences itself."""
-    layout.box().prop(bpy.context.window_manager, "keyops_no_lag_pies")
+    box = layout.box()
+    box.label(text="All Pie Menus", icon='WORLD')
+    box.prop(bpy.context.window_manager, "keyops_no_lag_pies")
+    row = box.row(align=True)
+    row.label(text="Style")
+    row.prop(prefs, "pie_style", expand=True)
 
 
 def context_wm():
@@ -2894,6 +2911,8 @@ def unregister_properties():
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    from . import marking_menu
+    marking_menu.register()
     bpy.types.WindowManager.keyops_icon_filter = StringProperty(
         name="Search Icons", description="Type part of an icon name and press Enter",
         update=lambda self, ctx: bpy.app.timers.register(_open_palette, first_interval=0.05))
@@ -2946,6 +2965,8 @@ def unregister():
     del bpy.types.WindowManager.keyops_no_lag_pies
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    from . import marking_menu
+    marking_menu.unregister()
 
 
 def values_to_data(prefs):

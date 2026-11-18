@@ -133,6 +133,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     pie_show_more: BoolProperty(name="More Options", default=False) # type: ignore
     pie_show_settings: BoolProperty(name="Pie Settings", default=False) # type: ignore
     pie_show_values: BoolProperty(name="My Values", default=False) # type: ignore
+    pie_style: EnumProperty(name="Pie Style", default="BLENDER", items=(
+        ("BLENDER", "Blender", "Blender's own pie menus: point at a button, release or click to pick it"),
+        ("MAYA", "Maya", "Maya-style marking menus: flick in a direction and release, even before the menu shows. "
+                         "Items that open another menu open it right there, so you can keep flicking"))) # type: ignore
     pie_customize: BoolProperty(name="Customize", default=False,
                                 description="Edit labels and commands, add your own pies, change where a pie works") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
