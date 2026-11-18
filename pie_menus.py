@@ -1017,6 +1017,16 @@ class KEYOPS_OT_pie_add(Operator):
     preset: StringProperty(options={'SKIP_SAVE'}) # type: ignore
     menu_type: StringProperty(default="PIE", options={'SKIP_SAVE'}) # type: ignore
 
+    @classmethod
+    def description(cls, context, props):
+        preset = PRESET_BY_ID.get(props.preset)
+        if preset:
+            text = f"{_preset_key_text(preset)}: {_preset_summary(preset, limit=8)}"
+            if any(p.preset == preset["id"] for p in get_keyops_prefs().pies):
+                text += ".\nAlready in your list. Adding it again makes a second copy"
+            return text
+        return next((desc for tid, _n, desc, _i, _x in MENU_TYPES if tid == props.menu_type), cls.bl_description)
+
     def execute(self, context):
         prefs = get_keyops_prefs()
         pie = _new_pie(prefs)
@@ -1459,23 +1469,15 @@ class KEYOPS_OT_pie_new_popup(Operator):
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_popup(self, width=600)
+        return context.window_manager.invoke_popup(self, width=200)
 
     def execute(self, context):
         return {'FINISHED'}
 
     def draw(self, context):
-        layout = self.layout
-        layout.label(text="What do you want to make?")
-        layout.separator(factor=0.5)
-        col = layout.column(align=True)
-        for tid, name, desc, icon, _n in MENU_TYPES:
-            row = col.row(align=True)
-            split = row.split(factor=0.34, align=True)
-            split.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
-            sub = split.row()
-            sub.active = False
-            sub.label(text=desc)
+        col = self.layout.column(align=True)
+        for tid, name, _desc, icon, _n in MENU_TYPES:
+            col.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
 
 
 def _preset_key_text(preset):
@@ -1495,34 +1497,20 @@ class KEYOPS_OT_pie_preset_popup(Operator):
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_popup(self, width=680)
+        return context.window_manager.invoke_popup(self, width=220)
 
     def execute(self, context):
         return {'FINISHED'}
 
     def draw(self, context):
-        prefs = get_keyops_prefs()
-        have = {p.preset for p in prefs.pies}
-        layout = self.layout
-        layout.label(text="Ready-made pie menus. Add one, then change it however you like.")
-        layout.separator(factor=0.5)
-        col = layout.column(align=True)
+        have = {p.preset for p in get_keyops_prefs().pies}
+        col = self.layout.column(align=True)
         for preset in PRESETS:
             row = col.row(align=True)
-            split = row.split(factor=0.3, align=True)
-            split.operator("keyops.pie_add", text=preset["name"], icon='MESH_CIRCLE').preset = preset["id"]
-            info = split.split(factor=0.24, align=True)
-            key = info.row()
-            key.active = False
-            key.label(text=_preset_key_text(preset))
-            rest = info.row()
-            rest.active = False
-            rest.label(text=_preset_summary(preset), icon='CHECKMARK' if preset["id"] in have else 'BLANK1')
-        if have & set(PRESET_BY_ID):
-            layout.separator(factor=0.5)
-            foot = layout.row()
-            foot.active = False
-            foot.label(text="Already in your list. Adding it again makes a second copy.", icon='CHECKMARK')
+            row.operator("keyops.pie_add", text=preset["name"], icon='MESH_CIRCLE').preset = preset["id"]
+            mark = row.row(align=True)
+            mark.active = False
+            mark.label(text="", icon='CHECKMARK' if preset["id"] in have else 'BLANK1')
 
 
 # ---------------------------------------------------------------- preferences tab
@@ -2197,19 +2185,21 @@ def draw_values(context, layout):
         note.label(text="Scripts: wm.keyops_values[\"Name\"]")
 
 
+PIE_TIMEOUT_DEFAULT = 6  # Blender's default pie animation timeout
+
+
+def _get_no_lag(self):
+    return bpy.context.preferences.view.pie_animation_timeout == 0
+
+
+def _set_no_lag(self, value):
+    bpy.context.preferences.view.pie_animation_timeout = 0 if value else PIE_TIMEOUT_DEFAULT
+
+
 def draw_pie_feel(prefs, layout):
     """The no-lag option. It's Blender's own pie animation setting, shown here so it's easy to find:
     the person changes it, Key Ops never writes Blender's preferences itself."""
-    view = bpy.context.preferences.view
-    box = layout.box()
-    row = box.row(align=True)
-    row.label(text="No Lag Pies")
-    sub = row.row(align=True)
-    sub.ui_units_x = 5
-    sub.prop(view, "pie_animation_timeout", text="")
-    hint = box.row()
-    hint.active = False
-    hint.label(text="Set to 0 for pies with no opening delay")
+    layout.box().prop(bpy.context.window_manager, "keyops_no_lag_pies")
 
 
 def context_wm():
@@ -2334,6 +2324,9 @@ def register():
     bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
     bpy.types.WindowManager.keyops_menu_filter = StringProperty(name="Find Menu", options={'TEXTEDIT_UPDATE'})
     bpy.types.WindowManager.keyops_script_text = StringProperty()
+    bpy.types.WindowManager.keyops_no_lag_pies = BoolProperty(
+        name="No Lag Pies", get=_get_no_lag, set=_set_no_lag,
+        description="Open pie menus instantly, with no opening animation. Changes Blender's Pie Menu Animation Timeout")
     bpy.types.WindowManager.keyops_paste_command = StringProperty(
         name="Paste Command", description="Paste a bpy.ops command copied from Blender's Info editor", update=_paste_command)
     bpy.types.WindowManager.keyops_icon_category = EnumProperty(
@@ -2354,6 +2347,7 @@ def unregister():
     del bpy.types.WindowManager.keyops_values
     del bpy.types.WindowManager.keyops_menu_filter
     del bpy.types.WindowManager.keyops_script_text
+    del bpy.types.WindowManager.keyops_no_lag_pies
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
