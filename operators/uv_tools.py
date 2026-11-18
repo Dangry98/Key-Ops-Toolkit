@@ -328,7 +328,8 @@ class UnwrapInPlace(bpy.types.Operator):
             #layout.prop(self, "apply_modifier")
 
     def execute(self, context):
-        if not hasattr(bpy.types, "GEOMETRY_OT_execute_node_group"):
+        # operators are listed in bpy.ops, not bpy.types (they were never found there, so this always failed)
+        if "execute_node_group" not in dir(bpy.ops.geometry):
             self.report({'WARNING'}, "Unwrap In Place needs geometry node tools, which are not available in this Blender version")
             return {'CANCELLED'}
 
