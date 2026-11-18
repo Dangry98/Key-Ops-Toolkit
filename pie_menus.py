@@ -1181,7 +1181,7 @@ class KEYOPS_OT_slot_set_kind(Operator):
 class KEYOPS_OT_pie_duplicate(Operator):
     bl_idname = "keyops.pie_duplicate"
     bl_label = "Duplicate"
-    bl_description = "Make a copy of this menu"
+    bl_description = "Make a copy of the selected menu. The copy starts switched off"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -1499,6 +1499,63 @@ class KEYOPS_OT_settings_import(Operator, ImportHelper):
         self.report({'INFO'}, "Imported " + ", ".join(n.replace("_", " ") for n in done))
         _redraw_all(context)
         return {'FINISHED'}
+
+
+def _filter_active(wm):
+    return bool(wm.keyops_menu_filter_types) or wm.keyops_menu_filter_state != "ALL" or wm.keyops_menu_filter_editor != "ANY"
+
+
+def _menu_matches(wm, pie):
+    flt = wm.keyops_menu_filter.strip().lower()
+    if flt and flt not in pie.name.lower() and flt not in key_text(pie).lower():
+        return False
+    if wm.keyops_menu_filter_types and pie.menu_type not in wm.keyops_menu_filter_types:
+        return False
+    if wm.keyops_menu_filter_state == "ON" and not pie.enabled:
+        return False
+    if wm.keyops_menu_filter_state == "OFF" and pie.enabled:
+        return False
+    return wm.keyops_menu_filter_editor in ("ANY", pie.editor)
+
+
+class KEYOPS_OT_pie_filter_clear(Operator):
+    bl_idname = "keyops.pie_filter_clear"
+    bl_label = "Clear Filters"
+    bl_description = "Show every menu again"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        wm = context.window_manager
+        wm.keyops_menu_filter_types = set()
+        wm.keyops_menu_filter_state = "ALL"
+        wm.keyops_menu_filter_editor = "ANY"
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_pie_filter_popup(Operator):
+    bl_idname = "keyops.pie_filter_popup"
+    bl_label = "Filter"
+    bl_description = "Show only some menus: by type, on or off, or where they work"
+    bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=220)
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+    def draw(self, context):
+        wm = context.window_manager
+        layout = self.layout
+        layout.label(text="Type")
+        layout.column(align=True).prop(wm, "keyops_menu_filter_types", expand=True)
+        layout.label(text="Show")
+        layout.row(align=True).prop(wm, "keyops_menu_filter_state", expand=True)
+        layout.label(text="Works In")
+        layout.prop(wm, "keyops_menu_filter_editor", text="")
+        if _filter_active(wm):
+            layout.separator()
+            layout.operator("keyops.pie_filter_clear", icon='X')
 
 
 class KEYOPS_OT_pie_new_popup(Operator):
@@ -2017,13 +2074,17 @@ def draw_pies_tab(prefs, context, layout):
     # pie list on the side: on/off, name, key
     outer = layout.split(factor=0.22)
     side = outer.column()
-    side.prop(context.window_manager, "keyops_menu_filter", text="", icon='VIEWZOOM')
+    wm = context.window_manager
+    srow = side.row(align=True)
+    srow.prop(wm, "keyops_menu_filter", text="", icon='VIEWZOOM')
+    srow.operator("keyops.pie_filter_popup", text="", icon='FILTER', depress=_filter_active(wm))
     lbox = side.box()
     col = lbox.column(align=True)
-    flt = context.window_manager.keyops_menu_filter.strip().lower()
+    shown = 0
     for i, p in enumerate(prefs.pies):
-        if flt and flt not in p.name.lower():
+        if not _menu_matches(wm, p):
             continue
+        shown += 1
         row = col.row(align=True)
         row.prop(p, "enabled", text="")
         name = row.row(align=True)
@@ -2042,9 +2103,14 @@ def draw_pies_tab(prefs, context, layout):
             k.active = capturing or p.enabled or i == active
             k.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(p),
                        emboss=False).index = i
+    if not shown:
+        empty = col.row()
+        empty.active = False
+        empty.label(text="No menus match")
     r = side.row(align=True)
     r.operator("keyops.pie_new_popup", text="New", icon='ADD')
     r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
+    r.operator("keyops.pie_duplicate", text="", icon='DUPLICATE')
     r.operator("keyops.pie_remove", text="", icon='X')
     r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
@@ -2341,7 +2407,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
-           KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
+           KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
            KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
@@ -2365,7 +2431,15 @@ def register():
         update=lambda self, ctx: bpy.app.timers.register(_open_palette, first_interval=0.05))
     bpy.types.WindowManager.keyops_export_menus = CollectionProperty(type=KeyOpsExportChoice)
     bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
-    bpy.types.WindowManager.keyops_menu_filter = StringProperty(name="Find Menu", options={'TEXTEDIT_UPDATE'})
+    bpy.types.WindowManager.keyops_menu_filter = StringProperty(
+        name="Find Menu", description="Search menus by name or key", options={'TEXTEDIT_UPDATE'})
+    bpy.types.WindowManager.keyops_menu_filter_types = EnumProperty(
+        name="Type", options={'ENUM_FLAG'}, description="Show only these menu types. None picked shows all",
+        items=[(t[0], t[1], t[2], t[3], 1 << i) for i, t in enumerate(MENU_TYPES)])
+    bpy.types.WindowManager.keyops_menu_filter_state = EnumProperty(name="Show", items=[
+        ("ALL", "All", "On and off menus"), ("ON", "On", "Only menus that are on"), ("OFF", "Off", "Only menus that are off")])
+    bpy.types.WindowManager.keyops_menu_filter_editor = EnumProperty(
+        name="Works In", items=[("ANY", "Anywhere", "Menus for any editor")] + [(e[0], e[1], e[2]) for e in EDITORS])
     bpy.types.WindowManager.keyops_script_text = StringProperty()
     bpy.types.WindowManager.keyops_no_lag_pies = BoolProperty(
         name="No Lag Pies", get=_get_no_lag, set=_set_no_lag,
@@ -2389,6 +2463,9 @@ def unregister():
     del bpy.types.WindowManager.keyops_export_menus
     del bpy.types.WindowManager.keyops_values
     del bpy.types.WindowManager.keyops_menu_filter
+    del bpy.types.WindowManager.keyops_menu_filter_types
+    del bpy.types.WindowManager.keyops_menu_filter_state
+    del bpy.types.WindowManager.keyops_menu_filter_editor
     del bpy.types.WindowManager.keyops_script_text
     del bpy.types.WindowManager.keyops_no_lag_pies
     for cls in reversed(classes):
