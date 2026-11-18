@@ -4,6 +4,7 @@ Press the key and flick: the direction picks the item, not the button under the 
 the key runs it, even before the menu has appeared. Hold still and the menu shows. Items that open
 another pie menu open it right where the mouse is once you move past them, so you can keep flicking
 (Maya's sub-marking menus). A quick tap leaves the menu open to click; releasing in the middle cancels.
+Drawn in Maya's default dark interface colours.
 """
 
 import math
@@ -22,6 +23,15 @@ SECTORS = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")
 DIR_VECTORS = {d: (math.cos(i * math.pi / 4), math.sin(i * math.pi / 4)) for i, d in enumerate(SECTORS)}
 
 
+# Maya's default dark interface: mid-grey buttons, dark outline, light-grey text, Maya selection blue
+MAYA_ITEM = (0x5D / 255, 0x5D / 255, 0x5D / 255, 1.0)
+MAYA_BORDER = (0x2B / 255, 0x2B / 255, 0x2B / 255, 1.0)
+MAYA_TEXT = (0xBB / 255, 0xBB / 255, 0xBB / 255, 1.0)
+MAYA_HIGHLIGHT = (0x52 / 255, 0x85 / 255, 0xA6 / 255, 1.0)
+MAYA_TEXT_HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
+MAYA_MARK = (0.85, 0.85, 0.85, 1.0)
+
+
 def _pm():
     from . import pie_menus
     return pie_menus
@@ -31,10 +41,27 @@ def _shader():
     return gpu.shader.from_builtin('UNIFORM_COLOR')
 
 
-def _rect(x, y, w, h, color):
+def _tri(points, color):
     sh = _shader()
-    batch = batch_for_shader(sh, 'TRIS', {"pos": ((x, y), (x + w, y), (x + w, y + h), (x, y + h))},
-                             indices=((0, 1, 2), (0, 2, 3)))
+    batch = batch_for_shader(sh, 'TRIS', {"pos": points})
+    sh.bind()
+    sh.uniform_float("color", color)
+    batch.draw(sh)
+
+
+def _rounded(x, y, w, h, r, color, segments=4):
+    """A filled rectangle with slightly rounded corners."""
+    r = max(0.0, min(r, w / 2, h / 2))
+    pts = []
+    for cx, cy, a0 in ((x + w - r, y + r, -90), (x + w - r, y + h - r, 0), (x + r, y + h - r, 90), (x + r, y + r, 180)):
+        for k in range(segments + 1):
+            a = math.radians(a0 + 90 * k / segments)
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    centre = (x + w / 2, y + h / 2)
+    verts = [centre] + pts
+    idx = [(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)]
+    sh = _shader()
+    batch = batch_for_shader(sh, 'TRIS', {"pos": verts}, indices=idx)
     sh.bind()
     sh.uniform_float("color", color)
     batch.draw(sh)
@@ -183,59 +210,53 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         if context.region is None or context.region.as_pointer() != self.region.as_pointer():
             return
         rx, ry = self.region.x, self.region.y
-        theme = context.preferences.themes[0].user_interface.wcol_pie_menu
-        inner, inner_sel = tuple(theme.inner), tuple(theme.inner_sel)
-        text, text_sel = tuple(theme.text) + (1.0,), tuple(theme.text_sel) + (1.0,)
-        outline = tuple(theme.outline) + (1.0,) if len(theme.outline) == 3 else tuple(theme.outline)
         s = self._scale()
         shown = self.click_mode or time.time() - self.start >= SHOW_DELAY
         gpu.state.blend_set('ALPHA')
 
-        # the mark: from the first centre through every opened submenu to the mouse
+        # the mark: a thin light line from the first press through every opened submenu to the mouse
         trail = [(lv.x - rx, lv.y - ry) for lv in self.levels] + [(self.mx - rx, self.my - ry)]
-        _lines(trail, inner_sel[:3] + (0.9,), 2.0 * s)
+        _lines(trail, MAYA_MARK, 1.0 * s)
         for lv in self.levels[:-1]:
-            _circle(lv.x - rx, lv.y - ry, 4 * s, text[:3] + (0.5,), 1.0)
+            _circle(lv.x - rx, lv.y - ry, 3 * s, MAYA_MARK, 1.0 * s, 16)
 
         level = self.levels[-1]
         pie, active, _dist = self._active(context)
         cx, cy = level.x - rx, level.y - ry
-        _circle(cx, cy, self._threshold(pie) if pie else 8 * s, text[:3] + (0.8,), 1.5 * s)
+        _circle(cx, cy, 5 * s, MAYA_MARK, 1.0 * s, 20)  # Maya's small ring at the press point
         if not shown or pie is None:
             gpu.state.blend_set('NONE')
             return
 
         PM = _pm()
-        size = int(12 * s)
+        size = int(11 * s)
         blf.size(0, size)
         r = self._radius(pie)
-        pad_x, pad_y = 10 * s, 6 * s
+        pad_x, pad_y = 8 * s, 4 * s
         for direction, index in self._slots(context, pie).items():
             item = pie.items[index]
             if PM._is_empty(item):
                 continue
             label = item.label or item.idname
-            if item.kind == PM.SUB:
-                label += "  ▸"  # opens another menu
-            w, h = blf.dimensions(0, label)
+            sub = item.kind == PM.SUB
+            w, _h = blf.dimensions(0, label)
+            arrow = 10 * s if sub else 0
             dx, dy = DIR_VECTORS[direction]
-            # place boxes around the circle like Blender's pie: beside it on the sides, centred above and below
-            bw, bh = w + 2 * pad_x, size + 2 * pad_y
+            # boxes sit beside the circle on the sides and centred above and below, as in Maya
+            bw, bh = w + 2 * pad_x + arrow, size + 2 * pad_y
             px, py = cx + dx * r, cy + dy * r
             bx = px if dx > 0.3 else (px - bw if dx < -0.3 else px - bw / 2)
             by = py if dy > 0.9 else (py - bh if dy < -0.9 else py - bh / 2)
             selected = index == active
-            _rect(bx, by, bw, bh, inner_sel if selected else inner)
-            _lines(((bx, by), (bx + bw, by), (bx + bw, by + bh), (bx, by + bh)), outline, 1.0, loop=True)
-            blf.color(0, *(text_sel if selected else text))
+            _rounded(bx - 1, by - 1, bw + 2, bh + 2, 3 * s + 1, MAYA_BORDER)
+            _rounded(bx, by, bw, bh, 3 * s, MAYA_HIGHLIGHT if selected else MAYA_ITEM)
+            colour = MAYA_TEXT_HIGHLIGHT if selected else MAYA_TEXT
+            blf.color(0, *colour)
             blf.position(0, bx + pad_x, by + pad_y + 1 * s, 0)
             blf.draw(0, label)
-        # menu name under the centre
-        blf.size(0, int(11 * s))
-        tw, _th = blf.dimensions(0, pie.name)
-        blf.color(0, *text[:3], 0.8)
-        blf.position(0, cx - tw / 2, cy - self._threshold(pie) - 16 * s, 0)
-        blf.draw(0, pie.name)
+            if sub:  # Maya's small triangle for items that open another marking menu
+                tx, ty, t = bx + bw - pad_x - 4 * s, by + bh / 2, 3.5 * s
+                _tri(((tx - t * 0.6, ty - t), (tx - t * 0.6, ty + t), (tx + t * 0.6, ty)), colour)
         gpu.state.blend_set('NONE')
 
 
