@@ -1326,9 +1326,22 @@ class KEYOPS_OT_pie_set_key(Operator):
     bl_options = {'INTERNAL'}
 
     capturing = -1
+    index: IntProperty(default=-1, options={'SKIP_SAVE'}) # type: ignore
+
+    @classmethod
+    def description(cls, context, props):
+        prefs = get_keyops_prefs()
+        if 0 <= props.index < len(prefs.pies):
+            pie = prefs.pies[props.index]
+            editor = dict((e[0], e[1]) for e in EDITORS).get(pie.editor, pie.editor)
+            return f"{key_text(pie)} in {editor}.\n{cls.bl_description}"
+        return cls.bl_description
 
     def invoke(self, context, event):
-        KEYOPS_OT_pie_set_key.capturing = get_keyops_prefs().active_pie
+        prefs = get_keyops_prefs()
+        if 0 <= self.index < len(prefs.pies):
+            prefs.active_pie = self.index
+        KEYOPS_OT_pie_set_key.capturing = prefs.active_pie
         context.window_manager.modal_handler_add(self)
         self._redraw(context)
         return {'RUNNING_MODAL'}
@@ -1991,8 +2004,15 @@ def draw_pies_tab(prefs, context, layout):
         k = row.row(align=True)
         k.ui_units_x = 4.2
         k.alignment = 'RIGHT'
-        k.active = False
-        k.label(text=key_text(p))
+        if p.menu_type == "PANEL":  # panels open from the sidebar, they have no key
+            k.active = False
+            k.label(text="Sidebar")
+        else:
+            capturing = KEYOPS_OT_pie_set_key.capturing == i
+            k.alert = capturing
+            k.active = capturing or p.enabled or i == active
+            k.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(p),
+                       emboss=False).index = i
     r = side.row(align=True)
     r.operator("keyops.pie_new_popup", text="New", icon='ADD')
     r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
@@ -2005,13 +2025,6 @@ def draw_pies_tab(prefs, context, layout):
     pie = prefs.pies[active]
     box = layout.box()
     head = box.row(align=True)
-    capturing = KEYOPS_OT_pie_set_key.capturing == active
-    keyb = head.row(align=True)
-    keyb.alert = capturing
-    keyb.operator("keyops.pie_set_key", text="Press a key..." if capturing else f"Key: {key_text(pie)}", depress=capturing)
-    where = head.row()
-    where.active = False
-    where.label(text="in " + dict((e[0], e[1]) for e in EDITORS)[pie.editor])
     head.operator("wm.keyops_call_pie", text="Try It").pie = pie.uid
     head.separator()
     head.prop(prefs, "pie_customize", text="Customize", toggle=True)
