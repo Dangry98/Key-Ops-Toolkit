@@ -983,6 +983,8 @@ def register_toolkit_panel():
     from .parent_used_objects import register_parent_used_objects
     from .resample_edges import register_resample_edges
     from .mesh_cleanup import register_mesh_cleanup
+    from .extract_geometry import register_extract_geometry
+    register_extract_geometry()
     from .edge_trim import register_edge_trim
     from .subobject_modes import register_sub_object_modes
     register_sub_object_modes()
@@ -1016,6 +1018,8 @@ def unregister_toolkit_panel():
     from .parent_used_objects import unregister_parent_used_objects
     from .resample_edges import unregister_resample_edges
     from .mesh_cleanup import unregister_mesh_cleanup
+    from .extract_geometry import unregister_extract_geometry
+    unregister_extract_geometry()
     from .edge_trim import unregister_edge_trim
     from .subobject_modes import unregister_sub_object_modes
     unregister_sub_object_modes()
@@ -1459,6 +1463,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row = box.row(align=False)
         row.scale_y = 1.15
         row.operator("keyops.mesh_cleanup", text="Clean Up", icon="BRUSH_DATA")
+        row.operator("keyops.extract_geometry", text="Extract", icon="DUPLICATE")
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
         row.operator("mesh.reveal", text="Unhide All")
@@ -1623,6 +1628,7 @@ class ObjectModePanel(bpy.types.Panel):
         row = col.row(align=True)
         row.scale_y = 1.15
         row.operator("keyops.mesh_cleanup", text="Clean Up", icon="BRUSH_DATA")
+        row.operator("keyops.extract_geometry", text="Extract", icon="DUPLICATE")
         row = col.row(align=True)
         row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
 

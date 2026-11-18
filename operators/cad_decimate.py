@@ -86,7 +86,7 @@ class ExportCADDecimate(bpy.types.Operator):
         #             tris = len(m.loop_triangles)
         #             totall_tris += tris
 
-        if hasattr(bpy.types, "WM_OT_console_toggle"):  # the system console only exists on Windows
+        if "console_toggle" in dir(bpy.ops.wm):  # the system console only exists on Windows
             bpy.ops.wm.console_toggle()
         output_directory = bpy.context.scene.keyops.cad_decimate_export_path
         os.makedirs(output_directory, exist_ok=True)
@@ -250,7 +250,7 @@ class ImportAllCADDecimate(bpy.types.Operator):
                     imported_files.append(file_name)  
                     os.remove(input_file)
 
-        if hasattr(bpy.types, "WM_OT_console_toggle"):  # the system console only exists on Windows
+        if "console_toggle" in dir(bpy.ops.wm):  # the system console only exists on Windows
             bpy.ops.wm.console_toggle()
         return {'FINISHED'}
 

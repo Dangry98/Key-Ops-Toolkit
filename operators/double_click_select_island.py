@@ -233,7 +233,7 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
         elif obj and obj.type == 'CURVE' and bpy.ops.curve.select_linked_pick.poll():
             bpy.ops.curve.select_linked_pick('INVOKE_DEFAULT')
-        elif obj and obj.type == 'CURVES' and hasattr(bpy.types, "CURVES_OT_select_linked_pick") and bpy.ops.curves.select_linked_pick.poll():
+        elif obj and obj.type == 'CURVES' and "select_linked_pick" in dir(bpy.ops.curves) and bpy.ops.curves.select_linked_pick.poll():
             bpy.ops.curves.select_linked_pick('INVOKE_DEFAULT')
 
         return {'FINISHED'}

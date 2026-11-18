@@ -220,9 +220,14 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
                       "Wheel: points. Shift Wheel: smoothing. Ctrl: even or original spacing. C: curve or straight")
     bl_options = {'REGISTER', 'UNDO'}
 
-    change: IntProperty(name="Change", description="Points to add (or remove, below 0) on every chain", default=0) # type: ignore
-    count: IntProperty(name="Segments", description="Exact segments per chain. 0 keeps each chain's count plus Change",
-                       default=0, min=0, max=1000000) # type: ignore
+    mode: EnumProperty(name="Points", items=(
+        ("CHANGE", "Add / Remove", "Add or remove points on every chain, keeping their own counts otherwise"),
+        ("EXACT", "Exact Count", "Give every chain the same number of segments"))) # type: ignore
+    change: IntProperty(name="Change", default=0, soft_min=-50, soft_max=50,
+                        description="Points to add on every chain (or remove, below 0). Stops where a chain "
+                                    "can't get any shorter") # type: ignore
+    count: IntProperty(name="Segments", description="Segments every chain gets (a loop needs at least 3)",
+                       default=8, min=1, soft_max=200, max=100000) # type: ignore
     spacing: EnumProperty(name="Spacing", items=(
         ("EVEN", "Even", "Same distance between all points"),
         ("KEEP", "Original", "Keep the chain's original spacing, denser where it was denser"))) # type: ignore
@@ -231,6 +236,15 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
         ("LINEAR", "Straight", "Follow the old straight segments exactly"))) # type: ignore
     smooth: FloatProperty(name="Smoothing", description="Smooth the chain without shrinking it", default=0.0,
                           min=0.0, max=1.0, subtype='FACTOR') # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.row().prop(self, "mode", expand=True)
+        layout.prop(self, "change" if self.mode == "CHANGE" else "count")
+        layout.row().prop(self, "spacing", expand=True)
+        layout.row().prop(self, "shape", expand=True)
+        layout.prop(self, "smooth", slider=True)
 
     @classmethod
     def poll(cls, context):
@@ -243,9 +257,13 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
             bm = bmesh.from_edit_mesh(me)
             chains, bad = find_chains(bm)
             skipped += bad
+            if self.mode == "CHANGE" and chains:  # never below what the shortest chain can lose
+                lowest = min((len(v) - 3) if c else (len(v) - 2) for v, c in chains)
+                if self.change < -lowest:
+                    self.change = -lowest
             for verts, closed in chains:
                 old = len(verts) if closed else len(verts) - 1
-                segments = self.count or old + self.change
+                segments = self.count if self.mode == "EXACT" else old + self.change
                 segments = max(segments, 3 if closed else 1)
                 coords = [v.co.copy() for v in verts]
                 new = resample_positions(coords, closed, segments, self.shape == "CURVE", self.spacing == "EVEN", self.smooth)
@@ -278,16 +296,17 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
     # ---- interactive: wheel to change, like the original add-on
     def invoke(self, context, event):
         objs = _mesh_objects(context)
-        counts = []
+        counts, spare = [], []
         for obj in objs:
             obj.update_from_editmode()
             chains, _ = find_chains(bmesh.from_edit_mesh(obj.data))
             counts += [len(v) if c else len(v) - 1 for v, c in chains]
+            spare += [(len(v) - 3) if c else (len(v) - 2) for v, c in chains]  # points each chain can lose
         if not counts:
             self.report({'WARNING'}, "Select one or more edge chains or loops (no branches)")
             return {'CANCELLED'}
         self._single = counts[0] if len(counts) == 1 else 0
-        self._min_change = 1 - min(counts)
+        self._min_change = -min(spare)
         self._backup, self._selection = {}, {}
         for obj in objs:
             bm = bmesh.from_edit_mesh(obj.data)
@@ -295,7 +314,7 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
             bm.to_mesh(tmp)
             self._backup[obj.name] = tmp
             self._selection[obj.name] = ([v.index for v in bm.verts if v.select], [e.index for e in bm.edges if e.select])
-        self.count, self.change = 0, 0
+        self.mode, self.change = "CHANGE", 0
         context.window_manager.modal_handler_add(self)
         self._update(context)
         return {'RUNNING_MODAL'}
