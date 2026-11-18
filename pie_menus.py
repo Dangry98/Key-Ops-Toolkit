@@ -3054,6 +3054,38 @@ def draw_pie_overview(layout, pie, prefs):
         col.separator(factor=0.35)
 
 
+class KEYOPS_UL_menus(bpy.types.UIList):
+    """The Custom Menus list: on/off, type and name, and the key that opens it (click to change)."""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        p = item
+        row = layout.row(align=True)
+        row.prop(p, "enabled", text="")
+        name = row.row(align=True)
+        name.active = p.enabled or index == data.active_pie
+        name.prop(p, "name", text="", emboss=False, icon=TYPE_ICON.get(p.menu_type, 'NONE'))
+        k = row.row(align=True)
+        k.ui_units_x = 4.2
+        k.alignment = 'RIGHT'
+        if p.menu_type == "PANEL":  # panels open from the sidebar, they have no key
+            k.active = False
+            k.label(text="Sidebar")
+        else:
+            capturing = KEYOPS_OT_pie_set_key.capturing == index
+            k.alert = capturing or (p.enabled and bool(key_conflicts(p)[0]))
+            k.active = capturing or p.enabled or index == data.active_pie
+            k.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(p),
+                       emboss=False).index = index
+
+    def filter_items(self, context, data, propname):
+        wm = context.window_manager  # the search box and filter popup above the list decide what shows
+        flags = [self.bitflag_filter_item if _menu_matches(wm, p) else 0 for p in getattr(data, propname)]
+        return flags, []
+
+    def draw_filter(self, context, layout):
+        pass  # filtered with the search box and filter button above the list
+
+
 def draw_pies_tab(prefs, context, layout):
     if not prefs.pies:
         layout.label(text="No menus.")
@@ -3069,36 +3101,13 @@ def draw_pies_tab(prefs, context, layout):
     srow.prop(wm, "keyops_menu_filter", text="", icon='VIEWZOOM')
     srow.operator("keyops.pie_filter_popup", text="", icon='FILTER', depress=_filter_active(wm))
     lrow = side.row(align=False)
-    lbox = lrow.box()
+    # Blender's own list: click a row to edit that menu, double-click its name to rename, scroll, resize
+    lrow.template_list("KEYOPS_UL_menus", "", prefs, "pies", prefs, "active_pie", rows=12)
     arrows = lrow.column(align=True)
     arrows.operator("keyops.pie_move", text="", icon='TRIA_UP').direction = -1
     arrows.operator("keyops.pie_move", text="", icon='TRIA_DOWN').direction = 1
-    col = lbox.column(align=True)
-    shown = 0
-    for i, p in enumerate(prefs.pies):
-        if not _menu_matches(wm, p):
-            continue
-        shown += 1
-        row = col.row(align=True)
-        row.prop(p, "enabled", text="")
-        name = row.row(align=True)
-        name.active = p.enabled or i == active
-        name.operator("keyops.pie_select", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE'),
-                      depress=(i == active)).index = i
-        k = row.row(align=True)
-        k.ui_units_x = 4.2
-        k.alignment = 'RIGHT'
-        if p.menu_type == "PANEL":  # panels open from the sidebar, they have no key
-            k.active = False
-            k.label(text="Sidebar")
-        else:
-            capturing = KEYOPS_OT_pie_set_key.capturing == i
-            k.alert = capturing or (p.enabled and bool(key_conflicts(p)[0]))
-            k.active = capturing or p.enabled or i == active
-            k.operator("keyops.pie_set_key", text="Press a key..." if capturing else key_text(p),
-                       emboss=False).index = i
-    if not shown:
-        empty = col.row()
+    if not any(_menu_matches(wm, p) for p in prefs.pies):
+        empty = side.row()
         empty.active = False
         empty.label(text="No menus match")
     r = side.row(align=True)
@@ -3470,7 +3479,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
-           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
+           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_UL_menus, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
 
 
