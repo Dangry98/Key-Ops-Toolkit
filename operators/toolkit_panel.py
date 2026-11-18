@@ -979,6 +979,8 @@ class ToolkitPanel(bpy.types.Operator):
 def register_toolkit_panel():
     from .snap_to_floor import register_snap_to_floor
     from .parent_used_objects import register_parent_used_objects
+    from .loop_resample import register_loop_resample
+    register_loop_resample()
     register_set_flow()
     register_fast_mirror()
     register_snap_to_floor()
@@ -1004,6 +1006,8 @@ def register_toolkit_panel():
 def unregister_toolkit_panel():
     from .snap_to_floor import unregister_snap_to_floor
     from .parent_used_objects import unregister_parent_used_objects
+    from .loop_resample import unregister_loop_resample
+    unregister_loop_resample()
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     unregister_fast_mirror()
     unregister_set_flow()
@@ -1353,6 +1357,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
+            row.operator("keyops.loop_resample", text="Loop Resample")
         # Edit edges
         if sel_mode[1]:
             row = box.row(align=False)
@@ -1365,6 +1370,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
                 row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
             row.operator("mesh.bridge_edge_loops", text="Bridge")
+            row = box.row(align=False)
+            row.operator("keyops.loop_resample", text="Loop Resample")
             # row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
         # Edit polygons
         if sel_mode[2]:

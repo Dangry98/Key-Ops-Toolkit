@@ -24,21 +24,21 @@ POSITION_NAMES = {"W": "Left", "E": "Right", "S": "Bottom", "N": "Top",
 GRID = ("NW", "N", "NE", "W", None, "E", "SW", "S", "SE")
 
 EDITORS = (
-    ("3D View Generic", "3D Viewport", "Any mode in the 3D Viewport"),
-    ("Object Mode", "Object Mode", "Only in Object Mode"),
-    ("Mesh", "Edit Mesh", "Only in mesh Edit Mode"),
-    ("Sculpt", "Sculpt Mode", "Only in Sculpt Mode"),
-    ("Weight Paint", "Weight Paint", "Only in Weight Paint Mode"),
-    ("UV Editor", "UV Editor", "Only in the UV Editor"),
-    ("Image", "Image Editor", "In the Image Editor"),
-    ("Node Editor", "Node Editors", "Shader, Geometry and other node editors"),
-    ("Graph Editor", "Graph Editor", "In the Graph Editor"),
-    ("Dopesheet", "Dope Sheet", "In the Dope Sheet"),
-    ("Outliner", "Outliner", "In the Outliner"),
-    ("Property Editor", "Properties", "In the Properties editor"),
-    ("Sequencer", "Video Sequencer", "In the Video Sequencer"),
-    ("Text", "Text Editor", "In the Text Editor"),
-    ("Window", "Everywhere", "In every editor"),
+    ("3D View Generic", "3D Viewport", "Any mode in the 3D Viewport", 'VIEW3D'),
+    ("Object Mode", "Object Mode", "Only in Object Mode", 'OBJECT_DATAMODE'),
+    ("Mesh", "Edit Mesh", "Only in mesh Edit Mode", 'EDITMODE_HLT'),
+    ("Sculpt", "Sculpt Mode", "Only in Sculpt Mode", 'SCULPTMODE_HLT'),
+    ("Weight Paint", "Weight Paint", "Only in Weight Paint Mode", 'WPAINT_HLT'),
+    ("UV Editor", "UV Editor", "Only in the UV Editor", 'UV'),
+    ("Image", "Image Editor", "In the Image Editor", 'IMAGE'),
+    ("Node Editor", "Node Editors", "Shader, Geometry and other node editors", 'NODETREE'),
+    ("Graph Editor", "Graph Editor", "In the Graph Editor", 'GRAPH'),
+    ("Dopesheet", "Dope Sheet", "In the Dope Sheet", 'ACTION'),
+    ("Outliner", "Outliner", "In the Outliner", 'OUTLINER'),
+    ("Property Editor", "Properties", "In the Properties editor", 'PROPERTIES'),
+    ("Sequencer", "Video Sequencer", "In the Video Sequencer", 'SEQUENCE'),
+    ("Text", "Text Editor", "In the Text Editor", 'TEXT'),
+    ("Window", "Everywhere", "In every editor", 'WINDOW'),
 )
 
 MENU_TYPES = (
@@ -274,6 +274,7 @@ def _append_targets(text):
 
 _EDITOR_IDS = [e[0] for e in EDITORS]
 _EDITOR_LABELS = {e[0]: e[1] for e in EDITORS}
+_EDITOR_ICONS = {e[0]: e[3] for e in EDITORS}
 
 
 def editor_names(pie_or_text):
@@ -343,7 +344,7 @@ class KeyOpsPie(PropertyGroup):
     # one or more EDITORS ids, comma separated, e.g. "Object Mode, Mesh"
     editor: StringProperty(name="Works In", default="3D View Generic", update=_sync_update) # type: ignore
     editor_set: EnumProperty(name="Works In", options={'ENUM_FLAG'}, description="Where the key works. Pick one or more",
-                             items=[(e[0], e[1], e[2], 1 << i) for i, e in enumerate(EDITORS)],
+                             items=[(e[0], e[1], e[2], e[3], 1 << i) for i, e in enumerate(EDITORS)],
                              get=lambda self: _editor_bits(self.editor), set=_set_editor_bits) # type: ignore
     key: StringProperty(name="Key", default="NONE", update=_changed) # type: ignore
     ctrl: BoolProperty(name="Ctrl", update=_changed) # type: ignore
@@ -2703,7 +2704,9 @@ def draw_slot_editor(prefs, layout, pie):
         c.prop(pie, "menu_type", text="Type")
         we = c.split(factor=0.25)
         we.label(text="Works In:")
-        we.prop_menu_enum(pie, "editor_set", text=editor_text(pie))
+        names = editor_names(pie)
+        we.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
+                          icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
         c.prop(pie, "only_mode", text="Only In")
         c.prop(pie, "condition", text="Show When", icon='SCRIPT')
         if pie.menu_type not in {"PANEL", "STICKY", "MODAL"}:
@@ -2902,12 +2905,14 @@ def register():
         name="Type", options={'ENUM_FLAG'}, description="Show only these menu types. None picked shows all",
         items=[(t[0], t[1], t[2], t[3], 1 << i) for i, t in enumerate(MENU_TYPES)])
     bpy.types.WindowManager.keyops_menu_filter_state = EnumProperty(name="Show", items=[
-        ("ALL", "All", "On and off menus"), ("ON", "On", "Only menus that are on"), ("OFF", "Off", "Only menus that are off")])
+        ("ALL", "All", "Menus that are switched on and off"),
+        ("ON", "Switched On", "Only menus whose checkbox in the list is ticked"),
+        ("OFF", "Switched Off", "Only menus whose checkbox in the list is not ticked")])
     bpy.types.WindowManager.keyops_menu_filter_tag = StringProperty(
         name="Tag", description="Show only menus with this tag",
         search=lambda self, context, text: [t for t in all_tags() if text.strip().lower() in t])
     bpy.types.WindowManager.keyops_menu_filter_editor = EnumProperty(
-        name="Works In", items=[("ANY", "Anywhere", "Menus for any editor")] + [(e[0], e[1], e[2]) for e in EDITORS])
+        name="Works In", items=[("ANY", "Anywhere", "Menus for any editor", 'WORLD', 0)] + [(e[0], e[1], e[2], e[3], i + 1) for i, e in enumerate(EDITORS)])
     bpy.types.WindowManager.keyops_script_text = StringProperty()
     bpy.types.WindowManager.keyops_no_lag_pies = BoolProperty(
         name="No Lag Pies", get=_get_no_lag, set=_set_no_lag,
