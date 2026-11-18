@@ -43,7 +43,7 @@
   <p class="tagline">Draw a shape to boolean-cut objects.</p>
   <figure class="media"><video src="assets/video/cutter.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Cutter: drawing a box cut"></video></figure>
   <div class="media-row tool-shots"><figure class="media ui"><img src="assets/shots/cutter-icon.png" alt="Cutter in the toolbar" loading="lazy"><figcaption>Toolbar</figcaption></figure><figure class="media ui strip"><img src="assets/shots/cutter-header.png" alt="Cutter options in the tool header" loading="lazy"><figcaption>Tool settings</figcaption></figure></div>
-  <details class="details"><summary>More info</summary><p class="where">Toolbar · Object Mode</p><div class="table-wrap"><table><tr><th>Input</th><th>Action</th></tr><tr><td><kbd>LMB</kbd> drag</td><td>Draw the shape</td></tr><tr><td><kbd>B</kbd> <kbd>C</kbd> <kbd>N</kbd></td><td>Box / Circle / Ngon</td></tr><tr><td>Hold <kbd>Shift</kbd></td><td>Swap box and circle</td></tr><tr><td>Hold <kbd>Ctrl</kbd></td><td>Snap</td></tr><tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Difference / Union / Intersect / Slice</td></tr><tr><td><kbd>Scroll</kbd></td><td>Circle segments</td></tr></table></div><p>The boolean is only added when you release, so drawing stays fast on heavy meshes.</p><p class="pref">Toggle in preferences: <b>Cutter</b></p></details>
+  <details class="details"><summary>More info</summary><p class="where">Toolbar · Object Mode</p><div class="table-wrap"><table><tr><th>Input</th><th>Action</th></tr><tr><td><kbd>LMB</kbd> drag</td><td>Draw the shape</td></tr><tr><td><kbd>B</kbd> <kbd>C</kbd> <kbd>N</kbd></td><td>Box / Circle / Ngon</td></tr><tr><td>Hold <kbd>Shift</kbd></td><td>Swap box and circle</td></tr><tr><td>Hold <kbd>Ctrl</kbd></td><td>Snap</td></tr><tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Difference / Union / Intersect / Slice</td></tr><tr><td><kbd>Scroll</kbd></td><td>Circle segments</td></tr></table></div><p>The boolean is only added when you release, so drawing stays fast on heavy meshes.</p><p>You can orbit the view while setting the depth. A cut only goes into the surface and Add only comes out of it.</p><p class="pref">Toggle in preferences: <b>Cutter</b></p></details>
 </section>
 
 <section class="feature" id="fast-mirror">
@@ -95,7 +95,7 @@
 <section class="feature" id="select-similar">
   <div class="feature-head"><h2>Select Similar</h2></div>
   <p class="tagline">Select everything similar to the active mesh or element.</p>
-  <details class="details"><summary>More info</summary><p class="where">Object &amp; Edit Mode</p><p>In the Toolkit panel, the Object Mode <b>Select</b> menu and Edit Mode <b>Select › Select Similar</b>.</p></details>
+  <details class="details"><summary>More info</summary><p class="where">Object &amp; Edit Mode</p><p>In the Toolkit panel, the Object Mode <b>Select</b> menu and Edit Mode <b>Select › Select Similar</b>.</p><p><b>Thin Triangles</b> in <b>Shift G</b> shows when the active face is a selected triangle. It selects triangles whose sharpest corner is Equal, Greater or Less than the active one's, within a threshold.</p><p>The Edit Toolkit's <b>Thin Triangles</b> button selects all sliver triangles under a max angle (default 10°). Both switch to face select.</p></details>
 </section>
 
 <section class="feature" id="x-ray-select">

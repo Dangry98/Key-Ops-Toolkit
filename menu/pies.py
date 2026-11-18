@@ -1,6 +1,21 @@
 import bpy.types
+import os
 from bpy.types import Menu
 from ..utils.pref_utils import clear_registered_keymaps
+from ..utils.utilities import operator_exists, set_uv_island_select_mode
+
+
+def _in_uv_editor(context):
+    space = context.space_data
+    return context.mode == 'EDIT_MESH' and space is not None and space.type == 'IMAGE_EDITOR'
+
+
+def _uv_toolkit_poll(cls, context, idname):
+    # The straighten operators come from an external add-on
+    if not operator_exists(idname):
+        cls.poll_message_set("Requires an extra add-on")
+        return False
+    return context.mode == 'EDIT_MESH'
 
 
 registered_workspace_pie_keymaps = []
@@ -50,8 +65,17 @@ class SwitchWorkspace(bpy.types.Operator):
     def execute(self, context):
         if self.workspace_name in bpy.data.workspaces:
             bpy.context.window.workspace = bpy.data.workspaces[self.workspace_name]
-        else:
-            bpy.ops.workspace.append_activate(idname=self.workspace_name, filepath= bpy.utils.user_resource('CONFIG', path='startup.blend'))
+            return {'FINISHED'}
+
+        startup_file = bpy.utils.user_resource('CONFIG', path='startup.blend')
+        if not os.path.isfile(startup_file):
+            self.report({'WARNING'}, f"Workspace '{self.workspace_name}' isn't in this file and there is no saved startup file to add it from")
+            return {'CANCELLED'}
+        try:
+            bpy.ops.workspace.append_activate(idname=self.workspace_name, filepath=startup_file)
+        except RuntimeError:
+            self.report({'WARNING'}, f"Workspace '{self.workspace_name}' not found in the startup file")
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -97,7 +121,7 @@ class UVSpacePie(Menu):
         pie = layout.menu_pie()
 
         pie.operator("keyops.streighten_selection", text="Straighten Quads", icon="UV_ISLANDSEL") #LEFT
-        pie.operator("keyops.isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
+        pie.operator("uv.keyops_isolate_uv_island", text="Isolate Island (Toggle)") #RIGHT
         pie.operator("uv.keyops_quick_pack", text="Quick Pack", icon="CON_SAMEVOL") #BOTTOM
 
         pie.operator("uv.keyops_unwrap_in_place", text="Unwrap Inplace", icon="STICKY_UVS_VERT") #TOP
@@ -205,6 +229,10 @@ class MakeSingleUser(bpy.types.Operator):
     object_animation : bpy.props.BoolProperty(name="Object Animation", default=False, description="Object Animation") # type: ignore
     object_animation_data : bpy.props.BoolProperty(name="Object Animation Data", default=False, description="Object Animation Data") # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and context.active_object is not None
+
     def execute(self, context):
         bpy.ops.object.make_single_user(object=self.object, obdata=self.obdata, material=self.materials, animation=self.object_animation, obdata_animation=self.object_animation_data)
         return {'FINISHED'}
@@ -265,11 +293,26 @@ class UnwrapingOp(bpy.types.Operator):
         name="Pack Islands",
         description="Pack Islands",
         default=False) # type: ignore
-        
+
+    @classmethod
+    def poll(cls, context):
+        # Project From View needs a 3D View, and every option needs Edit Mode
+        space = context.space_data
+        return context.mode == 'EDIT_MESH' and space is not None and space.type == 'VIEW_3D'
+
     def execute(self, context):
-        bpy.ops.uv
+        try:
+            if self.unwrap_options == "project_from_view_bounds":
+                bpy.ops.uv.project_from_view(scale_to_bounds=True)
+            else:
+                getattr(bpy.ops.uv, self.unwrap_options)()
+        except RuntimeError as e:
+            # e.g. Follow Active Quads without an active face: show Blender's message, not a traceback
+            self.report({'WARNING'}, str(e).replace("Error: ", "").strip())
+            return {'CANCELLED'}
         if self.pack_islands:
             bpy.ops.uv.pack_islands()
+        return {'FINISHED'}
 
 
 class StreightenSelection(bpy.types.Operator):
@@ -283,8 +326,12 @@ class StreightenSelection(bpy.types.Operator):
         description="Pin Island",
         default=True) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return _uv_toolkit_poll(cls, context, "uv.toolkit_straighten")
+
     def execute(self, context):
-            if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
+            if bpy.context.scene.tool_settings.use_uv_select_sync == True:
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
                 bpy.ops.keyops.smart_uv_sync()
                 bpy.ops.uv.toolkit_straighten(gridify=False)
@@ -304,6 +351,10 @@ class StreightenAfterEdge(bpy.types.Operator):
     bl_label = "Streighten After Edge"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return _uv_toolkit_poll(cls, context, "uv.toolkit_straighten_island")
+
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync == True:  
             bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
@@ -322,6 +373,10 @@ class StackSimilarIslands(bpy.types.Operator):
     bl_label = "Stack Similar Islands"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return _in_uv_editor(context)
+
     def execute(self, context):
         bpy.ops.uv.copy()
         bpy.ops.uv.paste()
@@ -335,8 +390,8 @@ class MirrorSeams(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
-    
+        return context.mode == 'EDIT_MESH'
+
     def execute(self, context):
         bpy.ops.mesh.select_mirror(extend=True)
         bpy.ops.mesh.mark_seam()
@@ -350,14 +405,14 @@ class SelectSimilarIslands(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
-    
+        return _in_uv_editor(context)
+
     def execute(self, context):
         bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
         if bpy.context.tool_settings.use_uv_select_sync:
             bpy.ops.keyops.smart_uv_sync()
 
-        bpy.ops.uv.select_mode(type='ISLAND')
+        set_uv_island_select_mode(context)
 
         bpy.ops.uv.select_similar(type='FACE', threshold=0.01)
 

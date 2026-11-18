@@ -220,6 +220,10 @@ class MergeTool(bpy.types.Operator):
     bl_label = "Merge Tool"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
     merge_center: BoolProperty(  # type: ignore
         name="Merge Center",
         description="Merge to center or last selected",

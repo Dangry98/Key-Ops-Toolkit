@@ -34,7 +34,12 @@ def unregister_outliner_click_keymap():
 # Register the handler after the add-on has loaded if the option is enabled
 @persistent
 def register_handler(dummy=None, depsgraph=None):
-    bpy.app.timers.register(lambda: enabled_selection_options(bpy.context.scene, bpy.context), first_interval=0.3)
+    def deferred():
+        # The add-on may have been disabled before this timer fires
+        if hasattr(bpy.types.Scene, "auto_focus_in_outliner"):
+            enabled_selection_options(bpy.context.scene, bpy.context)
+        return None
+    bpy.app.timers.register(deferred, first_interval=0.3)
 
 def _get_valid_outliner_override():
     if not bpy.context.window_manager:

@@ -1,6 +1,7 @@
 import bpy.types
 import math
 from ..utils.pref_utils import get_keyops_prefs, get_icon
+from ..utils.node_groups import get_node_group
 
 prefs = get_keyops_prefs()
 
@@ -15,76 +16,6 @@ prefs = get_keyops_prefs()
 # fix node group for delete small faces error and update to last version
 # Convert Deletesmall Faces/DeleteLooseEdges to function instead
 #option for planar decimation
-
-def delete_loose_edge_node_group():
-    delete_loose_edge = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Delete Loose Edge")
-
-    delete_loose_edge.is_modifier = True
-    
-    #initialize delete_loose_edge nodes
-    #delete_loose_edge interface
-    #Socket Geometry
-    geometry_socket = delete_loose_edge.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket.attribute_domain = 'POINT'
-    
-    #Socket Geometry
-    geometry_socket_1 = delete_loose_edge.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-    geometry_socket_1.attribute_domain = 'POINT'
-    
-    
-    #node Group Input
-    group_input = delete_loose_edge.nodes.new("NodeGroupInput")
-    group_input.name = "Group Input"
-    
-    #node Boolean Math
-    boolean_math = delete_loose_edge.nodes.new("FunctionNodeBooleanMath")
-    boolean_math.name = "Boolean Math"
-    boolean_math.operation = 'NOT'
-    #Boolean_001
-    boolean_math.inputs[1].default_value = False
-    
-    #node Delete Geometry
-    delete_geometry = delete_loose_edge.nodes.new("GeometryNodeDeleteGeometry")
-    delete_geometry.name = "Delete Geometry"
-    delete_geometry.domain = 'EDGE'
-    delete_geometry.mode = 'ALL'
-    
-    #node Edge Neighbors
-    edge_neighbors = delete_loose_edge.nodes.new("GeometryNodeInputMeshEdgeNeighbors")
-    edge_neighbors.name = "Edge Neighbors"
-    
-    #node Group Output
-    group_output = delete_loose_edge.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-    
-    
-    
-    
-    #Set locations
-    group_input.location = (-340.0, 0.0)
-    boolean_math.location = (-203.79037475585938, -102.6886215209961)
-    delete_geometry.location = (-35.70556640625, 64.91195678710938)
-    edge_neighbors.location = (-388.9553527832031, -148.6557159423828)
-    group_output.location = (166.10665893554688, 65.12358093261719)
-    
-    #Set dimensions
-    group_input.width, group_input.height = 140.0, 100.0
-    boolean_math.width, boolean_math.height = 140.0, 100.0
-    delete_geometry.width, delete_geometry.height = 140.0, 100.0
-    edge_neighbors.width, edge_neighbors.height = 140.0, 100.0
-    group_output.width, group_output.height = 140.0, 100.0
-    
-    #initialize delete_loose_edge links
-    #group_input.Geometry -> delete_geometry.Geometry
-    delete_loose_edge.links.new(group_input.outputs[0], delete_geometry.inputs[0])
-    #delete_geometry.Geometry -> group_output.Geometry
-    delete_loose_edge.links.new(delete_geometry.outputs[0], group_output.inputs[0])
-    #boolean_math.Boolean -> delete_geometry.Selection
-    delete_loose_edge.links.new(boolean_math.outputs[0], delete_geometry.inputs[1])
-    #edge_neighbors.Face Count -> boolean_math.Boolean
-    delete_loose_edge.links.new(edge_neighbors.outputs[0], boolean_math.inputs[0])
-    return delete_loose_edge
 
 class AutoLODProperties(bpy.types.PropertyGroup):
     suffix: bpy.props.StringProperty(default="_LOD")  # type: ignore
@@ -147,8 +78,7 @@ class AutoLOD(bpy.types.Operator):
  
 
         if props.delete_loose_edges:
-            if bpy.data.node_groups.get("Delete Loose Edge") is None:
-                delete_loose_edge_node_group()
+            delete_loose_edge = get_node_group("Delete Loose Edge")
 
         for obj in selected_objects:
             for i in range(amount_of_lods):
@@ -198,14 +128,16 @@ class AutoLOD(bpy.types.Operator):
                     bpy.context.view_layer.objects.active = new_object
 
                     if props.delete_loose_edges:
-                        if bpy.context.object.modifiers.get("Delete Loose Edge") is None:
-                            bpy.context.object.modifiers.new('Delete Loose Edge', 'NODES')
-                            bpy.context.object.modifiers['Delete Loose Edge'].node_group = bpy.data.node_groups['Delete Loose Edge']
+                        # new_object, not context.object: that one is the pinned/stale object
+                        # when the operator runs from the Properties editor
+                        if new_object.modifiers.get("Delete Loose Edge") is None:
+                            new_object.modifiers.new('Delete Loose Edge', 'NODES')
+                            new_object.modifiers['Delete Loose Edge'].node_group = delete_loose_edge
 
                     if remove_non_manifold_faces:
                         bpy.ops.object.delete_small_faces()
 
-                        modifier = bpy.context.object.modifiers.get("Delete Small Faces")
+                        modifier = new_object.modifiers.get("Delete Small Faces")
                         if modifier is not None:
                             modifier["Input_2"] = max_face_size * (multipler ** i)
                         else:

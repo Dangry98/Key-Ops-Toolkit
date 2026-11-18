@@ -158,6 +158,9 @@ class AssignMaterial(bpy.types.Operator):
         selection.add(active_object)
 
         if not self.mat_name:
+            if active_object is None or active_object.active_material is None:
+                self.report({'WARNING'}, "Active object has no material to assign")
+                return {'CANCELLED'}
             self.mat_name = active_object.active_material.name
 
         if active_object:

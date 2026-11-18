@@ -2,7 +2,8 @@ import bmesh
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
-from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR
+from ..utils.utilities import BLENDER_VERSION, BLENDER_VERSION_MAJOR_POINT_MINOR, set_uv_island_select_mode, operator_exists
+from ..utils.node_groups import get_node_group
 
 #Based on the code from the excellent addon UV Toolkit by Alex Dev that is sadly no longer available, please come back Alex! :( 
 #Only an very old version is still available, but I doubt it still works in new version of Blender  https://alexbel.gumroad.com/l/NbMya
@@ -30,6 +31,75 @@ def register_uv_tools_keymaps():
     km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
     kmi = km.keymap_items.new('keyops.remove_seam', 'TWO', 'PRESS', alt=True)
     registered_uv_tools_keymaps.append((km, kmi))
+
+# --- Seam by Angle in the 3D View UV menu (U), right under Mark/Clear Seam ---
+# Menu.append() can only add to the end, so the menu's built-in draw is wrapped and
+# Seam by Angle is drawn straight after Blender's "Clear Seam" entry.
+
+class _SeamByAngleLayout:
+    """Forwards to the real layout and draws Seam by Angle after "Clear Seam"."""
+
+    def __init__(self, layout):
+        object.__setattr__(self, "_layout", layout)
+        object.__setattr__(self, "inserted", False)
+
+    def __getattr__(self, name):
+        return getattr(self._layout, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._layout, name, value)
+
+    def operator(self, idname, **kwargs):
+        props = self._layout.operator(idname, **kwargs)
+        if idname == "mesh.mark_seam" and kwargs.get("text") == "Clear Seam" and not self.inserted:
+            self._layout.operator("keyops.seam_by_angle", text="Seam by Angle", icon='MOD_EDGESPLIT')
+            object.__setattr__(self, "inserted", True)
+        return props
+
+
+class _MenuSelf:
+    def __init__(self, menu, layout):
+        self._menu = menu
+        self.layout = layout
+
+    def __getattr__(self, name):
+        return getattr(self._menu, name)
+
+
+_uv_map_original_draw = None
+
+
+def _uv_map_draw_with_seam_by_angle(self, context):
+    layout = _SeamByAngleLayout(self.layout)
+    _uv_map_original_draw(_MenuSelf(self, layout), context)
+    if not layout.inserted:
+        # Fallback if a future Blender renames or drops "Clear Seam".
+        self.layout.operator("keyops.seam_by_angle", text="Seam by Angle", icon='MOD_EDGESPLIT')
+
+
+def _uv_map_menu_noop(self, context):
+    pass
+
+
+def register_uv_map_menu():
+    global _uv_map_original_draw
+    menu = bpy.types.VIEW3D_MT_uv_map
+    menu.append(_uv_map_menu_noop)  # makes the menu's draw a list of draw funcs
+    funcs = getattr(menu.draw, "_draw_funcs", None)
+    if funcs and _uv_map_draw_with_seam_by_angle not in funcs:
+        _uv_map_original_draw = funcs[0]
+        funcs[0] = _uv_map_draw_with_seam_by_angle
+
+
+def unregister_uv_map_menu():
+    global _uv_map_original_draw
+    menu = bpy.types.VIEW3D_MT_uv_map
+    funcs = getattr(menu.draw, "_draw_funcs", None)
+    if funcs and _uv_map_original_draw is not None and _uv_map_draw_with_seam_by_angle in funcs:
+        funcs[funcs.index(_uv_map_draw_with_seam_by_angle)] = _uv_map_original_draw
+    _uv_map_original_draw = None
+    menu.remove(_uv_map_menu_noop)
+
 
 class SmartUVSync(bpy.types.Operator):
     bl_idname = "keyops.smart_uv_sync"
@@ -175,8 +245,10 @@ def register_uv_tools():
     # bpy.utils.register_class(SelectSimilarUVIsland)
     bpy.utils.register_class(RemoveAllPins)
     register_uv_tools_keymaps()
+    register_uv_map_menu()
 
 def unregister_uv_tools():
+    unregister_uv_map_menu()
     clear_registered_keymaps(registered_uv_tools_keymaps)
     bpy.utils.unregister_class(SmartUVSync)
     # bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
@@ -205,7 +277,9 @@ class UVCut(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
+        # uv.rip_move crashes Blender when run outside the UV editor (e.g. from F3 in the 3D View)
+        space = context.space_data
+        return context.mode == 'EDIT_MESH' and space is not None and space.type == 'IMAGE_EDITOR'
 
     def execute(self, context):
         if context.tool_settings.use_uv_select_sync:
@@ -239,9 +313,7 @@ class SharpFromUVIslands(bpy.types.Operator):
     def execute(self, context):
         
 
-        if "SharpFromUVIslands" not in bpy.data.node_groups:
-            from ..resources.geometry_nodes_scripits import sharpfromuvislands_node_group
-            sharpfromuvislands_node_group()
+        get_node_group("SharpFromUVIslands")
             
         if bpy.app.version <= (4, 0, 2):
             self.report({'WARNING'}, "This operator is not supported in Blender 4.0.2 or lower due to a bug in the Geometry Nodes")
@@ -266,11 +338,11 @@ class SharpFromUVIslands(bpy.types.Operator):
 
                     if get_active_uv_layer:
                         if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            context.object.modifiers["SharpFromUVIslands"].properties.inputs.Socket_1.attribute_name = get_active_uv_layer.name
-                            context.object.modifiers["SharpFromUVIslands"].properties.inputs.Socket_2.value = self.only_uv_island_borders
+                            obj.modifiers["SharpFromUVIslands"].properties.inputs.Socket_1.attribute_name = get_active_uv_layer.name
+                            obj.modifiers["SharpFromUVIslands"].properties.inputs.Socket_2.value = self.only_uv_island_borders
                         else:
-                            context.object.modifiers["SharpFromUVIslands"]["Socket_1_attribute_name"] = get_active_uv_layer.name
-                            context.object.modifiers["SharpFromUVIslands"]["Socket_2"] = self.only_uv_island_borders
+                            obj.modifiers["SharpFromUVIslands"]["Socket_1_attribute_name"] = get_active_uv_layer.name
+                            obj.modifiers["SharpFromUVIslands"]["Socket_2"] = self.only_uv_island_borders
 
                         if self.apply_modifier:
                             instances = [o for o in bpy.data.objects if o.data == obj.data]
@@ -309,8 +381,12 @@ class UnwrapInPlace(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        # Runs the node tool through geometry.execute_node_group, which Blender removed after 5.0
+        if not operator_exists("geometry.execute_node_group"):
+            cls.poll_message_set("Unwrap in Place isn't available in Blender 5.1 and newer yet")
+            return False
         return context.mode == 'EDIT_MESH'
-    
+
     def draw (self, context):
         layout = self.layout
         layout.use_property_split = True
@@ -363,9 +439,7 @@ class UnwrapInPlace(bpy.types.Operator):
                     modifier_toggle_visability_based2()
 
         #create_unwrap_in_place_node_group_time = time.time()
-        if "Unwrap In Place Tool" not in bpy.data.node_groups:
-            from ..resources.geometry_nodes_scripits import unwrap_in_place_tool_node_group
-            unwrap_in_place_tool_node_group()
+        get_node_group("Unwrap In Place Tool")
         #print("Create Unwrap In Place Node Group Time: ", time.time() - create_unwrap_in_place_node_group_time)
 
         #start_op_time = time.time()
@@ -481,10 +555,18 @@ class UnwrapInPlace(bpy.types.Operator):
                                 f.select = False 
                     bmesh.update_edit_mesh(me)
        
-        context_override = context.copy()
-        context_override["area"].type = 'VIEW_3D'
-        bpy.ops.geometry.execute_node_group(name="Unwrap In Place Tool")
-        bpy.context.area.ui_type = 'UV'
+        # execute_node_group needs a 3D View; temporarily switch this area and put back
+        # whatever editor it was (it used to always end as a UV editor, which turned the
+        # 3D View into a UV editor when run from there).
+        area = context.area
+        original_ui_type = area.ui_type if area else None
+        if area and area.type != 'VIEW_3D':
+            area.type = 'VIEW_3D'
+        try:
+            bpy.ops.geometry.execute_node_group(name="Unwrap In Place Tool")
+        finally:
+            if area and original_ui_type and area.ui_type != original_ui_type:
+                area.ui_type = original_ui_type
         #("Unwrap Time ", time.time() - add_modifier_time)
 
         #restore_uvmap_name_time = time.time()
@@ -608,9 +690,10 @@ class ToggleSmoothSharp(bpy.types.Operator):
         elif bpy.context.mode == 'OBJECT':
             for obj in context.selected_objects:
                 if obj.type == 'MESH':
-                    if bpy.app.version > (4, 1, 0):
+                    if bpy.app.version < (4, 1, 0):
                         bpy.ops.object.shade_smooth(use_auto_smooth=True, auto_smooth_angle=3.14159, ignore_sharp=False)
                     else:
+                        bpy.ops.object.shade_smooth(keep_sharp_edges=True)
                         disable_auto_smooth(obj)
         return {'FINISHED'}
 
@@ -619,6 +702,10 @@ class OrientIslandToEdge(bpy.types.Operator):
     bl_idname = "keyops.orient_island_to_edge"
     bl_label = "Orient Island to Edge"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
         if bpy.context.scene.tool_settings.use_uv_select_sync:
@@ -643,8 +730,8 @@ class RemoveSeam(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
-    
+        return context.mode == 'EDIT_MESH'
+
     def execute(self, context):
         bpy.ops.mesh.mark_seam(clear=True)
         bpy.ops.mesh.mark_sharp(clear=True)
@@ -797,8 +884,7 @@ class SelectSimilarUVIsland(bpy.types.Operator):
         #     has_synced = True
 
 
-        bpy.ops.uv.select_mode(type='FACE')
-        bpy.ops.uv.select_mode(type='ISLAND')
+        set_uv_island_select_mode(context)
         bpy.ops.uv.select_similar(type='AREA_3D', threshold=self.treshold)
 
         if has_synced:

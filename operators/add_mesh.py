@@ -1,4 +1,5 @@
 import bpy.types, bmesh
+import os
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 from bpy.types import Menu
@@ -20,8 +21,9 @@ def register_add_objects_pie_keymaps():
 
 def calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0):
     prefs = get_keyops_prefs()
-    if use_relative_scale:
-        view_loc = context.space_data.region_3d.view_matrix.inverted().translation
+    region_3d = getattr(context.space_data, "region_3d", None)
+    if use_relative_scale and region_3d is not None:
+        view_loc = region_3d.view_matrix.inverted().translation
         cursor_location = context.scene.cursor.location
         distance = (view_loc - cursor_location).length
 
@@ -214,14 +216,22 @@ def AddEmpty(context, scale, use_relative_scale, scale_relative_float, scale_pro
 def Add_Blend(context, scale, use_relative_scale, scale_relative_float, scale_property):
     prefs = get_keyops_prefs()
     
-    blendpath = prefs.add_object_pie_blend_file_path
+    blendpath = bpy.path.abspath(prefs.add_object_pie_blend_file_path)
     namelist = prefs.add_object_pie_blend_object_name
     #add a , after each name to import many objects at once!
-    namelist = namelist.split(",")
+    namelist = [name.strip() for name in namelist.split(",")]
 
-    with bpy.data.libraries.load(blendpath, link=False) as (data_from, data_to):
-        data_to.objects = [name for name in data_from.objects if name in namelist]
+    if not blendpath or not os.path.isfile(blendpath):
+        return "No .blend file found at the path set in the Add Objects Pie preferences"
 
+    try:
+        with bpy.data.libraries.load(blendpath, link=False) as (data_from, data_to):
+            data_to.objects = [name for name in data_from.objects if name in namelist]
+    except OSError as e:
+        return f"Could not load .blend file: {e}"
+
+    if context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
 
     for obj in data_to.objects:
@@ -364,7 +374,10 @@ class AddMesh(bpy.types.Operator):
                 bpy.ops.object.editmode_toggle()
             AddEmpty(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
         elif self.mesh_type == "BLEND":
-            Add_Blend(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+            error = Add_Blend(context, self.scale_property, self.use_relative_scale, self.scale_relative_float, self.scale_property)
+            if error:
+                self.report({'WARNING'}, error)
+                return {'CANCELLED'}
         return {'FINISHED'}
     
 def register_add_objects_pie():

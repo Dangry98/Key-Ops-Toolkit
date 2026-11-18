@@ -411,6 +411,11 @@ class KEYOPS_OT_fast_solidify_popup(bpy.types.Operator):
         if op is not None:
             op.popup = False
 
+    @classmethod
+    def poll(cls, context):
+        # Only meaningful while Fast Solidify's modal is running (opened with Tab from it)
+        return KEYOPS_OT_fast_solidify.operator is not None
+
     def invoke(self, context, event):
         return context.window_manager.invoke_popup(self, width=240)
 

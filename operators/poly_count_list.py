@@ -6,7 +6,7 @@
 import bpy, time
 from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
-from ..utils.pref_utils import get_icon
+from ..utils.pref_utils import get_icon, clear_registered_keymaps
 from bpy.app.handlers import persistent
 
 # Todo: Add icon in panel and add ms and tris count to panel header
@@ -139,6 +139,11 @@ class PolyCountProperties(PropertyGroup):
     show_draw_time: BoolProperty(  # type: ignore
         name="Show Draw Time",
         description="Show the time it took to draw the list",
+        default=True
+    )
+    keyboard_navigation: BoolProperty(  # type: ignore
+        name="Keyboard Navigation",
+        description="Up/Down Arrow or W/S moves the active object through the list while hovering it (in the Toolkit N-panel or Scene Properties). Hold Shift to extend the selection",
         default=True
     )
 
@@ -323,6 +328,8 @@ def register_polycount_list():
     bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
     bpy.utils.register_class(POLYCOUNT_OT_refresh)
     bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
+    bpy.utils.register_class(POLYCOUNT_OT_walk)
+    register_polycount_keymaps()
     # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
     bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
@@ -336,6 +343,8 @@ def unregister_polycount_list():
     bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
     bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
     bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
+    clear_registered_keymaps(registered_polycount_keymaps)
+    bpy.utils.unregister_class(POLYCOUNT_OT_walk)
     # bpy.utils.unregister_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
     if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
@@ -630,7 +639,10 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row.alignment = 'LEFT'
         row.prop(props, "show_obj_type", text="Object Type")
         row.prop(props, "show_draw_time", text="Draw Time")
-        
+        row = layout.row()
+        row.alignment = 'LEFT'
+        row.prop(props, "keyboard_navigation", text="Keyboard Navigation (Up/Down, W/S)")
+
         row = layout.row(align=True)
         row = layout.row(align=True)
         # row.label(text="Show")
@@ -681,7 +693,7 @@ class POLYCOUNT_PT_AutoUpdate_Settings(bpy.types.Panel):
 class POLYCOUNT_OT_refresh(bpy.types.Operator):
     bl_idname = "keyops.polycount_user_interaction"
     bl_label = "Show polycount in Scene properties panel"
-    bl_description = "Sort"
+    bl_description = "Header: sort the list.\nRow: Click to select, Ctrl to toggle, Shift to select the range from the active object, Shift on the active object to select its children"
     make_active: StringProperty(default="") # type: ignore
     poly_sort: EnumProperty(
         items=[
@@ -711,38 +723,21 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
         global polycount_sorting_ascending
         global polycount_sorting
 
-        def set_selected(ctrl=False):
-            obj = bpy.data.objects.get(self.make_active)
-            if not obj:
-                return
-
-            obj.select_set(not obj.select_get() if ctrl else True)
-            context.view_layer.objects.active = obj if not ctrl else context.view_layer.objects.active
-
-            # if context.scene.polycount_props.update_rate > 1: # update selection only if update rate is greater than 1
-            #     for i, obj_data in enumerate(polycount):
-            #         if obj_data[0] == self.make_active:
-            #             polycount[i] = (*obj_data[:5], obj.select_get())
-            #             break
-            return
-
-        if bpy.data.objects.get(str(self.make_active)) is not None:
-            if context.mode == 'OBJECT':
-                if ev == ["Shift", "Click"]:
-                    set_selected()
-                elif "Ctrl" in ev:
-                    set_selected(ctrl=True)
-                else:
-                    deselect_all(context)
-                    set_selected()
-            else:
+        obj = bpy.data.objects.get(str(self.make_active))
+        if obj is not None:
+            if context.mode != 'OBJECT':
+                self.report({'WARNING'}, "Selecting from the list only works in Object Mode")
+            elif obj.name not in context.view_layer.objects:
                 self.report({'WARNING'}, "Object not in an enabled collection or view layer")
+            else:
+                click_select(context, obj, shift="Shift" in ev, ctrl="Ctrl" in ev)
         else:
             if self.poly_sort == polycount_sorting:
                 polycount_sorting_ascending = not polycount_sorting_ascending
             else:
                 polycount_sorting = self.poly_sort
         self.make_active = ""
+        ev.clear()
 
         if polycount_sorting == 'NAME':
             name_ascending = not polycount_sorting_ascending
@@ -751,6 +746,135 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
             polycount.sort(key=sortList, reverse=polycount_sorting_ascending)
 
         return {'FINISHED'}
+
+def get_list_objects(context):
+    """Objects in the order the list shows them (only those that can be selected)."""
+    props = context.scene.polycount_props
+    view_layer_objects = context.view_layer.objects
+    objects = []
+    for item in polycount[:props.max_list_length]:
+        obj = view_layer_objects.get(item[0])
+        if obj is not None and obj not in objects:
+            objects.append(obj)
+    return objects
+
+def click_select(context, obj, shift=False, ctrl=False):
+    """Outliner-style click: plain = select only, Ctrl = toggle,
+    Shift = range from the active object, Shift on the active object = its children."""
+    view_layer = context.view_layer
+    active = view_layer.objects.active
+
+    if shift:
+        if active is not None and obj == active:
+            # Select the active object's whole hierarchy
+            if not ctrl:
+                deselect_all(context)
+            active.select_set(True)
+            for child in active.children_recursive:
+                if child.name in view_layer.objects:
+                    child.select_set(True)
+            return
+
+        objects = get_list_objects(context)
+        if active in objects and obj in objects:
+            a, b = objects.index(active), objects.index(obj)
+            if not ctrl:
+                deselect_all(context)
+            for o in objects[min(a, b):max(a, b) + 1]:
+                o.select_set(True)
+            return
+        # No anchor in the list: fall back to extending the selection
+        obj.select_set(True)
+        view_layer.objects.active = obj
+        return
+
+    if ctrl:
+        if obj.select_get():
+            obj.select_set(False)
+        else:
+            obj.select_set(True)
+            view_layer.objects.active = obj
+        return
+
+    deselect_all(context)
+    obj.select_set(True)
+    view_layer.objects.active = obj
+
+class POLYCOUNT_OT_walk(bpy.types.Operator):
+    bl_idname = "keyops.polycount_walk"
+    bl_label = "Polycount List Walk"
+    bl_description = "Move the active object up or down in the Polycount List"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    direction: EnumProperty(items=[('UP', "Up", ""), ('DOWN', "Down", "")], default='DOWN') # type: ignore
+    extend: BoolProperty(name="Extend", default=False, description="Extend the selection instead of replacing it") # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        if context.mode != 'OBJECT' or scene is None or not hasattr(scene, "polycount_props"):
+            return False
+        if not scene.polycount_props.keyboard_navigation or not polycount:
+            return False
+        space, region = context.space_data, context.region
+        if space is None or region is None:
+            return False
+        if space.type == 'PROPERTIES':
+            return space.context == 'SCENE'
+        if space.type == 'VIEW_3D':
+            if region.type != 'UI' or 'POLYCOUNT_LIST' not in getattr(context.window_manager, "toolkit_panel_mode", set()):
+                return False
+            category = getattr(region, "active_panel_category", None)
+            return category in {None, 'Toolkit'}
+        return False
+
+    def execute(self, context):
+        objects = get_list_objects(context)
+        if not objects:
+            return {'CANCELLED'}
+
+        view_layer = context.view_layer
+        active = view_layer.objects.active
+        step = -1 if self.direction == 'UP' else 1
+
+        if active not in objects:
+            target = objects[0] if step == 1 else objects[-1]
+        else:
+            index = objects.index(active) + step
+            if index < 0 or index >= len(objects):
+                return {'CANCELLED'}
+            target = objects[index]
+
+        if self.extend and active in objects:
+            # Like the outliner: walking back onto a selected item shrinks the selection
+            if target.select_get():
+                active.select_set(False)
+            target.select_set(True)
+        else:
+            deselect_all(context)
+            target.select_set(True)
+        view_layer.objects.active = target
+
+        if context.screen is not None:
+            for area in context.screen.areas:
+                if area.type in {'PROPERTIES', 'VIEW_3D'}:
+                    area.tag_redraw()
+        return {'FINISHED'}
+
+registered_polycount_keymaps = []
+
+def register_polycount_keymaps():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:
+        return
+    for km_name, space_type in (('3D View Generic', 'VIEW_3D'), ('Property Editor', 'PROPERTIES')):
+        km = kc.keymaps.new(name=km_name, space_type=space_type)
+        for key, direction in (('UP_ARROW', 'UP'), ('W', 'UP'), ('DOWN_ARROW', 'DOWN'), ('S', 'DOWN')):
+            for shift in (False, True):
+                kmi = km.keymap_items.new(POLYCOUNT_OT_walk.bl_idname, key, 'PRESS', shift=shift, repeat=True)
+                kmi.properties.direction = direction
+                kmi.properties.extend = shift
+                registered_polycount_keymaps.append((km, kmi))
 
 def trim_numbers(number):
     if number < 1000:

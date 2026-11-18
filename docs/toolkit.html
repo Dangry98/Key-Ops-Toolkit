@@ -26,7 +26,7 @@
   <div class="feature-head"><h2>Toolkit Panel</h2></div>
   <p class="tagline">All tools in one sidebar tab.</p>
   <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-object.png" alt="Toolkit panel, Object section" loading="lazy"></figure><figure class="media"><img src="assets/shots/toolkit-modifiers.png" alt="Modifiers section" loading="lazy"></figure></div>
-  <details class="details"><summary>More info</summary><p class="where">N › Toolkit</p><p><kbd>Shift</kbd>-click icons to show several sections. <b>Prefs</b> opens the add-on preferences.</p><p class="pref">Toggle in preferences: <b>Object Toolkit</b></p></details>
+  <details class="details"><summary>More info</summary><p class="where">N › Toolkit</p><p><kbd>Shift</kbd>-click icons to show several sections. <b>Prefs</b> opens the add-on preferences.</p><p>The Modifiers section has <a href='modeling-tools.html#fast-bevel'>Fast Bevel</a>, <a href='modeling-tools.html#fast-array'>Array</a> and <a href='modeling-tools.html#fast-solidify'>Solidify</a> (<kbd>Ctrl</kbd>-click adds a new modifier, needs the <b>Add Modifier Pie</b> preference), Lattice / FFD, and Offset / Triplanar UV.</p><p class="pref">Toggle in preferences: <b>Object Toolkit</b></p></details>
 </section>
 
 <section class="feature" id="object-toolkit">
@@ -40,14 +40,14 @@
   <div class="feature-head"><h2>Edit Toolkit</h2></div>
   <p class="tagline">Edit tools that follow the selection mode.</p>
   <div class="media-row"><figure class="media"><img src="assets/shots/toolkit-edit.png" alt="Edit Toolkit" loading="lazy"></figure><figure class="media"><img src="assets/notion/subdivide-cylinder.gif" alt="Subdivide and un-subdivide cylinder" loading="lazy"><figcaption>Subdivide / Un-Subdivide Cylinder</figcaption></figure></div>
-  <details class="details"><summary>More info</summary><p class="where">Edit Mode</p><ul class='plain'><li><b>Cylinder</b>: from Edge, Subdivide and Un-Subdivide (keeps UVs).</li><li><b>Set Flow</b>: built in, based on EdgeFlow.</li><li>Make Planar / Circle / Relax appear with LoopTools on 5.0+.</li><li>The Extrude menu gets <b>Offset Extrude Edge</b>.</li></ul></details>
+  <details class="details"><summary>More info</summary><p class="where">Edit Mode</p><ul class='plain'><li><b>Cylinder</b>: from Edge, Subdivide and Un-Subdivide (keeps UVs).</li><li><b>UV</b>: the UV Unwrap menu, Mark Seam, Clear Seam and <b>Seam by Angle</b>, which marks seams and sharp edges above an angle (with UV Tools on, see <a href="uv.html#uv-tools">UV Tools</a>).</li><li><b>Set Flow</b>: built in, based on EdgeFlow.</li><li>Make Planar / Circle / Relax appear with LoopTools on 5.0+.</li><li>The Extrude menu gets <b>Offset Extrude Edge</b>.</li><li><b>Thin Triangles</b>: selects every triangle with a corner under a max angle (see <a href="modeling-tools.html#select-similar">Select Similar</a>).</li><li><b>Include Blender Operators</b> (gear icon in the panel, or preferences): on by default for a 3ds Max-style all-in-one panel. Turn off to show only Key Ops tools.</li></ul></details>
 </section>
 
 <section class="feature" id="cad-decimate">
   <div class="feature-head"><h2>CAD Decimate</h2></div>
   <p class="tagline">Decimate huge scenes without crashing.</p>
   <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-cad-decimate.png" alt="CAD Decimate panel" loading="lazy"></figure><figure class="media"><img src="assets/notion/cad-decimate-scene.png" alt="CAD scene" loading="lazy"><figcaption>Tested on 330 million triangles</figcaption></figure></div>
-  <details class="details"><summary>More info</summary><p class="where">Toolkit › CAD Decimate</p><ul class='plain'><li><b>High</b>: Decimate modifier, best result, by % or target tris.</li><li><b>Medium / Low</b>: weld-based, much faster, no UVs.</li><li><b>Fast Mode</b>: faster but uses more memory.</li></ul><p>Works best with many separate objects.</p><p class="pref">Toggle in preferences: <b>CAD Decimate</b></p></details>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › CAD Decimate</p><ul class='plain'><li><b>High</b>: Decimate modifier, best result, by % or target tris.</li><li><b>High - pyfqmr</b>: bundled pyfqmr library, about 4x faster, slightly lower quality, no UVs.</li><li><b>Medium - Weld + Decimate</b>: an automatic, detail-safe Weld (Connected) does the cheap part, Decimate the final step. For extremely dense meshes. No UVs.</li><li><b>Low / Lowest</b>: weld only, fastest, no UVs.</li><li><b>Fast Mode</b>: faster but uses more memory.</li></ul><p>Works best with many separate objects.</p><p class="pref">Toggle in preferences: <b>CAD Decimate</b></p></details>
 </section>
 
 <section class="feature" id="auto-lod">
@@ -61,7 +61,7 @@
   <div class="feature-head"><h2>Polycount List</h2></div>
   <p class="tagline">Live triangle count per object.</p>
   <div class="media-row panel-shots"><figure class="media"><img src="assets/shots/toolkit-polycount-list.png" alt="Polycount List" loading="lazy"></figure></div>
-  <details class="details"><summary>More info</summary><p class="where">Toolkit › Polycount</p><p>Also in Scene Properties. Turn off Auto Update for very large scenes.</p><p class="pref">Toggle in preferences: <b>Polycount List</b></p></details>
+  <details class="details"><summary>More info</summary><p class="where">Toolkit › Polycount</p><p>Also in Scene Properties. Turn off Auto Update for very large scenes.</p><p>Selecting works like the Outliner: click to select, <kbd>Ctrl</kbd>-click to toggle, <kbd>Shift</kbd>-click to select the range from the active object, and <kbd>Shift</kbd>-click the active object to select its children. While hovering the list, <kbd>↑</kbd>/<kbd>↓</kbd> or <kbd>W</kbd>/<kbd>S</kbd> walk through it; hold <kbd>Shift</kbd> to extend the selection. Turn keyboard navigation off in the list's filter settings.</p><p class="pref">Toggle in preferences: <b>Polycount List</b></p></details>
 </section>
 
 <section class="feature" id="quick-bake-name">

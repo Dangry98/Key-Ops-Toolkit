@@ -1,8 +1,17 @@
 import bpy.types
 import os
 import time
+import importlib.util
 from ..utils.pref_utils import get_keyops_prefs, get_icon
 import tempfile
+
+
+def pyfqmr_available():
+    # find_spec instead of try/import, so a missing wheel never raises
+    return importlib.util.find_spec("pyfqmr") is not None
+
+
+PYFQMR_MISSING = "pyfqmr is not installed. Reinstall the extension so Blender installs its bundled wheels"
 
 prefs = get_keyops_prefs()
 totall_tris = 0
@@ -15,7 +24,10 @@ class CADDecimate(bpy.types.Operator):
 
     totall_time = 0
 
-    def execute(self, context):        
+    def execute(self, context):
+        if context.scene.deceimate_type == 'PYFQMR' and not pyfqmr_available():
+            self.report({'ERROR'}, PYFQMR_MISSING)
+            return {'CANCELLED'}
         totall_time = time.time()
         if bpy.context.scene.fast_mode == False:    
             export_time = time.time()
@@ -86,7 +98,8 @@ class ExportCADDecimate(bpy.types.Operator):
         #             tris = len(m.loop_triangles)
         #             totall_tris += tris
 
-        bpy.ops.wm.console_toggle()
+        if not bpy.app.background:
+            bpy.ops.wm.console_toggle()
         output_directory = bpy.context.scene.cad_decimate_export_path
         os.makedirs(output_directory, exist_ok=True)
         bpy.ops.object.select_all(action='DESELECT')
@@ -104,7 +117,7 @@ class ExportCADDecimate(bpy.types.Operator):
 
                 bpy.ops.object.delete()
             if bpy.context.scene.auto_clear_garbage_data:
-                bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+                bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
         export_time = time.time() - export_time
         print(f"Exported in {export_time:.4f} seconds")
 
@@ -141,19 +154,209 @@ class ExportCADDecimate(bpy.types.Operator):
 def high_quality_decimate():
     global totall_tris
 
-    bpy.ops.object.modifier_add(type='DECIMATE')
+    # view_layer.objects.active, not context.object: from the Properties editor
+    # context.object is the pinned/stale object (or None)
+    obj = bpy.context.view_layer.objects.active
+    decimate = obj.modifiers.new(name="Decimate", type='DECIMATE')
     if bpy.context.scene.procent_or_amount == 'PROCENT':
-        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.decimation_ratio
+        decimate.ratio = bpy.context.scene.decimation_ratio
     else:
-        bpy.context.object.modifiers["Decimate"].ratio = bpy.context.scene.tris_count / len(bpy.context.object.data.loop_triangles)
+        obj.data.calc_loop_triangles()
+        tris = len(obj.data.loop_triangles)
+        decimate.ratio = min(1.0, bpy.context.scene.tris_count / tris) if tris else 1.0
 def medium_quality_decimate():
-    bpy.ops.object.modifier_add(type='WELD')
-    bpy.context.object.modifiers["Weld"].merge_threshold = bpy.context.scene.merge_distance
+    obj = bpy.context.view_layer.objects.active
+    weld = obj.modifiers.new(name="Weld", type='WELD')
+    weld.merge_threshold = bpy.context.scene.merge_distance
 def low_quality_decimate():
-    weld_modifier = bpy.context.object.modifiers.new(name="Weld", type='WELD')
+    weld_modifier = bpy.context.view_layer.objects.active.modifiers.new(name="Weld", type='WELD')
     weld_modifier.mode = 'CONNECTED'
     weld_modifier.merge_threshold = bpy.context.scene.merge_distance
-    
+
+
+def _evaluated_tris(obj):
+    """Triangle count of obj with its current modifier stack."""
+    import numpy as np
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    ob_eval = obj.evaluated_get(dg)
+    if obj.type == 'MESH':
+        polys = ob_eval.data.polygons
+        totals = np.empty(len(polys), np.int32)
+        polys.foreach_get("loop_total", totals)
+        return int((totals - 2).sum())
+    me = ob_eval.to_mesh()
+    count = len(me.loop_triangles)
+    ob_eval.to_mesh_clear()
+    return count
+
+
+def _target_tris(source_tris):
+    scene = bpy.context.scene
+    if scene.procent_or_amount == 'PROCENT':
+        return int(source_tris * scene.decimation_ratio)
+    return scene.tris_count
+
+
+def _edge_stats(obj):
+    """(median edge length, bounding box diagonal) of obj with its modifier stack, in local space."""
+    import numpy as np
+    dg = bpy.context.evaluated_depsgraph_get()
+    ob_eval = obj.evaluated_get(dg)
+    me = ob_eval.data if obj.type == 'MESH' else ob_eval.to_mesh()
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    edges = np.empty(len(me.edges) * 2, np.int32)
+    me.edges.foreach_get("vertices", edges)
+    if obj.type != 'MESH':
+        ob_eval.to_mesh_clear()
+    if len(co) == 0 or len(edges) == 0:
+        return 0.0, 0.0
+    edges = edges.reshape(-1, 2)
+    if len(edges) > 200_000:
+        edges = edges[np.random.default_rng(0).choice(len(edges), 200_000, replace=False)]
+    lengths = np.linalg.norm(co[edges[:, 0]] - co[edges[:, 1]], axis=1)
+    return float(np.median(lengths)), float(np.linalg.norm(co.max(0) - co.min(0)))
+
+
+# Weld never merges further than this fraction of the object size, so small details survive
+WELD_MAX_DISTANCE = 0.002
+
+
+def weld_decimate():
+    """Medium: Weld (Connected) first does the cheap part of the reduction, Decimate
+    does the last, quality-sensitive part.
+
+    The weld distance is found automatically: it aims for the geometric middle between
+    the source and target tri count (10M -> 100k welds to about 1M), never goes below
+    1.5x the target, and never merges further than WELD_MAX_DISTANCE of the object size.
+    Decimate is always the final step that hits the target."""
+    import math
+    obj = bpy.context.view_layer.objects.active
+    source_tris = _evaluated_tris(obj)
+    target = _target_tris(source_tris)
+    if source_tris == 0 or target >= source_tris:
+        return
+
+    median_edge, diag = _edge_stats(obj)
+    weld_goal = max(int(math.sqrt(source_tris * max(target, 1))), int(target * 1.5))
+    max_dist = diag * WELD_MAX_DISTANCE
+
+    weld = None
+    if median_edge > 0 and max_dist > 0:
+        weld = obj.modifiers.new(name="Weld", type='WELD')
+        weld.mode = 'CONNECTED'
+
+        def welded(dist):
+            weld.merge_threshold = dist
+            return _evaluated_tris(obj)
+
+        best_dist, best_tris = 0.0, source_tris
+        hi = min(median_edge * 4.0, max_dist)
+        hi_tris = welded(hi)
+        if hi_tris >= weld_goal:
+            best_dist, best_tris = hi, hi_tris          # weld as much as allowed, still above goal
+        else:
+            lo = min(median_edge * 0.05, hi)
+            for _ in range(7):                          # bisect: largest distance that stays above goal
+                mid = math.sqrt(lo * hi)
+                mid_tris = welded(mid)
+                if mid_tris >= weld_goal:
+                    lo, best_dist, best_tris = mid, mid, mid_tris
+                    if mid_tris <= weld_goal * 1.3:
+                        break
+                else:
+                    hi = mid
+
+        if best_dist > 0 and best_tris < source_tris:
+            weld.merge_threshold = best_dist
+        else:                                           # weld can't help without hurting detail
+            obj.modifiers.remove(weld)
+            weld, best_tris = None, source_tris
+    else:
+        best_tris = source_tris
+
+    decimate = obj.modifiers.new(name="Decimate", type='DECIMATE')
+    decimate.ratio = min(1.0, target / max(best_tris, 1))
+    print(f"Weld + Decimate '{obj.name}': {source_tris:,} -> weld "
+          f"{best_tris:,} ({weld.merge_threshold if weld else 0:.6f}) -> decimate {target:,}")
+
+
+def _mesh_from_arrays(name, verts, tris):
+    import numpy as np
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(verts))
+    me.vertices.foreach_set("co", np.ascontiguousarray(verts, np.float32).ravel())
+    me.loops.add(len(tris) * 3)
+    me.loops.foreach_set("vertex_index", np.ascontiguousarray(tris, np.int32).ravel())
+    me.polygons.add(len(tris))
+    me.polygons.foreach_set("loop_start", np.arange(0, len(tris) * 3, 3, dtype=np.int32))
+    me.update(calc_edges=True)
+    me.validate(verbose=False, clean_customdata=False)
+    return me
+
+
+def pyfqmr_decimate():
+    """Quadric decimation with the bundled pyfqmr wheel. About 4x faster than the
+    Decimate modifier on 10M tris. Applies the modifier stack, drops UVs."""
+    import numpy as np
+    import pyfqmr
+
+    obj = bpy.context.view_layer.objects.active
+    dg = bpy.context.evaluated_depsgraph_get()
+    ob_eval = obj.evaluated_get(dg)
+    src = ob_eval.to_mesh()
+    src.calc_loop_triangles()
+    verts = np.empty(len(src.vertices) * 3, np.float32)
+    src.vertices.foreach_get("co", verts)
+    tris = np.empty(len(src.loop_triangles) * 3, np.int32)
+    src.loop_triangles.foreach_get("vertices", tris)
+    smooth = len(src.polygons) > 0 and src.polygons[0].use_smooth
+    ob_eval.to_mesh_clear()
+
+    source_tris = len(tris) // 3
+    target = _target_tris(source_tris)
+    if target >= source_tris or source_tris == 0:
+        return
+
+    simplifier = pyfqmr.Simplify()
+    simplifier.setMesh(verts.reshape(-1, 3).astype(np.float64), tris.reshape(-1, 3))
+    # pyfqmr can stall above the target on long sliver triangles (common in CAD). Extra
+    # iterations then only burn time, so cap them and let Decimate finish the rest.
+    simplifier.simplify_mesh(target_count=max(target, 4), aggressiveness=7, max_iterations=40,
+                             preserve_border=False, verbose=False)
+    new_verts, new_tris, _normals = simplifier.getMesh()
+
+    me = _mesh_from_arrays(obj.data.name if obj.type == 'MESH' else obj.name, new_verts, new_tris)
+    for mat in getattr(obj.data, "materials", []):
+        me.materials.append(mat)
+    if smooth:
+        me.shade_smooth()
+
+    if obj.type == 'MESH':
+        old = obj.data
+        obj.modifiers.clear()      # already baked into the result
+        obj.data = me
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+    else:
+        new_obj = bpy.data.objects.new(obj.name, me)
+        new_obj.matrix_world = obj.matrix_world.copy()
+        for col in obj.users_collection:
+            col.objects.link(new_obj)
+        bpy.data.objects.remove(obj)
+        new_obj.select_set(True)
+        bpy.context.view_layer.objects.active = new_obj
+        obj = new_obj
+
+    if len(new_tris) > target * 1.02:
+        decimate = obj.modifiers.new(name="Decimate", type='DECIMATE')
+        decimate.ratio = target / len(new_tris)
+    print(f"pyfqmr '{obj.name}': {source_tris:,} -> {len(new_tris):,}"
+          + (f" -> decimate {target:,}" if len(new_tris) > target * 1.02 else ""))
+
+
 class ImportCADDecimate(bpy.types.Operator):
     bl_idname = "keyops.import_cad_decimate"
     bl_label = "Import CAD Decimate"
@@ -184,8 +387,16 @@ class ImportCADDecimate(bpy.types.Operator):
 
         preserv_uv = bpy.context.scene.preserv_uvs
 
+        if bpy.context.scene.deceimate_type == 'PYFQMR' and not pyfqmr_available():
+            self.report({'ERROR'}, PYFQMR_MISSING)
+            return {'CANCELLED'}
+
         if bpy.context.scene.deceimate_type == 'DECIMATE':
             self.decimate_type = high_quality_decimate
+        elif bpy.context.scene.deceimate_type == 'PYFQMR':
+            self.decimate_type = pyfqmr_decimate
+        elif bpy.context.scene.deceimate_type == 'WELD_DECIMATE':
+            self.decimate_type = weld_decimate
         elif bpy.context.scene.deceimate_type == 'WELD':
             self.decimate_type = medium_quality_decimate
         elif bpy.context.scene.deceimate_type == 'CONNECT':
@@ -213,7 +424,7 @@ class ImportCADDecimate(bpy.types.Operator):
                 self.decimate_type()
 
         if bpy.context.scene.auto_clear_garbage_data:
-                bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+                bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
         decimate_time = time.time() - export_time
         print(f"Decimated in {decimate_time:.4f} seconds")
 
@@ -249,7 +460,8 @@ class ImportAllCADDecimate(bpy.types.Operator):
                     imported_files.append(file_name)  
                     os.remove(input_file)
 
-        bpy.ops.wm.console_toggle()
+        if not bpy.app.background:
+            bpy.ops.wm.console_toggle()
         return {'FINISHED'}
 
 
@@ -279,21 +491,26 @@ def draw_cad_decimate_panel(self, context, draw_header=False):
         if get_keyops_prefs().enable_cad_decimate:
             if draw_header:
                 box.label(text="CAD Decimate", icon_value=get_icon("mod_decim"))
+            decimate_type = context.scene.deceimate_type
             box.prop(context.scene, "deceimate_type", text="")
-            if context.scene.deceimate_type != 'DECIMATE':
+            if decimate_type == 'PYFQMR' and not pyfqmr_available():
+                box.label(text="pyfqmr not installed, reinstall extension", icon='ERROR')
+            if decimate_type != 'DECIMATE':
                 box.label(text="Does not preserv UVs", icon='ERROR')
             box.prop(context.scene, "fast_mode", text="Enable Fast Mode", toggle=True)
             col = box.column(align=True)
             row = col.row(align=True)
-            if bpy.context.scene.deceimate_type == 'DECIMATE':
+            if decimate_type in {'DECIMATE', 'PYFQMR', 'WELD_DECIMATE'}:
                 row.prop(context.scene, "procent_or_amount", text="Procent or Amount", expand=True)
                 row = col.row(align=True)
                 if bpy.context.scene.procent_or_amount == 'PROCENT':
                     row.prop(context.scene, "decimation_ratio", text="Decimation %")
                 else:
                     row.prop(context.scene, "tris_count", text="Target Tris:")
-            else:
+            if decimate_type in {'WELD', 'CONNECT'}:
                 box.prop(context.scene, "merge_distance", text="Merge Amount")
+            if decimate_type == 'WELD_DECIMATE':
+                box.label(text="Weld distance is automatic", icon='INFO')
             if bpy.context.scene.fast_mode == False:
                 box.prop(context.scene, "export_selected_only", text="Selected Only")
             if bpy.context.scene.fast_mode == False and bpy.context.scene.deceimate_type == 'DECIMATE':
@@ -339,9 +556,11 @@ class CADDecimatePanel(bpy.types.Panel):
         bpy.types.Scene.delete_files_after_import = bpy.props.BoolProperty(name="Delete Files After Import", default=True, description="Delete Files After Import")
         bpy.types.Scene.export_selected_only = bpy.props.BoolProperty(name="Export Selected Only",default=True,description="Export Selected Only")
         bpy.types.Scene.deceimate_type = bpy.props.EnumProperty(name="deceimate_type",
-            items=[('DECIMATE', 'High Quality (Slow)', 'High Quality, but slow'),
-                ('WELD', 'Medium Quality (Fast)', 'Medium Quality, does not preserv UVs'),
-                ('CONNECT', 'Low Quality (Fastest)', 'Low Quality, very fast! But does not preserv UVs')],
+            items=[('DECIMATE', 'High Quality (Slow)', 'Decimate modifier. Best result and keeps UVs, but slow on huge meshes'),
+                ('PYFQMR', 'High Quality - pyfqmr (Faster)', 'Quadric decimation with the bundled pyfqmr library, about 4x faster than the Decimate modifier with slightly lower quality. Applies modifiers, does not preserv UVs'),
+                ('WELD_DECIMATE', 'Medium Quality - Weld + Decimate', 'Weld (Connected) with an automatic, detail-safe distance does the cheap part of the reduction, then Decimate makes the final step to the target. Best for extremely dense meshes. Does not preserv UVs'),
+                ('WELD', 'Low Quality (Fast)', 'Weld modifier only, does not preserv UVs'),
+                ('CONNECT', 'Lowest Quality (Fastest)', 'Weld (Connected) only, very fast! But does not preserv UVs')],
             default='DECIMATE',description="Decimate Quality")
         bpy.types.Scene.merge_distance = bpy.props.FloatProperty(name="Merge Distance",default=0.02,min=0.001,max=1.0,subtype='FACTOR',description="Merge Distance (higher value = more decimation)")
         bpy.types.Scene.format = bpy.props.EnumProperty(name="format",
