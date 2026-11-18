@@ -1478,13 +1478,51 @@ class KEYOPS_OT_pie_new_popup(Operator):
             sub.label(text=desc)
 
 
-class KEYOPS_MT_pie_presets(bpy.types.Menu):
-    bl_idname = "KEYOPS_MT_pie_presets"
+def _preset_key_text(preset):
+    mods = [m for m, k in (("Ctrl", "ctrl"), ("Shift", "shift"), ("Alt", "alt")) if preset.get(k)]
+    return " ".join(mods + [_KEY_NAMES.get(preset["key"], preset["key"])])
+
+
+def _preset_summary(preset, limit=3):
+    labels = [label for _kind, label, _icon, _idname, _props in preset["items"] if label]
+    return ", ".join(labels[:limit]) + (", ..." if len(labels) > limit else "")
+
+
+class KEYOPS_OT_pie_preset_popup(Operator):
+    bl_idname = "keyops.pie_preset_popup"
     bl_label = "Add Preset"
+    bl_description = "Add one of the ready-made pie menus"
+    bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=680)
+
+    def execute(self, context):
+        return {'FINISHED'}
 
     def draw(self, context):
+        prefs = get_keyops_prefs()
+        have = {p.preset for p in prefs.pies}
+        layout = self.layout
+        layout.label(text="Ready-made pie menus. Add one, then change it however you like.")
+        layout.separator(factor=0.5)
+        col = layout.column(align=True)
         for preset in PRESETS:
-            self.layout.operator("keyops.pie_add", text=preset["name"]).preset = preset["id"]
+            row = col.row(align=True)
+            split = row.split(factor=0.3, align=True)
+            split.operator("keyops.pie_add", text=preset["name"], icon='MESH_CIRCLE').preset = preset["id"]
+            info = split.split(factor=0.24, align=True)
+            key = info.row()
+            key.active = False
+            key.label(text=_preset_key_text(preset))
+            rest = info.row()
+            rest.active = False
+            rest.label(text=_preset_summary(preset), icon='CHECKMARK' if preset["id"] in have else 'BLANK1')
+        if have & set(PRESET_BY_ID):
+            layout.separator(factor=0.5)
+            foot = layout.row()
+            foot.active = False
+            foot.label(text="Already in your list. Adding it again makes a second copy.", icon='CHECKMARK')
 
 
 # ---------------------------------------------------------------- preferences tab
@@ -1942,7 +1980,7 @@ def draw_pie_overview(layout, pie, prefs):
 def draw_pies_tab(prefs, context, layout):
     if not prefs.pies:
         layout.label(text="No pie menus.")
-        layout.menu("KEYOPS_MT_pie_presets", text="Add Preset")
+        layout.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
         return
     active = max(0, min(prefs.active_pie, len(prefs.pies) - 1))
 
@@ -1969,7 +2007,7 @@ def draw_pies_tab(prefs, context, layout):
         k.label(text=key_text(p))
     r = side.row(align=True)
     r.operator("keyops.pie_new_popup", text="New", icon='ADD')
-    r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
+    r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
     r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
     draw_pie_feel(prefs, side)
@@ -2271,7 +2309,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
-           KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_MT_pie_presets, KEYOPS_OT_pie_slot_search,
+           KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
            KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KEYOPS_OT_icon_palette_tab, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
 
