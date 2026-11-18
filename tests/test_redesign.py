@@ -407,7 +407,7 @@ def run():
             it.pop("script", None)
     json.dump(v3, open(pie_file, "w"))
     PM.load_from_disk()
-    check("schema 3 files upgrade to schema 4", json.load(open(pie_file))["schema"] == 4
+    check("schema 3 files upgrade to the current schema", json.load(open(pie_file))["schema"] == PM.PIE_SCHEMA
           and all(x.key_mod == "NONE" for x in p.pies))
     bpy.context.window_manager.keyops_menu_filter = "zzz-no-match"
     bpy.context.window_manager.keyops_menu_filter = ""

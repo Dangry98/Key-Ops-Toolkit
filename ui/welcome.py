@@ -120,7 +120,7 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
                 n += 1
         from .. import pie_menus
         for pie in p.pies:
-            if pie.enabled and pie.key not in ("", "NONE") and not p.pause_shortcuts and pie.editor in _MODE_KEYMAPS[mode]:
+            if pie.enabled and pie.key not in ("", "NONE") and not p.pause_shortcuts and set(pie_menus.editor_names(pie)) & set(_MODE_KEYMAPS[mode]):
                 sp = col.split(factor=0.3)
                 sp.label(text=pie_menus.key_text(pie))
                 sp2 = sp.split(factor=0.62)
