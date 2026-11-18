@@ -1290,8 +1290,17 @@ def _paste_command(self, context):
 class KEYOPS_OT_pie_remove(Operator):
     bl_idname = "keyops.pie_remove"
     bl_label = "Delete Pie"
-    bl_description = "Delete this pie menu. Presets can be added back from Add Preset"
+    bl_description = "Delete the selected menu. Presets can be added back from Add Preset"
     bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        prefs = get_keyops_prefs()
+        if not 0 <= prefs.active_pie < len(prefs.pies):
+            return {'CANCELLED'}
+        name = prefs.pies[prefs.active_pie].name
+        return context.window_manager.invoke_confirm(
+            self, event, title=f"Delete '{name}'?", message="This can't be undone.",
+            confirm_text="Delete", icon='WARNING')
 
     def execute(self, context):
         prefs = get_keyops_prefs()
@@ -1510,20 +1519,23 @@ class KEYOPS_OT_pie_preset_popup(Operator):
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_popup(self, width=220)
+        return context.window_manager.invoke_popup(self, width=680)
 
     def execute(self, context):
         return {'FINISHED'}
 
     def draw(self, context):
-        have = {p.preset for p in get_keyops_prefs().pies}
         col = self.layout.column(align=True)
         for preset in PRESETS:
-            row = col.row(align=True)
-            row.operator("keyops.pie_add", text=preset["name"], icon='MESH_CIRCLE').preset = preset["id"]
-            mark = row.row(align=True)
-            mark.active = False
-            mark.label(text="", icon='CHECKMARK' if preset["id"] in have else 'BLANK1')
+            split = col.split(factor=0.3, align=True)
+            split.operator("keyops.pie_add", text=preset["name"], icon='MESH_CIRCLE').preset = preset["id"]
+            info = split.split(factor=0.22, align=True)
+            key = info.row()
+            key.active = False
+            key.label(text=_preset_key_text(preset))
+            desc = info.row()
+            desc.active = False
+            desc.label(text=_preset_summary(preset))
 
 
 # ---------------------------------------------------------------- preferences tab
@@ -2018,6 +2030,7 @@ def draw_pies_tab(prefs, context, layout):
     r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
     r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
+    r.operator("keyops.pie_remove", text="", icon='X')
     draw_pie_feel(prefs, side)
     draw_values(context, side)
     layout = outer.column()
