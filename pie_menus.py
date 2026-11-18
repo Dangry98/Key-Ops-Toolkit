@@ -1363,6 +1363,12 @@ class KEYOPS_OT_settings_export(Operator, ExportHelper):
     bl_idname = "keyops.settings_export"
     bl_label = "Export Key Ops Settings"
     bl_description = "Save Key Ops settings to a .json file, to back them up or use them on another computer"
+
+    @classmethod
+    def description(cls, context, props):
+        if props.scope == "PIES":
+            return "Export pie menus to a .json file, to back them up or use them on another computer"
+        return cls.bl_description
     bl_options = {'INTERNAL'}
     filename_ext = ".json"
     filter_glob: StringProperty(default="*.json", options={'HIDDEN'}) # type: ignore
@@ -1416,6 +1422,12 @@ class KEYOPS_OT_settings_import(Operator, ImportHelper):
     bl_idname = "keyops.settings_import"
     bl_label = "Import Key Ops Settings"
     bl_description = "Load Key Ops settings from a .json file made with Export"
+
+    @classmethod
+    def description(cls, context, props):
+        if props.scope == "PIES":
+            return "Import pie menus from a .json file made with Export"
+        return cls.bl_description
     bl_options = {'INTERNAL'}
     filename_ext = ".json"
     filter_glob: StringProperty(default="*.json", options={'HIDDEN'}) # type: ignore
@@ -1941,8 +1953,8 @@ def draw_pies_tab(prefs, context, layout):
     r = side.row(align=True)
     r.menu("KEYOPS_MT_pie_new", text="New", icon='ADD')
     r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
-    r.operator("keyops.settings_import", text="Import", icon='IMPORT').scope = "PIES"
-    r.operator("keyops.settings_export", text="Export", icon='EXPORT').scope = "PIES"
+    r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
+    r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
     draw_pie_feel(prefs, side)
     draw_values(context, side)
     layout = outer.column()
