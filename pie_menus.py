@@ -2300,8 +2300,9 @@ def _filter_active(wm):
         or wm.keyops_menu_filter_editor != "ANY" or _filter_tag(wm) != "ANY"
 
 
-def _menu_matches(wm, pie):
-    flt = wm.keyops_menu_filter.strip().lower()
+def _menu_matches(wm, pie, text=None):
+    """Does a menu pass the search (text, or the old search property) and the filter popup's choices?"""
+    flt = (wm.keyops_menu_filter if text is None else text).strip().lower()
     if flt and flt not in pie.name.lower() and flt not in key_text(pie).lower() and flt not in pie.tags.lower():
         return False
     tag = _filter_tag(wm)
@@ -3095,12 +3096,16 @@ class KEYOPS_UL_menus(bpy.types.UIList):
                        emboss=False).index = index
 
     def filter_items(self, context, data, propname):
-        wm = context.window_manager  # the search box and filter popup above the list decide what shows
-        flags = [self.bitflag_filter_item if _menu_matches(wm, p) else 0 for p in getattr(data, propname)]
+        self.use_filter_show = True  # the search and filter are always shown under the list
+        wm = context.window_manager  # the list's search (name, key or tag) plus the filter popup's choices
+        flags = [self.bitflag_filter_item if _menu_matches(wm, p, self.filter_name) else 0
+                 for p in getattr(data, propname)]
         return flags, []
 
     def draw_filter(self, context, layout):
-        pass  # filtered with the search box and filter button above the list
+        row = layout.row(align=True)
+        row.prop(self, "filter_name", text="", icon='VIEWZOOM')
+        row.operator("keyops.pie_filter_popup", text="", icon='FILTER', depress=_filter_active(context.window_manager))
 
 
 def draw_pies_tab(prefs, context, layout):
@@ -3114,9 +3119,6 @@ def draw_pies_tab(prefs, context, layout):
     outer = layout.split(factor=0.22)
     side = outer.column()
     wm = context.window_manager
-    srow = side.row(align=True)
-    srow.prop(wm, "keyops_menu_filter", text="", icon='VIEWZOOM')
-    srow.operator("keyops.pie_filter_popup", text="", icon='FILTER', depress=_filter_active(wm))
     lrow = side.row(align=False)
     # Blender's own list: click a row to edit that menu, double-click its name to rename, scroll, resize
     lrow.template_list("KEYOPS_UL_menus", "", prefs, "pies", prefs, "active_pie", rows=12)
@@ -3129,10 +3131,7 @@ def draw_pies_tab(prefs, context, layout):
     tools.separator()
     tools.operator("keyops.pie_move", text="", icon='TRIA_UP').direction = -1
     tools.operator("keyops.pie_move", text="", icon='TRIA_DOWN').direction = 1
-    if not any(_menu_matches(wm, p) for p in prefs.pies):
-        empty = side.row()
-        empty.active = False
-        empty.label(text="No menus match")
+
     draw_pie_feel(prefs, side)
     draw_values(context, side)
     layout = outer.column()
