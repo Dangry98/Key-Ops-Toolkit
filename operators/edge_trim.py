@@ -2,9 +2,10 @@
 out for a trim sheet.
 
 Select edges, run it, get a trim: each chain gets an L profile swept along it, mitred at the turns so the
-flanges keep their width. U runs along the length (tiling set in UV units per metre), V spans the chosen
-strip of the trim sheet across the L, split at the corner by flange width, so a trim texture lines up
-without any UV editing. Works on open chains and closed loops, on wire edges or edges on a surface.
+flanges keep their width. Its UVs are one piece: U runs along the length (fitted to the sheet, or tiled per
+metre), V spans the chosen strip of the trim sheet across the L, split at the corner by flange width, so a
+trim texture lines up without any UV editing. Works on open chains and closed loops, on wire edges or edges
+on a surface. Which side the L goes on is guessed from the geometry; Flip Side puts it on the other side.
 """
 
 import bmesh
@@ -31,20 +32,34 @@ def _chain_plane_normal(verts, closed):
     return -normal if normal.dot(Z_UP) < 0 else normal
 
 
-def _segment_frames(verts, closed, sign):
-    """Per edge of the chain: (tangent, up, side). Up comes from the edge's own faces, so on a box edge it
-    bisects the two faces; loose edges use the plane the chain lies in, or world up."""
+def _base_face(edge):
+    """The face an upright trim stands on: the one facing most upward (a floor or a top), else any."""
+    faces = list(edge.link_faces) if edge else []
+    return max(faces, key=lambda f: f.normal.dot(Z_UP)) if faces else None
+
+
+def _segment_frames(verts, closed, profile):
+    """Per edge of the chain: (tangent, up, side, inward). Up comes from the edge's faces: a wrap trim bisects
+    them, an upright trim stands on the most upward one. Loose edges use the plane the chain lies in, or world
+    up. Inward points from the edge toward its face, or toward the middle of a loose loop: the side the L
+    most likely belongs on (used to guess the side)."""
     n = len(verts)
     frames = []
     plane_up = _chain_plane_normal(verts, closed)
+    centre = sum((v.co for v in verts), Vector()) / n
     for i in range(n if closed else n - 1):
         v0, v1 = verts[i], verts[(i + 1) % n]
         t = v1.co - v0.co
         t = t.normalized() if t.length > 1e-9 else Vector((1.0, 0.0, 0.0))
         edge = next((e for e in v0.link_edges if e.other_vert(v0) is v1), None)
-        up = Vector()
-        for f in (edge.link_faces if edge else ()):
-            up += f.normal
+        mid = (v0.co + v1.co) / 2
+        base = _base_face(edge)
+        if base is not None and profile == "UPRIGHT":
+            up = base.normal.copy()
+        else:
+            up = Vector()
+            for f in (edge.link_faces if edge else ()):
+                up += f.normal
         if up.length < 1e-6:  # no faces (loose vertex normals are meaningless): the chain's plane
             up = plane_up.copy()
         up = up - up.project(t)
@@ -53,8 +68,20 @@ def _segment_frames(verts, closed, sign):
             if up.length < 1e-6:
                 up = Vector((0.0, 1.0, 0.0))
         up.normalize()
-        frames.append((t, up, t.cross(up).normalized() * sign))
+        if base is not None:
+            inward = base.calc_center_median() - mid
+        elif closed:
+            inward = centre - mid
+        else:
+            inward = Vector()
+        frames.append((t, up, t.cross(up).normalized(), inward))
     return frames
+
+
+def guess_side(frames):
+    """+1 or -1: the side most of the chain's edges point inward on (toward their face or the loop's middle)."""
+    score = sum(side.dot(inward) for _t, _up, side, inward in frames)
+    return -1.0 if score < 0 else 1.0
 
 
 def _profile(up, side, opts, a, b):
@@ -96,11 +123,13 @@ def make_trims(bm, opts):
     a, b = opts.width_a, (opts.width_b if opts.separate_widths else opts.width_a)
     total = a + b
     v_corner = opts.v_min + (opts.v_max - opts.v_min) * (a / total if total > 0 else 0.5)
-    sign = -1.0 if opts.flip_side else 1.0
     limit = 4.0 * (opts.offset + max(a, b))
+    corner_edges = []
     for verts, closed in chains:
         n = len(verts)
-        segs = _segment_frames(verts, closed, sign)
+        frames = _segment_frames(verts, closed, opts.profile)
+        sign = guess_side(frames) * (-1.0 if opts.flip_side else 1.0)  # best guess, or the other side
+        segs = [(t, up, side * sign) for t, up, side, _inward in frames]
         profiles = [_profile(up, side, opts, a, b) for _t, up, side in segs]
         rows = []  # per point: (flange A end, corner, flange B end)
         for i, v in enumerate(verts):
@@ -116,16 +145,18 @@ def make_trims(bm, opts):
                     pts.append(_mitre(v.co, profiles[prev_s][k], segs[prev_s][0], profiles[next_s][k], segs[next_s][0], limit))
             rows.append(tuple(bm.verts.new(p) for p in pts))
 
-        # U along the length, measured on the corner line so both flanges share it
+        # U along the length, measured on the corner line so both flanges share it: one piece in UV
         lengths = [0.0]
         for i in range(1, n + (1 if closed else 0)):
             lengths.append(lengths[-1] + (rows[i % n][1].co - rows[i - 1][1].co).length)
+        total_len = lengths[-1] or 1.0
+        u_per_metre = 1.0 / total_len if opts.u_mode == "FIT" else opts.u_scale
         for i in range(len(lengths) - 1):
             j = (i + 1) % n
             _t, up_s, side_s = segs[i]
             # wrap: faces point away from the edge they cover; upright: into the L, the side you see
             facing = up_s if opts.profile == "WRAP" else up_s + side_s
-            u0, u1 = lengths[i] * opts.u_scale + opts.u_offset, lengths[i + 1] * opts.u_scale + opts.u_offset
+            u0, u1 = lengths[i] * u_per_metre + opts.u_offset, lengths[i + 1] * u_per_metre + opts.u_offset
             for k0, k1, v0, v1 in ((0, 1, opts.v_max, v_corner), (1, 2, v_corner, opts.v_min)):
                 quad = [rows[i][k0], rows[j][k0], rows[j][k1], rows[i][k1]]
                 uvs = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
@@ -139,6 +170,11 @@ def make_trims(bm, opts):
                 face.select = True
                 face.smooth = opts.smooth
                 new_faces.append(face)
+            corner = next((e for e in rows[i][1].link_edges if e.other_vert(rows[i][1]) is rows[j][1]), None)
+            if corner is not None:
+                corner_edges.append(corner)
+    for e in corner_edges:  # the L's 90 degree corner stays crisp when shaded smooth
+        e.smooth = False
     bm.select_flush(True)
     return len(chains), skipped, new_faces
 
@@ -150,7 +186,7 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
                       "for a trim sheet")
     bl_options = {'REGISTER', 'UNDO'}
 
-    profile: EnumProperty(name="Profile", items=(
+    profile: EnumProperty(name="Profile", default="UPRIGHT", items=(
         ("WRAP", "Wrap Edge", "Fold around the edge like a corner moulding: both flanges lie back along the surface"),
         ("UPRIGHT", "Upright", "Stand one flange up from the surface, the other lying on it"))) # type: ignore
     width_a: FloatProperty(name="Width", default=0.05, min=0.0001, soft_max=1.0, subtype='DISTANCE',
@@ -160,17 +196,25 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
     width_b: FloatProperty(name="Second Width", default=0.05, min=0.0001, soft_max=1.0, subtype='DISTANCE') # type: ignore
     offset: FloatProperty(name="Offset", default=0.002, min=0.0, soft_max=0.1, subtype='DISTANCE',
                           description="Gap between the trim and the surface, so they don't overlap") # type: ignore
-    flip_side: BoolProperty(name="Flip Side", default=False, description="Mirror the L to the other side of the edges") # type: ignore
+    flip_side: BoolProperty(name="Flip Side", default=False,
+                            description="Put the L on the other side of the edges. Key Ops first guesses the side "
+                                        "from the geometry: toward the face the edges border, or into a loop") # type: ignore
     flip_normals: BoolProperty(name="Flip Normals", default=False) # type: ignore
-    smooth: BoolProperty(name="Smooth Shading", default=False) # type: ignore
+    smooth: BoolProperty(name="Smooth Shading", default=True,
+                         description="Shade the trim smooth; the corner of the L stays sharp") # type: ignore
     v_min: FloatProperty(name="V Min", default=0.0, soft_min=0.0, soft_max=1.0,
                          description="Bottom of the trim's strip on the trim sheet") # type: ignore
     v_max: FloatProperty(name="V Max", default=0.125, soft_min=0.0, soft_max=1.0,
                          description="Top of the trim's strip on the trim sheet") # type: ignore
+    u_mode: EnumProperty(name="Length", items=(
+        ("FIT", "Fit to Sheet", "The whole trim spans the sheet once, from left to right (U 0 to 1)"),
+        ("TILE", "Tile per Metre", "The texture repeats along the trim, a set number of times per metre"))) # type: ignore
     u_scale: FloatProperty(name="UV per Metre", default=1.0, min=0.0, soft_max=10.0,
                            description="How many times the trim texture repeats per metre of trim") # type: ignore
     u_offset: FloatProperty(name="U Offset", default=0.0, soft_min=-1.0, soft_max=1.0) # type: ignore
-    separate: BoolProperty(name="Separate Object", default=False, description="Put the trims in their own object") # type: ignore
+    separate: BoolProperty(name="Separate Object", default=True, description="Put the trims in their own object") # type: ignore
+    clear_modifiers: BoolProperty(name="Remove Modifiers", default=True,
+                                  description="The trim object starts without the modifiers of the mesh it came from") # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -191,12 +235,17 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         col.prop(self, "flip_normals")
         col.prop(self, "smooth")
         col.prop(self, "separate")
+        sub = col.row()
+        sub.active = self.separate
+        sub.prop(self, "clear_modifiers")
         layout.label(text="Trim Sheet UVs")
         col = layout.column(align=True)
         col.prop(self, "v_min")
         col.prop(self, "v_max")
+        layout.row().prop(self, "u_mode", expand=True)
         col = layout.column(align=True)
-        col.prop(self, "u_scale")
+        if self.u_mode == "TILE":
+            col.prop(self, "u_scale")
         col.prop(self, "u_offset")
 
     def execute(self, context):
@@ -212,7 +261,11 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
             self.report({'WARNING'}, "Select one or more edge chains or loops (no branches)")
             return {'CANCELLED'}
         if self.separate:
+            before = set(bpy.data.objects)
             bpy.ops.mesh.separate(type='SELECTED')
+            if self.clear_modifiers:
+                for obj in set(bpy.data.objects) - before:  # the new trim objects
+                    obj.modifiers.clear()
         if skipped:
             self.report({'INFO'}, f"Skipped {skipped} selection(s) that branch")
         return {'FINISHED'}
