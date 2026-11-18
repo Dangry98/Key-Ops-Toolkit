@@ -33,20 +33,55 @@ PRESETS = (
     ("BLENDER_PLUS", "Blender+", "Shortcuts and pies only on", "keys Blender leaves free.", ""),
     ("INDUSTRY", "Industry", "Maya-style keys: Alt navigation,", "D pivot and Delete.", ""),
 )
-# Shown once after each update. Keep it to a handful of short, user-facing highlights.
+# Shown once after each update: four highlights with a picture each, and one line for the rest.
+# Pictures are 512 x 256 PNGs in icons/whats_new.
 WHATS_NEW = (
-    ("Quiet by default", "Turn each feature and its shortcuts on or off. Nothing takes over your keys unless you choose."),
-    ("Editable pie menus", "Every pie is a preset you can change: search actions, pick icons, set keys, or make your own."),
-    ("Cleaner preferences", "Features, Pie Menus and Shortcuts tabs, with a Docs link on every feature."),
-    ("Shortcut cheat sheet", "The ? button in the Toolkit panel lists the Key Ops shortcuts active in your mode."),
-    ("Rebind is now opt-in", "The old Rebind options are Key Ops shortcuts that never edit your own keymap."),
+    ("Build your own menus", "Pies, popup menus, panels and macros, with icons, rows and boxes.", "menus.png"),
+    ("Marking menus", "Flick through pie menus without waiting, in their own clean look.", "marking.png"),
+    ("Border and Element modes", "Pick whole borders or mesh islands, next to Vertex, Edge and Face.", "modes.png"),
+    ("Make Trim", "Turn edges into L-shaped trims with trim-sheet UVs, in one click.", "trim.png"),
 )
+WHATS_NEW_HEADLINE = "A completely new design: Features, Custom Menus and Shortcuts, rebuilt from the ground up."
+WHATS_NEW_MORE = "Also new: Resample Edges, Clean Up, and every feature quiet until you turn it on."
+WHATS_NEW_DIR = os.path.join(os.path.dirname(__file__), "..", "icons", "whats_new")
 
 HIGHLIGHTS = (
     ("Modeling tools", "Merge, fast loop cut, cutter,", "bevel, mirror and more."),
-    ("Pie menus", "Add objects, modifiers, cursor.", "Every pie is editable."),
+    ("Custom menus", "Pies, popups, panels, macros.", "Every one is editable."),
     ("N-panel toolkit", "Object, mesh and pipeline", "tools in one place."),
 )
+
+_SEEN_FILE = "seen.json"
+
+
+def _seen_path():
+    return os.path.join(bpy.utils.extension_path_user(get_addon_name(), create=True), _SEEN_FILE)
+
+
+def read_seen():
+    """Which welcome and What's New screens were shown. Kept in the add-on's own user folder, so it holds
+    even when Blender's preferences aren't saved."""
+    import json
+    try:
+        with open(_seen_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def mark_seen(p):
+    """The welcome screen and this version's What's New are shown: never again for this version."""
+    import json
+    p.welcome_version = max(p.welcome_version, F.WELCOME_VERSION)
+    p.last_seen_version = version_text()
+    p.show_whats_new = False
+    try:
+        with open(_seen_path(), "w", encoding="utf-8") as fh:
+            json.dump({"welcome_version": p.welcome_version, "last_seen_version": p.last_seen_version}, fh)
+    except OSError:
+        pass
+
 
 _shader = None
 
@@ -94,6 +129,32 @@ def _rounded(x, y, w, h, r, color, segments=10):
     batch.draw(sh)
 
 
+def _image(texture, x, y, w, h):
+    sh = gpu.shader.from_builtin('IMAGE')
+    batch = batch_for_shader(sh, 'TRI_FAN', {
+        "pos": ((x, y), (x + w, y), (x + w, y + h), (x, y + h)),
+        "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1))})
+    sh.bind()
+    sh.uniform_sampler("image", texture)
+    batch.draw(sh)
+
+
+def _wrap(text, size, width):
+    """Lines of text that fit in width at this size."""
+    blf.size(0, size)
+    lines, line = [], ""
+    for word in text.split():
+        trial = f"{line} {word}".strip()
+        if line and blf.dimensions(0, trial)[0] > width:
+            lines.append(line)
+            line = word
+        else:
+            line = trial
+    if line:
+        lines.append(line)
+    return lines
+
+
 def _text(x, y, text, size, color, center=False):
     blf.size(0, size)
     if center:
@@ -115,8 +176,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         if context.area is None or context.area.type != 'VIEW_3D':
             return {'CANCELLED'}
         p = get_keyops_prefs()
-        p.welcome_version = F.WELCOME_VERSION  # shown once
-        p.last_seen_version = version_text()   # the What's New for this version is seen too
+        mark_seen(p)  # shown once: as soon as it opens, even if Blender is closed before Got It
         self.area = context.area
         self.region = next(r for r in context.area.regions if r.type == 'WINDOW')
         self.choice = "ESSENTIALS"
@@ -132,6 +192,15 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
             self.texture = gpu.texture.from_image(self.image)
         except Exception:
             self.texture = None
+        self.pictures = {}  # What's New pictures: file -> (image, texture)
+        if self.whats_new:
+            for _title, _desc, name in WHATS_NEW:
+                try:
+                    img = bpy.data.images.load(os.path.join(WHATS_NEW_DIR, name), check_existing=False)
+                    img.name = f".Key Ops What's New {name}"
+                    self.pictures[name] = (img, gpu.texture.from_image(img))
+                except Exception:
+                    pass
         self.handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_overlay, (), 'WINDOW', 'POST_PIXEL')
         context.window_manager.modal_handler_add(self)
         self.area.tag_redraw()
@@ -160,10 +229,12 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         bpy.types.SpaceView3D.draw_handler_remove(self.handle, 'WINDOW')
         if self.image is not None:
             bpy.data.images.remove(self.image)
+        for img, _tex in self.pictures.values():
+            bpy.data.images.remove(img)
+        self.pictures = {}
         self.area.tag_redraw()
         p = get_keyops_prefs()
         if self.whats_new:
-            p.show_whats_new = False
             return {'FINISHED'}
         p.shortcut_style = self.choice
         F.apply_style(self.choice)
@@ -191,7 +262,6 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         r_tile = ui.wcol_regular.roundness * unit * 0.75
         rw, rh = self.region.width, self.region.height
         gpu.state.blend_set('ALPHA')
-        _rounded(0, 0, rw, rh, 0, (0.0, 0.0, 0.0, 0.55))
 
         w, h = 700 * s, 560 * s
         x0, y0 = (rw - w) / 2, (rh - h) / 2
@@ -214,7 +284,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         else:
             _text(cx, ly + 40 * s, "Key Ops", 48 * s, TEXT, center=True)
         y = ly - 30 * s
-        _text(cx, y, "Modeling tools, pie menus and shortcuts for Blender", 15 * s, DIM, center=True)
+        _text(cx, y, "Modeling tools, menus and shortcuts for Blender", 15 * s, DIM, center=True)
 
         # highlights
         y -= 52 * s
@@ -251,7 +321,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
             self.hit[sid] = (tx, ty, tile_w, tile_h)
 
         y -= tile_h + 30 * s
-        _text(cx, y, "Every shortcut and pie menu can be turned on or off later in Preferences.", 12 * s, DIM, center=True)
+        _text(cx, y, "Every shortcut and menu can be turned on or off later in Preferences.", 12 * s, DIM, center=True)
 
         # Get Started
         bw, bh = 220 * s, 44 * s
@@ -264,41 +334,54 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         gpu.state.blend_set('NONE')
 
     def draw_whats_new(self):
+        rw, rh = self.region.width, self.region.height
         s = bpy.context.preferences.system.ui_scale
+        w, h = 820, 806  # at scale 1; shrink to fit small viewports
+        s *= min(1.0, rw * 0.95 / (w * s), rh * 0.95 / (h * s))
         ui = bpy.context.preferences.themes[0].user_interface
         unit = 20 * s
         r_card = ui.wcol_menu_back.roundness * unit
         r_tile = ui.wcol_regular.roundness * unit * 0.75
-        rw, rh = self.region.width, self.region.height
         gpu.state.blend_set('ALPHA')
-        _rounded(0, 0, rw, rh, 0, (0.0, 0.0, 0.0, 0.55))
 
-        row_h = 50 * s
-        w, h = 640 * s, (250 + 0) * s + row_h * len(WHATS_NEW)
+        w, h = w * s, h * s
         x0, y0 = (rw - w) / 2, (rh - h) / 2
         _rounded(x0 - 1, y0 - 1, w + 2, h + 2, r_card + 1, CARD_EDGE)
         _rounded(x0, y0, w, h, r_card, CARD)
         cx, top = x0 + w / 2, y0 + h
 
-        lw, lh = 240 * s, 80 * s
-        ly = top - 28 * s - lh
+        lw, lh = 210 * s, 70 * s
+        ly = top - 26 * s - lh
         if self.texture is not None:
-            sh = gpu.shader.from_builtin('IMAGE')
-            batch = batch_for_shader(sh, 'TRI_FAN', {
-                "pos": ((cx - lw / 2, ly), (cx + lw / 2, ly), (cx + lw / 2, ly + lh), (cx - lw / 2, ly + lh)),
-                "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1))})
-            sh.bind()
-            sh.uniform_sampler("image", self.texture)
-            batch.draw(sh)
+            _image(self.texture, cx - lw / 2, ly, lw, lh)
         y = ly - 30 * s
-        _text(cx, y, f"What's new in Key Ops {version_text()}", 16 * s, TEXT, center=True)
-
+        _text(cx, y, f"What's new in Key Ops {version_text()}", 17 * s, TEXT, center=True)
         y -= 26 * s
-        for title, desc in WHATS_NEW:
-            y -= row_h
-            _rounded(x0 + 44 * s, y + 31 * s, 6 * s, 6 * s, 3 * s, ACCENT)
-            _text(x0 + 60 * s, y + 28 * s, title, 14 * s, TEXT)
-            _text(x0 + 60 * s, y + 9 * s, desc, 12 * s, DIM)
+        _text(cx, y, WHATS_NEW_HEADLINE, 13 * s, ACCENT, center=True)
+
+        # two by two: picture, title, a short line
+        pad, gap = 40 * s, 24 * s
+        tile_w = (w - 2 * pad - gap) / 2
+        pic_h = tile_w / 2
+        tile_h = pic_h + 66 * s
+        y -= 26 * s
+        for i, (title, desc, name) in enumerate(WHATS_NEW):
+            col, row = i % 2, i // 2
+            tx = x0 + pad + col * (tile_w + gap)
+            ty = y - (row + 1) * tile_h - row * gap * 0.6
+            pic = self.pictures.get(name)
+            py = ty + tile_h - pic_h
+            if pic is not None:
+                _rounded(tx - 1, py - 1, tile_w + 2, pic_h + 2, r_tile, CARD_EDGE)
+                _image(pic[1], tx, py, tile_w, pic_h)
+            else:
+                _rounded(tx, py, tile_w, pic_h, r_tile, TILE)
+            _text(tx, py - 22 * s, title, 14 * s, TEXT)
+            for k, line in enumerate(_wrap(desc, 12 * s, tile_w)[:2]):
+                _text(tx, py - 41 * s - k * 16 * s, line, 12 * s, DIM)
+
+        more_y = y - 2 * tile_h - gap * 0.6 - 30 * s
+        _text(cx, more_y, WHATS_NEW_MORE, 12 * s, DIM, center=True)
 
         bw, bh = 180 * s, 40 * s
         bx, by = cx - bw / 2, y0 + 26 * s

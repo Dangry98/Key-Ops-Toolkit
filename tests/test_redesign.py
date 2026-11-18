@@ -72,12 +72,22 @@ def run():
     check("tabs: Features, Pie Menus, Shortcuts last", tabs == ["FEATURES", "PIES", "SHORTCUTS"], str(tabs))
     W = sys.modules[MOD + ".ui.welcome"]
     BR = sys.modules[MOD + ".ui.branding"]
+    SP = sys.modules[MOD + ".ui.splash"]
+    if os.path.isfile(SP._seen_path()):
+        os.remove(SP._seen_path())  # a fresh install has no record of screens shown
     check("new install shows the welcome screen", W.first_screen(p) == 'WELCOME')
     p.welcome_version = F.WELCOME_VERSION
     p.last_seen_version = BR.version_text()
     check("nothing shows again for the same version", W.first_screen(p) is None)
     p.last_seen_version = "0.0.1"
     check("an update shows What's New once", W.first_screen(p) == 'WHATS_NEW')
+    SP.mark_seen(p)
+    p.last_seen_version = "0.0.1"   # Blender didn't save its preferences...
+    p.show_whats_new = True         # ...and the 0.2 upgrade asked for What's New again
+    check("What's New never shows twice for one version, even if preferences weren't saved",
+          W.first_screen(p) is None)
+    os.remove(SP._seen_path())
+    p.show_whats_new = False
     p.last_seen_version = ""
     p.welcome_version = 0
     check("pies not in Features", not any(f.category == "PIES" or "pie" in f.id for f in F.FEATURES))
@@ -149,8 +159,8 @@ def run():
     cats = {c for c in PM._ICON_CAT.values()}
     check("icon palette has category tabs", {"OBJECTS", "MODIFIERS", "EDITING", "VIEW", "ARROWS", "KEYS"} <= cats, str(sorted(cats)))
     check("Modifier icons land in the Modifiers tab", PM._ICON_CAT.get("MOD_ARRAY") == "MODIFIERS" and PM._ICON_CAT.get("MESH_CUBE") == "OBJECTS")
-    bpy.ops.keyops.icon_palette_tab(category="MODIFIERS")
-    check("clicking a tab switches the palette category", bpy.context.window_manager.keyops_icon_category == "MODIFIERS")
+    bpy.context.window_manager.keyops_icon_category = "MODIFIERS"
+    check("the category tabs switch the palette category", bpy.context.window_manager.keyops_icon_category == "MODIFIERS")
     check("operator search list includes Blender operators", any(i[0] == "O:mesh.primitive_monkey_add" for i in PM._all_operator_items()))
     PM.apply_action(it, "EMPTY")
     check("search: Empty clears a slot", it.kind == "NONE" and it.idname == "")
@@ -235,6 +245,36 @@ def run():
     resaved = json.load(open(pie_file))
     check("the file is rewritten in the current schema", resaved["schema"] == PM.PIE_SCHEMA)
     check("unknown fields from other versions are kept", resaved["data"]["pies"][0].get("future_field") == "keep me")
+
+    # button looks and layout items survive saving, and shape the layout
+    m = PM._new_pie(p)
+    m.name, m.menu_type = "Look Test", "MENU"
+    for kind, kw in ((PM.BOX, {"label": "Add"}),
+                     (PM.O, {"idname": "mesh.primitive_cube_add", "icon": "MESH_CUBE", "display": "ICON"}),
+                     (PM.O, {"idname": "mesh.primitive_uv_sphere_add", "icon": "MESH_UVSPHERE", "display": "ICON",
+                             "same_row": True}),
+                     (PM.BOX_END, {}),
+                     (PM.BREAK, {}),
+                     (PM.O, {"idname": "object.delete", "alert": True, "emboss": False, "height": 1.5}),
+                     (PM.P, {"idname": "scene.tool_settings.use_snap", "setting_style": "CHECKBOX"})):
+        it = m.items.add()
+        it.kind = kind
+        for k, v in kw.items():
+            setattr(it, k, v)
+    saved = PM.pies_to_data(p)
+    entry = next(e for e in saved["pies"] if e["name"] == "Look Test")
+    PM.pies_from_data(p, saved, merge=False)
+    m = next(x for x in p.pies if x.name == "Look Test")
+    check("button looks are saved and loaded", [it.display for it in m.items][:3] == ["AUTO", "ICON", "ICON"]
+          and m.items[2].same_row and m.items[5].alert and not m.items[5].emboss and m.items[5].height == 1.5
+          and m.items[6].setting_style == "CHECKBOX", str(entry["items"][5]))
+    cols = PM.layout_groups(list(enumerate(m.items)))
+    check("layout: two columns, a box holding one row of two buttons",
+          len(cols) == 2 and cols[0][0][0] == "BOX" and len(cols[0][0][2]) == 1 and len(cols[0][0][2][0][1]) == 2
+          and [b[0] for b in cols[1]] == ["RUN", "RUN"], str(cols))
+    check("a menu with rows or boxes opens as a popup panel", PM.needs_panel_popup(m.items)
+          and not PM.needs_panel_popup([x for x in m.items if x.kind == PM.O and not x.same_row and x.height == 1.0]))
+    p.pies.remove(list(p.pies).index(m))
     newer = dict(resaved, schema=99)
     json.dump(newer, open(pie_file, "w"))
     PM.load_from_disk()

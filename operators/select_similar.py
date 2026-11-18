@@ -594,7 +594,7 @@ class KEYOPS_OT_select_similar(bpy.types.Operator):
 
 classes = (KEYOPS_OT_select_similar,)
 
-_MENUS = ("VIEW3D_MT_edit_mesh_select_similar", "VIEW3D_MT_select_object", "HOPS_MT_SelectGrouped")
+_MENUS = ("VIEW3D_MT_edit_mesh_select_similar", "VIEW3D_MT_select_object")
 
 
 def menu_func(self, context):

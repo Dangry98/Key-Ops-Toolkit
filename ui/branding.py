@@ -55,7 +55,7 @@ def draw_header(layout):
     draw_logo(split.column(), scale=6.0)
     right = split.column(align=True)
     right.separator(factor=2.2)
-    right.label(text="Modeling tools, pie menus and shortcuts for Blender")
+    right.label(text="Modeling tools, menus and shortcuts for Blender")
     sub = right.row()
     sub.active = False
     sub.label(text=f"Version {version_text()}  ·  by Dan-Gry")

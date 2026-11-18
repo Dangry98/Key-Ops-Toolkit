@@ -34,7 +34,7 @@ def unregister_outliner_click_keymap():
 # Register the handler after the add-on has loaded if the option is enabled
 @persistent
 def register_handler(dummy=None, depsgraph=None):
-    bpy.app.timers.register(lambda: enabled_selection_options(bpy.context.scene, bpy.context), first_interval=0.3)
+    bpy.app.timers.register(lambda: enabled_selection_options(bpy.context.scene.keyops, bpy.context), first_interval=0.3)
 
 def _get_valid_outliner_override():
     if not bpy.context.window_manager:

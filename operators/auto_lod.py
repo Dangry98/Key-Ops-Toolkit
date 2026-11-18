@@ -12,9 +12,41 @@ prefs = get_keyops_prefs()
 # place the lods in the current collection?
 # add auto smooth angle
 # add data transfere for normals - DONE
-# fix node group for delete small faces error and update to last version
 # Convert Deletesmall Faces/DeleteLooseEdges to function instead
 #option for planar decimation
+
+def delete_small_faces_node_group():
+    """Geometry Nodes group that deletes faces smaller than 'Max Face Size' (by area)."""
+    tree = bpy.data.node_groups.new(type='GeometryNodeTree', name="Delete Small Faces")
+    tree.is_modifier = True
+    tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    size = tree.interface.new_socket(name="Max Face Size", in_out='INPUT', socket_type='NodeSocketFloat')
+    size.default_value = 0.0001
+    size.min_value = 0.0
+    nodes, links = tree.nodes, tree.links
+    group_in = nodes.new("NodeGroupInput")
+    group_out = nodes.new("NodeGroupOutput")
+    group_out.is_active_output = True
+    area = nodes.new("GeometryNodeInputMeshFaceArea")
+    compare = nodes.new("FunctionNodeCompare")
+    compare.data_type = 'FLOAT'
+    compare.operation = 'LESS_THAN'
+    delete = nodes.new("GeometryNodeDeleteGeometry")
+    delete.domain = 'FACE'
+    delete.mode = 'ALL'
+    links.new(area.outputs["Area"], compare.inputs[0])
+    links.new(group_in.outputs["Max Face Size"], compare.inputs[1])
+    links.new(group_in.outputs["Geometry"], delete.inputs["Geometry"])
+    links.new(compare.outputs["Result"], delete.inputs["Selection"])
+    links.new(delete.outputs["Geometry"], group_out.inputs["Geometry"])
+    return tree
+
+
+def _max_face_size_id(tree):
+    return next(item.identifier for item in tree.interface.items_tree
+                if getattr(item, "in_out", "") == 'INPUT' and item.name == "Max Face Size")
+
 
 def delete_loose_edge_node_group():
     delete_loose_edge = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Delete Loose Edge")
@@ -184,13 +216,12 @@ class AutoLOD(bpy.types.Operator):
                             bpy.context.object.modifiers['Delete Loose Edge'].node_group = bpy.data.node_groups['Delete Loose Edge']
 
                     if remove_non_manifold_faces:
-                        bpy.ops.object.delete_small_faces()
-
-                        modifier = bpy.context.object.modifiers.get("Delete Small Faces")
-                        if modifier is not None:
-                            modifier["Input_2"] = max_face_size * (multipler ** i)
-                        else:
-                            print("Warning: 'Delete Small Faces' modifier not found.")
+                        tree = bpy.data.node_groups.get("Delete Small Faces") or delete_small_faces_node_group()
+                        modifier = new_object.modifiers.get("Delete Small Faces")
+                        if modifier is None:
+                            modifier = new_object.modifiers.new("Delete Small Faces", 'NODES')
+                        modifier.node_group = tree
+                        modifier[_max_face_size_id(tree)] = max_face_size * (multipler ** i)
 
                     if transfere_normals or transfere_edge_normals:
                         mod = new_object.modifiers.new(type='DATA_TRANSFER', name='Transfere_Normals')
