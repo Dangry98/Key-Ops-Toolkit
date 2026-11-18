@@ -1941,7 +1941,6 @@ def draw_pies_tab(prefs, context, layout):
     r = side.row(align=True)
     r.menu("KEYOPS_MT_pie_new", text="New", icon='ADD')
     r.menu("KEYOPS_MT_pie_presets", text="Add Preset")
-    r = side.row(align=True)
     r.operator("keyops.settings_import", text="Import", icon='IMPORT').scope = "PIES"
     r.operator("keyops.settings_export", text="Export", icon='EXPORT').scope = "PIES"
     draw_pie_feel(prefs, side)
