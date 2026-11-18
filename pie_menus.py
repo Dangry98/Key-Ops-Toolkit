@@ -3054,6 +3054,23 @@ def draw_pie_overview(layout, pie, prefs):
         col.separator(factor=0.35)
 
 
+class KEYOPS_MT_menu_list_specials(bpy.types.Menu):
+    """The ▾ menu beside the Custom Menus list."""
+    bl_label = "Custom Menus"
+    bl_idname = "KEYOPS_MT_menu_list_specials"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("keyops.pie_new_popup", text="New Menu...", icon='ADD')
+        layout.operator("keyops.pie_preset_popup", text="Add Preset...", icon='PRESET')
+        layout.operator("keyops.pie_duplicate", text="Duplicate", icon='DUPLICATE')
+        layout.separator()
+        layout.operator("keyops.settings_import", text="Import Menus...", icon='IMPORT').scope = "PIES"
+        layout.operator("keyops.settings_export", text="Export Menus...", icon='EXPORT').scope = "PIES"
+        layout.separator()
+        layout.operator("keyops.pie_remove", text="Delete", icon='X')
+
+
 class KEYOPS_UL_menus(bpy.types.UIList):
     """The Custom Menus list: on/off, type and name, and the key that opens it (click to change)."""
 
@@ -3103,20 +3120,19 @@ def draw_pies_tab(prefs, context, layout):
     lrow = side.row(align=False)
     # Blender's own list: click a row to edit that menu, double-click its name to rename, scroll, resize
     lrow.template_list("KEYOPS_UL_menus", "", prefs, "pies", prefs, "active_pie", rows=12)
-    arrows = lrow.column(align=True)
-    arrows.operator("keyops.pie_move", text="", icon='TRIA_UP').direction = -1
-    arrows.operator("keyops.pie_move", text="", icon='TRIA_DOWN').direction = 1
+    # beside the list, like Blender's own lists: add, remove, more, then move
+    tools = lrow.column(align=True)
+    tools.operator("keyops.pie_new_popup", text="", icon='ADD')
+    tools.operator("keyops.pie_remove", text="", icon='REMOVE')
+    tools.separator()
+    tools.menu("KEYOPS_MT_menu_list_specials", text="", icon='DOWNARROW_HLT')
+    tools.separator()
+    tools.operator("keyops.pie_move", text="", icon='TRIA_UP').direction = -1
+    tools.operator("keyops.pie_move", text="", icon='TRIA_DOWN').direction = 1
     if not any(_menu_matches(wm, p) for p in prefs.pies):
         empty = side.row()
         empty.active = False
         empty.label(text="No menus match")
-    r = side.row(align=True)
-    r.operator("keyops.pie_new_popup", text="New", icon='ADD')
-    r.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
-    r.operator("keyops.pie_duplicate", text="", icon='DUPLICATE')
-    r.operator("keyops.pie_remove", text="", icon='X')
-    r.operator("keyops.settings_import", text="", icon='IMPORT').scope = "PIES"
-    r.operator("keyops.settings_export", text="", icon='EXPORT').scope = "PIES"
     draw_pie_feel(prefs, side)
     draw_values(context, side)
     layout = outer.column()
@@ -3479,7 +3495,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
-           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_UL_menus, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
+           KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_UL_menus, KEYOPS_MT_menu_list_specials, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
 
 
