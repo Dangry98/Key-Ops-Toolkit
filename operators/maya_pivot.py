@@ -325,9 +325,14 @@ class GizmoMayaPivotTransform(bpy.types.Operator):
     constraint_axis: bpy.props.StringProperty(default="", options={'HIDDEN'}
     ) # type: ignore
     def execute(self, context):
+        # Read the property now: the timer below runs after this operator is freed,
+        # and touching self there raises "StructRNA ... has been removed".
+        axis = self.constraint_axis.upper()
 
         def press_r():
-            axis = self.constraint_axis.upper()
+            # keybd_event is Windows only
+            if not hasattr(ctypes, "windll"):
+                return None
             #press R key with ctypes
             ctypes.windll.user32.keybd_event(0x52, 0, 0, 0)
             ctypes.windll.user32.keybd_event(0x52, 0, 2, 0)

@@ -171,6 +171,9 @@ class ToggleToolkitPanelEnum(bpy.types.Operator):
     def execute(self, context):
         wm = context.window_manager
         global ev
+        if self.type not in wm.bl_rna.properties["toolkit_panel_mode"].enum_items.keys():
+            ev = []
+            return {'CANCELLED'}
         if "shift" in ev:
             wm.toolkit_panel_mode ^= {self.type}
         else:

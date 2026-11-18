@@ -48,8 +48,15 @@ class MESH_OT_extrude_edge_along_normals(bpy.types.Operator):
     bl_label = "Extrude Edge Along Normals"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
-    def _apply_distance(self, context, value=None):
+    def _bmesh_alive(self):
+        # The edit-mesh can be rebuilt under a running modal (undo, mode switch),
+        # which frees the cached BMesh and its verts.
         if not hasattr(self, 'vert_data') or not hasattr(self, 'bm'):
+            return False
+        return self.bm.is_valid and all(v.is_valid for v, _, _ in self.vert_data)
+
+    def _apply_distance(self, context, value=None):
+        if not self._bmesh_alive():
             return
 
         value = float(self.distance if value is None else value)
@@ -192,6 +199,12 @@ class MESH_OT_extrude_edge_along_normals(bpy.types.Operator):
         return {'FINISHED'}
 
     def modal(self, context, event):
+        if not self._bmesh_alive():
+            self._modal_running = False
+            if context.area:
+                context.area.header_text_set(None)
+            return {'CANCELLED'}
+
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}  # let the user orbit/zoom mid-extrude
 

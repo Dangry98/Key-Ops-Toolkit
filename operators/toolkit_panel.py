@@ -3,7 +3,7 @@ from ..utils.pref_utils import get_keyops_prefs
 from ..utils.pref_utils import clear_registered_keymaps
 import bmesh
 import math
-from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR, select_loop, select_ring
+from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR, select_loop, select_ring, operator_exists, safe_icon
 from ..utils.pref_utils import get_icon
 from .add_modifier import AddModifier
 from .smart_apply_scale import SmartApplyScale
@@ -13,7 +13,7 @@ from .extrude_edge_along_normals import register_extrude_edge_along_normals, unr
 from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
 from .set_flow import register_set_flow, unregister_set_flow
 from .fast_mirror import register_fast_mirror, unregister_fast_mirror
-from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group
+from ..utils.node_groups import get_node_group
 
 BLENDER_VERSION = bpy.app.version
 registered_toolkit_panel_keymaps = []
@@ -70,8 +70,7 @@ def register_toolkit_panel_keymaps():
 # fix attribute toggle in edit mode/objet mode
 
 def make_duplicate_linked(self, context):
-    if not bpy.data.node_groups.get("Duplicate Linked Modifiers"):
-        duplicate_linked_modifiers_node_group()
+    node_group = get_node_group("Duplicate Linked Modifiers")
 
     supported_objects = ['MESH', 'CURVE', 'TEXT', 'SURFACE']
 
@@ -105,7 +104,7 @@ def make_duplicate_linked(self, context):
 
         if obj.modifiers.get("Duplicate Linked Modifiers") is None:
             mod = obj.modifiers.new('Duplicate Linked Modifiers', 'NODES')
-            mod.node_group = bpy.data.node_groups['Duplicate Linked Modifiers']
+            mod.node_group = node_group
             if not self.instance:
                 mod.show_in_editmode = False    
 
@@ -144,8 +143,12 @@ def get_scale(obj):
 def get_description(type: str) -> str:
     if type == "offset_uv":
         return "Offset UV"
+    elif type == "Remove_Offset_UV":
+        return "Remove the Offset UV modifier"
     elif type == "Triplanar_UV_Mapping":
         return "Triplanar UV Mapping"
+    elif type == "Remove_Triplanar_UV_Mapping":
+        return "Remove the Triplanar UV Mapping modifier"
     elif type == "snap_to_floor":
         return "Snap To Grid Floor"
     elif type == "Instant_Apply_Modifiers":
@@ -322,8 +325,7 @@ class ToolkitPanel(bpy.types.Operator):
         
         if self.type == "Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
-            if bpy.data.node_groups.get("Triplanar UV Mapping") is None:
-                triplanar_uv_mapping_node_group()
+            get_node_group("Triplanar UV Mapping")
             for obj in bpy.context.selected_objects:
                 if obj.type == 'MESH':         
                     bpy.context.view_layer.objects.active = obj
@@ -339,8 +341,13 @@ class ToolkitPanel(bpy.types.Operator):
                         active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
 
                     if context.mode == 'EDIT_MESH':
-                        bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                        bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
+                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                            selection_input = bpy.context.object.modifiers["Triplanar UV Mapping"].properties.inputs.Socket_2
+                            selection_input.attribute_name = "Triplanar_UV_Mapping"
+                            selection_input.type = "ATTRIBUTE"
+                        else:
+                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
+                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
                         named_attributes = bpy.context.object.data.attributes
                         attribute_name = "Triplanar_UV_Mapping"
                         set_act = named_attributes.get(attribute_name)
@@ -399,8 +406,7 @@ class ToolkitPanel(bpy.types.Operator):
 
         elif self.type == "offset_uv":
             active_object = bpy.context.active_object
-            if bpy.data.node_groups.get("Offset UV") is None:
-                offset_uv_node_group()
+            get_node_group("Offset UV")
 
             for area in bpy.context.screen.areas:
                 if area.type == 'IMAGE_EDITOR':
@@ -421,8 +427,16 @@ class ToolkitPanel(bpy.types.Operator):
                     for mod in obj.modifiers:
                         if mod.name == "Offset UV":
                             active_uv_name = obj.data.uv_layers.active.name
-                            if obj.modifiers["Offset UV"]["Socket_5"] == "UVMap" and active_uv_name != "UVMap":
-                                obj.modifiers["Offset UV"]["Socket_5"] = active_uv_name
+                            if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                                uv_name_input = mod.properties.inputs.Socket_5
+                                current_uv_name = uv_name_input.value
+                            else:
+                                current_uv_name = mod["Socket_5"]
+                            if current_uv_name == "UVMap" and active_uv_name != "UVMap":
+                                if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
+                                    uv_name_input.value = active_uv_name
+                                else:
+                                    mod["Socket_5"] = active_uv_name
                                 obj.modifiers["Offset UV"].show_group_selector = False
                                 break
 
@@ -1135,87 +1149,14 @@ class ExtrudeEdgeByNormal(bpy.types.Operator):
     offset: bpy.props.FloatProperty(name="Offset", default=1) # type: ignore    
 
     def execute(self, context):
-        def extrude_edge_by_normal_node_group():
-            extrude_edge_by_normal = bpy.data.node_groups.new(type = 'GeometryNodeTree', name = "Extrude Edge By Normal")
-
-            extrude_edge_by_normal.is_tool = True
-            extrude_edge_by_normal.is_mode_edit = True
-            extrude_edge_by_normal.is_mode_sculpt = False
-            extrude_edge_by_normal.is_type_curve = False
-            extrude_edge_by_normal.is_type_mesh = True
-            
-            #initialize extrude_edge_by_normal nodes
-            #extrude_edge_by_normal interface
-            #Socket Geometry
-            geometry_socket = extrude_edge_by_normal.interface.new_socket(name = "Geometry", in_out='OUTPUT', socket_type = 'NodeSocketGeometry')
-            geometry_socket.attribute_domain = 'POINT'
-            
-            #Socket Geometry
-            geometry_socket_1 = extrude_edge_by_normal.interface.new_socket(name = "Geometry", in_out='INPUT', socket_type = 'NodeSocketGeometry')
-            geometry_socket_1.attribute_domain = 'POINT'
-            
-            
-            #node Group Input
-            group_input = extrude_edge_by_normal.nodes.new("NodeGroupInput")
-            group_input.name = "Group Input"
-            
-            #node Group Output
-            group_output = extrude_edge_by_normal.nodes.new("NodeGroupOutput")
-            group_output.name = "Group Output"
-            group_output.is_active_output = True
-            
-            #node Extrude Mesh
-            extrude_mesh = extrude_edge_by_normal.nodes.new("GeometryNodeExtrudeMesh")
-            extrude_mesh.name = "Extrude Mesh"
-            extrude_mesh.mode = 'EDGES'
-            #Offset Scale
-            extrude_mesh.inputs[3].default_value = 1.0
-            #Individual
-            extrude_mesh.inputs[4].default_value = True
-            
-            #node Normal
-            normal = extrude_edge_by_normal.nodes.new("GeometryNodeInputNormal")
-            normal.name = "Normal"
-            
-            #node Selection
-            selection = extrude_edge_by_normal.nodes.new("GeometryNodeToolSelection")
-            selection.name = "Selection"
-            
-            #node Set Selection
-            set_selection = extrude_edge_by_normal.nodes.new("GeometryNodeToolSetSelection")
-            set_selection.name = "Set Selection"
-            
-            #Set locations
-            group_input.location = (-956.7882690429688, -106.79387664794922)
-            group_output.location = (32.99273681640625, -42.937740325927734)
-            extrude_mesh.location = (-449.79449462890625, -33.02903366088867)
-            normal.location = (-743.4354248046875, -157.43838500976562)
-            selection.location = (-722.5401000976562, -86.97645568847656)
-            set_selection.location = (-233.14840698242188, -84.7745132446289)
-            
-            #initialize extrude_edge_by_normal links
-            #group_input.Geometry -> extrude_mesh.Mesh
-            extrude_edge_by_normal.links.new(group_input.outputs[0], extrude_mesh.inputs[0])
-            #normal.Normal -> extrude_mesh.Offset
-            extrude_edge_by_normal.links.new(normal.outputs[0], extrude_mesh.inputs[2])
-            #selection.Selection -> extrude_mesh.Selection
-            extrude_edge_by_normal.links.new(selection.outputs[0], extrude_mesh.inputs[1])
-            #extrude_mesh.Mesh -> set_selection.Geometry
-            extrude_edge_by_normal.links.new(extrude_mesh.outputs[0], set_selection.inputs[0])
-            #extrude_mesh.Top -> set_selection.Selection
-            extrude_edge_by_normal.links.new(extrude_mesh.outputs[1], set_selection.inputs[1])
-            #set_selection.Geometry -> group_output.Geometry
-            extrude_edge_by_normal.links.new(set_selection.outputs[0], group_output.inputs[0])
-            return extrude_edge_by_normal
         #import time 
         #perf_time = time.time()
-        if "Extrude Edge By Normal" not in bpy.data.node_groups:
-            extrude_edge_by_normal_node_group()
+        node_group = get_node_group("Extrude Edge By Normal")
 
-        bpy.data.node_groups["Extrude Edge By Normal"].is_mode_edit = True
-        bpy.data.node_groups["Extrude Edge By Normal"].nodes["Extrude Mesh"].inputs[3].default_value = self.offset
-        bpy.ops.geometry.execute_node_group(name="Extrude Edge By Normal")
-        bpy.data.node_groups["Extrude Edge By Normal"].is_mode_edit = False
+        node_group.is_mode_edit = True
+        node_group.nodes["Extrude Mesh"].inputs["Offset Scale"].default_value = self.offset
+        bpy.ops.geometry.execute_node_group(name=node_group.name)
+        node_group.is_mode_edit = False
         #print(f"Total Time: {time.time() - perf_time:.4f} seconds")
 
         return {'FINISHED'}
@@ -1231,47 +1172,46 @@ def menu_extrude(self, context):
 def draw_modifier_panel(self, context, draw_header=False):
         layout = self.layout
         prefs = get_keyops_prefs()
-        
+
         box = layout.box()
+        # Header and "Create" share one aligned column so there's no box gap between them
         col = box.column(align=True)
+        col.scale_y = 1.1
         if draw_header:
             col.label(text="Modifiers", icon_value=get_icon("modifier"))
-        row = col.row(align=True)
-        col = box.column(align=False) 
 
-        row = col.row(align=True)
-        column = row.column(align=True) 
-        row = column.split(factor=0.57, align=True)
-        row.scale_y = 1.15
+        # Fast modifier tools: click adjusts the existing modifier, Ctrl + click adds a new one
+        # (Fast Mirror lives in the Object Toolkit)
+        col.label(text="Create")
+        if prefs.enable_add_modifier_pie:
+            row = col.row(align=True)
+            row.scale_y = 1.2
+            row.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")
+            row.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")
+            row.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")
 
-        if bpy.context.mode == 'EDIT_MESH':
-            row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"   
-            row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-        else:   
-            row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
-            row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-        row = column.split(factor=0.57, align=True)
-        row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
-        row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
+        # Lattice / FFD
+        row = col.row(align=True)
+        row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
+        for subdivisions in (3, 4):
+            op = row.operator("keyops.add_modifier", text=f"FFD {subdivisions}x")
+            op.subdivisions = subdivisions
+            op.type = "LATTICE"
+
+        # UV modifiers side by side, each with an icon-only remove button
+        # Same column as Create, just a small gap before the UV label
+        col.separator(factor=0.3)
+        col.label(text="UV")
+        for label, icon, add_type, remove_type in (
+            ("Offset UV", "AREA_JOIN", "offset_uv", "Remove_Offset_UV"),
+            ("Triplanar UV", "AXIS_SIDE", "Triplanar_UV_Mapping", "Remove_Triplanar_UV_Mapping"),
+        ):
+            row = col.split(factor=0.65, align=True)
+            row.operator("keyops.toolkit_panel", text=label, icon=icon).type = add_type
+            row.operator("keyops.toolkit_panel", text="Remove").type = remove_type
 
         if prefs.enable_uv_tools:
-            row = column.split(align=True)
-            row.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
-
-        row = layout.row(align=True)
-        box = row.box()
-
-        row = box.row(align=True)
-        row.label(text="Create")
-        row = box.row(align=True)
-        row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
-        operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 3x")
-        operation_FFD2X.subdivisions = 3
-        operation_FFD2X.type = "LATTICE"
-
-        operation_FFD2X = row.operator("keyops.add_modifier", text="FFD 4x")
-        operation_FFD2X.subdivisions = 4
-        operation_FFD2X.type = "LATTICE"
+            col.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
 
 
         # if context.mode == 'OBJECT':
@@ -1346,24 +1286,46 @@ def draw_edit_mode_panel(self, context, draw_header=False):
     sel_mode = bpy.context.tool_settings.mesh_select_mode[:]
     prefs = get_keyops_prefs()
 
+    # Off = only Key Ops operators, on = Key Ops + Blender built-in operators (3ds Max-style)
+    show_blender_ops = prefs.edit_toolkit_show_blender_ops
+
     layout = self.layout
     box = layout.box()
+    row = box.row(align=True)
     if draw_header:
-        box.label(text="Edit Toolkit", icon_value=get_icon("editmode"))
+        row.label(text="Edit Toolkit", icon_value=get_icon("editmode"))
+    sub = row.row(align=True)
+    sub.alignment = 'RIGHT'
+    sub.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
 
     new_layoute = True
     if new_layoute:
-        row = box.row(align=True)
-        row.scale_x = 2.15
-        row.scale_y = 1.5
-        row.alignment = 'CENTER'
-        row.template_header_3D_mode()
-        row.operator("mesh.region_to_loop", text="", icon="MESH_CAPSULE")
-        row.operator("mesh.select_linked", text="", icon="SNAP_VOLUME")
+        if show_blender_ops:
+            row = box.row(align=True)
+            row.scale_x = 2.15
+            row.scale_y = 1.5
+            row.alignment = 'CENTER'
+            row.template_header_3D_mode()
+            row.operator("mesh.region_to_loop", text="", icon="MESH_CAPSULE")
+            row.operator("mesh.select_linked", text="", icon="SNAP_VOLUME")
 
         # Selection
         row = box.row(align=False)
         row.label(text="Selection")
+        if not show_blender_ops:
+            row = box.row(align=False)
+            row.operator("keyops.select_similar", text="Similar")
+            row.operator("keyops.select_thin_triangles", text="Thin Triangles")
+
+            row = box.row(align=False)
+            row = box.row(align=False)
+            row.label(text="Edit Mesh")
+            row = box.row(align=False)
+            if prefs.enable_fast_merge:
+                row.operator("mesh.connect2", text="Connect")
+            draw_edge_flow(row)
+
+    if new_layoute and show_blender_ops:
         row = box.row(align=False)
         row.scale_x = 1.25
         row.scale_y = 1.5
@@ -1395,6 +1357,9 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row = box.row(align=False)
             row.operator("mesh.select_non_manifold", text="Non Manifold")
         row.operator("mesh.select_face_by_sides", text="Ngons").type = 'GREATER'
+        row = box.row(align=False)
+        row.alignment = 'CENTER'
+        row.operator("keyops.select_thin_triangles", text="Thin Triangles")
 
         # Edit vertices
         row = box.row(align=False)
@@ -1468,6 +1433,20 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
 
+    if new_layoute:
+        # UV
+        row = box.row(align=True)
+        row.label(text="UV")
+        row = box.row(align=False)
+        row.menu("VIEW3D_MT_uv_map", text="UV Unwrap", icon="UV")
+        row = box.row(align=False)
+        row.operator("mesh.mark_seam", text="Mark Seam", icon=safe_icon("EDGE_SEAM")).clear = False  # icon is 5.0+
+        row.operator("mesh.mark_seam", text="Clear Seam").clear = True
+        if prefs.enable_uv_tools:
+            row = box.row(align=False)
+            row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
+
+    if new_layoute:
         # Vertex color
         row = box.row(align=True)
         row.label(text="Vertex Color")
@@ -1477,6 +1456,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         # row = box.row(align=False)
         # row.prop(context.scene, "RGB_Enum", expand=True, emboss=False)
 
+    if new_layoute and show_blender_ops:
         # Edit geometry
         row = box.row(align=False)
         row = box.row(align=False)
@@ -1507,9 +1487,9 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
 
         if BLENDER_VERSION >= (5, 0, 0):
-            has_flatten = hasattr(bpy.ops.mesh, "flatten")
-            has_circle = hasattr(bpy.ops.mesh, "circularize")
-            has_relax = hasattr(bpy.ops.mesh, "relax_edge_loops")
+            has_flatten = operator_exists("mesh.flatten")
+            has_circle = operator_exists("mesh.circularize")
+            has_relax = operator_exists("mesh.relax_edge_loops")
 
             if has_flatten or has_circle:
                 row = box.row(align=False)
@@ -1530,6 +1510,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.alignment = 'CENTER'
         row.operator("mesh.hide", text="Hide Unselected").unselected = True
 
+    if new_layoute:
         # Cylinder
         row = box.row(align=False)
         row.label(text="Cylinder", icon="MESH_CYLINDER")
@@ -1609,6 +1590,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row = col.row(align=True)
         row.operator("mesh.select_non_manifold", text="Non Manifold")
         row.operator("mesh.select_face_by_sides", text="Ngons").type = 'GREATER'
+        row = col.row(align=True)
+        row.operator("keyops.select_thin_triangles", text="Thin Triangles")
 
         # Cylinder
         col = box.column(align=True)
@@ -1698,18 +1681,24 @@ class ObjectModePanel(bpy.types.Panel):
         row.operator("keyops.toolkit_panel", text="low").type = "low"
 
 class EDIT_PT_Settings(bpy.types.Panel):
-    bl_label = "Edit Panel Settings"
+    bl_label = "Edit Toolkit Settings"
+    bl_description = "Choose which operators the Edit Toolkit shows"
     bl_idname = "EDIT_PT_Settings"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'DEFAULT_CLOSED'}
-    
+    bl_ui_units_x = 11  # just wide enough that the labels below don't clip
+
     def draw(self, context):
         prefs = get_keyops_prefs()
         layout = self.layout
+        layout.label(text="Edit Toolkit Settings")
+        layout.prop(prefs, "edit_toolkit_show_blender_ops")
         col = layout.column(align=True)
-        layout.label(text="Edit Mesh Panel Settings")
-        col = layout.column(align=True)
-        row = col.row(align=True)
-        row.prop(prefs, "max_layout", text="3ds Max Inspired Layout")
+        col.scale_y = 0.8
+        col.enabled = False
+        if prefs.edit_toolkit_show_blender_ops:
+            col.label(text="Key Ops + Blender operators", icon='INFO')
+        else:
+            col.label(text="Key Ops operators only", icon='INFO')
         

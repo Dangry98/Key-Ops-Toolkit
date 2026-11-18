@@ -130,7 +130,9 @@ class ToggleRetopology(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH' or context.mode == 'OBJECT' and context.active_object is not None and context.active_object.type == 'MESH'
+        # The UV editor also has an overlay, but only the 3D View one has show_retopology
+        space = context.space_data
+        return (context.mode == 'EDIT_MESH' or context.mode == 'OBJECT' and context.active_object is not None and context.active_object.type == 'MESH') and space is not None and space.type == 'VIEW_3D'
     
     def invoke(self, context, event):
         return self.execute(context)
@@ -209,10 +211,9 @@ class ToggleRetopology(bpy.types.Operator):
             self.report({'INFO'}, "Exit Retopology Mode")
             
             if selected_tool:
-                try:
-                    bpy.ops.wm.tool_set_by_id(name="mesh_tool.select_box_xray")
-                except:
-                    bpy.ops.wm.tool_set_by_id(name="builtin.select_box")
+                # The old "mesh_tool.select_box_xray" tool no longer exists; tool_set_by_id
+                # only warns for unknown tools, so the old try/except fallback never ran.
+                bpy.ops.wm.tool_set_by_id(name="builtin.select_box")
 
             overlay.show_retopology = False
 

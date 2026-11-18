@@ -251,6 +251,9 @@ class FastConnect(bpy.types.Operator):
             edge_sel = {e for e in bm.edges if e.select}
 
             if not edge_sel:
+                if context.area is None:
+                    self.report({'WARNING'}, "Knife needs a 3D Viewport")
+                    return {'CANCELLED'}
                 bpy.ops.mesh.knife_tool('INVOKE_DEFAULT')
                 return {'FINISHED'}
             else:
@@ -262,6 +265,9 @@ class FastConnect(bpy.types.Operator):
             face_sel = {f for f in bm.faces if f.select}
 
             if not face_sel:
+                if context.area is None:
+                    self.report({'WARNING'}, "Knife needs a 3D Viewport")
+                    return {'CANCELLED'}
                 bpy.ops.mesh.knife_tool('INVOKE_DEFAULT')
                 return {'FINISHED'}
 
@@ -280,10 +286,14 @@ class Connect(bpy.types.Operator):
     edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
     set_flow: bpy.props.BoolProperty(name="Set Flow", default=False) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
     def draw(self, context):
-        layout = self.layout 
+        layout = self.layout
         layout.use_property_split = True
-        
+
         layout.prop(self, "edge_count")
         layout.prop(self, "set_flow")
 

@@ -324,13 +324,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                 if self.add_object_pie_Enum == "CUSTOM":
                     row.prop(self, "add_object_pie_bpy_ops", text ="")
 
-            # if self.enable_toolkit_panel:
-            #     bb = b.box()
-            #     bb
-            #     column = bb.column()
-            #     row = column.row()
-            #     row.label(text="Toolkit Panel")
-            #     row.prop(self, "max_layout", text="3ds Max Inspired Layout")
+            if self.enable_toolkit_panel:
+                bb = b.box()
+                row = bb.row()
+                row.alignment = 'LEFT'
+                row.label(text="Edit Toolkit")
+                row.prop(self, "edit_toolkit_show_blender_ops")
             if self.enable_legacy_shortcuts and bpy.app.version >= (5, 0, 0):
                 collection_box = b.box()
                 row = collection_box.row(align=True)
@@ -533,11 +532,10 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         return update_enable
 
     def update_legacy_collection_shortcuts(self, context):
-        if bpy.app.version < (5, 0, 0):
-            self.enable_legacy_collection_shortcuts = False
-            return
-        if not self.enable_legacy_shortcuts:
-            self.enable_legacy_collection_shortcuts = False
+        if bpy.app.version < (5, 0, 0) or not self.enable_legacy_shortcuts:
+            # Only write when needed: assigning re-triggers this update and would recurse forever
+            if self.enable_legacy_collection_shortcuts:
+                self.enable_legacy_collection_shortcuts = False
             return
 
         if self.enable_legacy_collection_shortcuts:
@@ -565,7 +563,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     enable_legacy_collection_shortcuts: BoolProperty(name="Collection Number Keys", description="Restore object-mode collection hide/unhide shortcuts on numbers 1-0, including Shift and Alt variants. Blender 5.0+ only.", default=False, update=update_legacy_collection_shortcuts) # type: ignore
     enable_workspace_pie: BoolProperty(name="Workspace Pie", description="Workspace switching pie menu.", default=False, update=enable_deco("workspace_pie")) # type: ignore
     enable_cursor_pie: BoolProperty(name="Cursor Pie", description="A better cursor and origin snapping pie menu on Shift+S.", default=True, update=enable_deco("cursor_pie")) # type: ignore
-    enable_flatten_pie: BoolProperty(name="Flatten Pie", description="Alt+3 pie in edit mode that flattens the selection left, right, top or bottom from the current view, onto the outer most selected point.", default=True, update=enable_deco("flatten_pie")) # type: ignore
+    enable_flatten_pie: BoolProperty(name="Flatten Pie", description="Alt+3 pie in edit mode and the UV Editor that flattens the selection left, right, top or bottom from the current view, onto the outer most selected point.", default=True, update=enable_deco("flatten_pie")) # type: ignore
     enable_fast_merge: BoolProperty(name="Merge/Connect", description="Fast merge and connect shortcuts in edit mode with smart nearest or active vertex behavior. Use with 1 and Shift 1.", default=True, update=enable_deco("fast_merge")) # type: ignore
     enable_merge_tool: BoolProperty(name="Merge Tool", description="Maya like target weld merge tool for vertices and edges.", default=True, update=enable_deco("merge_tool")) # type: ignore
     enable_fast_loop_cut: BoolProperty(name="Fast Loop Cut", description="Loop cut tool that previews the loop where you hover and cuts it on click, no slide step.", default=True, update=enable_deco("fast_loop_cut")) # type: ignore
@@ -651,7 +649,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     add_object_pie_blend_object_name: StringProperty(name="Object Name: add a , to add many objects; cube,cylinder,sphere etc") #type: ignore
     add_object_pie_bpy_ops: StringProperty(name="Operation") #type: ignore
     uv_tools_panel_name: StringProperty(name="", default="Toolkit") # type: ignore
-    # max_layout: BoolProperty(name="Max Layout", default=False, description="Edit mode - Toolkit Panel") # type: ignore
+    edit_toolkit_show_blender_ops: BoolProperty(
+        name="Include Blender Operators",
+        default=True,
+        description=("Edit Toolkit: also show Blender's built-in mesh operators (Loop, Ring, Bevel, Bridge, Extrude, Weld, "
+                     "Subdivide and more) next to the Key Ops tools, for an all-in-one, 3ds Max-style panel. "
+                     "Turn off to only show Key Ops operators")) # type: ignore
     # material_utilities_panel: BoolProperty(name="Material Index Panel", default=True) # type: ignore
     material_list_icon_scale: FloatProperty(name="Icon Scale", default=2.0, min=0.1, max=10.0) # type: ignore
     material_list_type: EnumProperty(

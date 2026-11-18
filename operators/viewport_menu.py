@@ -27,6 +27,21 @@ class ViewportMenu(bpy.types.Operator):
     def execute(self, context):
         global previes_shading_types_settings
 
+        if self.type == 'toggle_ao':
+            shading = context.space_data.shading
+            if shading.show_cavity and shading.cavity_type == 'WORLD':
+                shading.show_cavity = False
+            else:
+                shading.show_cavity = True
+                shading.cavity_type = 'WORLD'
+                shading.cavity_ridge_factor = 0.0
+            return {'FINISHED'}
+
+        if self.type == 'toggle_color_type':
+            shading = context.space_data.shading
+            shading.color_type = 'MATERIAL' if shading.color_type == 'TEXTURE' else 'TEXTURE'
+            return {'FINISHED'}
+
         if self.type == 'toggle_silhouettes':
             view3d = context.space_data
 
@@ -101,6 +116,11 @@ class VIEW3D_MT_viewport_menu(bpy.types.Menu):
     bl_label = "Viewport Overlays"
     bl_idname = "VIEW3D_MT_viewport_menu"
 
+    @classmethod
+    def poll(cls, context):
+        # Alt+V is also bound in the 'Mesh' keymap; only draw where 3D View shading exists
+        return context.space_data is not None and context.space_data.type == 'VIEW_3D'
+
     def draw(self, context):
         layout = self.layout
         view3d = context.space_data
@@ -114,7 +134,15 @@ class VIEW3D_MT_viewport_menu(bpy.types.Menu):
         col.prop(view3d.overlay, 'show_face_orientation')
         if view3d.shading.type == 'SOLID':
             col.prop(view3d.shading, 'show_object_outline')
-        col.prop(view3d.overlay, "show_overlays", text = 'Overlays', emboss=True)
+            ao_on = shading.show_cavity and shading.cavity_type == 'WORLD'
+            col.operator('keyops.viewport_menu', text='Ambient Occlusion',
+                         icon='CHECKBOX_HLT' if ao_on else 'CHECKBOX_DEHLT').type = 'toggle_ao'
+            # Material / Texture toggle: show only the mode that is not active
+            # (an operator, since prop_enum in a menu draws a radio dot instead of the icon)
+            if shading.color_type == 'MATERIAL':
+                col.operator('keyops.viewport_menu', text='Texture', icon='TEXTURE').type = 'toggle_color_type'
+            elif shading.color_type == 'TEXTURE':
+                col.operator('keyops.viewport_menu', text='Material', icon='MATERIAL').type = 'toggle_color_type'
         
         # Right column
         col = split.column()

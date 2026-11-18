@@ -238,6 +238,11 @@ class SmartApplyScale(bpy.types.Operator):
     geomtryNodes: bpy.props.BoolProperty(name="Fix Geometry Nodes Modifiers", default=True, description="Only works if the input has Distance Subtype (m)") # type: ignore
     auto_fix_normals: bpy.props.BoolProperty(name="Auto Fix normals", default=True, description="Recalculate normals after applying scale if inverted scale") # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        # object.transform_apply only works in Object Mode
+        return context.mode == 'OBJECT' and len(context.selected_objects) > 0
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "deselect")

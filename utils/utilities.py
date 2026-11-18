@@ -311,52 +311,70 @@ def select_ring():
     else:
         bpy.ops.mesh.loop_multi_select(ring=True)
 
+_available_icons = None
+
+def safe_icon(name, fallback='NONE'):
+    """Return `name` if this Blender has that icon, else `fallback`.
+    An unknown icon raises a TypeError that aborts the whole panel/menu draw."""
+    global _available_icons
+    if _available_icons is None:
+        _available_icons = set(bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"].enum_items.keys())
+    return name if name in _available_icons else fallback
+
+def set_uv_island_select_mode(context):
+    """Switch the UV editor to island selection.
+    Blender 5.0 removed the 'ISLAND' UV select mode; it became a toggle on top of Face mode."""
+    ts = context.tool_settings
+    if 'ISLAND' in ts.bl_rna.properties['uv_select_mode'].enum_items:
+        bpy.ops.uv.select_mode(type='ISLAND')
+    else:
+        bpy.ops.uv.select_mode(type='FACE')
+        if hasattr(ts, "use_uv_select_island"):
+            ts.use_uv_select_island = True
+
+def operator_exists(idname):
+    """True if an operator like "mesh.relax_edge_loops" is registered.
+    hasattr(bpy.ops.mesh, name) is always True, so it can't be used for this."""
+    # dir() of an ops submodule lists registered operators, both C and Python ones
+    # (bpy.types only exposes Python-defined operators).
+    module, _, name = idname.partition(".")
+    return name in dir(getattr(bpy.ops, module))
+
+def _matching_keymap_items(km, idname, key, value, modifiers):
+    return [
+        kmi for kmi in km.keymap_items
+        if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
+            getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
+        )
+    ]
+
+# Keymaps that don't exist in a Blender version (or keyconfig) are skipped one by one,
+# so a single missing keymap no longer aborts the rest of the list.
 def add_shortcuts(list):
-    wm = bpy.context.window_manager
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            kmi = km.keymap_items.new(idname, key, value)
-            
-            if modifiers:
-                for mod, enabled in modifiers.items():
-                    setattr(kmi, mod, enabled)
-    except KeyError as e:
-        print(f"Error adding tablet navigation keymap: {e}")
-        return
+    keymaps = bpy.context.window_manager.keyconfigs.active.keymaps
+    for keymap_name, idname, key, value, modifiers in list:
+        km = keymaps.get(keymap_name)
+        if km is None:
+            continue
+        kmi = km.keymap_items.new(idname, key, value)
+        if modifiers:
+            for mod, enabled in modifiers.items():
+                setattr(kmi, mod, enabled)
 
 def remove_shortcuts(list):
-    wm = bpy.context.window_manager
+    keymaps = bpy.context.window_manager.keyconfigs.active.keymaps
+    for keymap_name, idname, key, value, modifiers in list:
+        km = keymaps.get(keymap_name)
+        if km is None:
+            continue
+        for kmi in _matching_keymap_items(km, idname, key, value, modifiers):
+            km.keymap_items.remove(kmi)
 
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            items_to_remove = [
-                kmi for kmi in km.keymap_items
-                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
-                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
-                )
-            ]
-            for kmi in items_to_remove:
-                km.keymap_items.remove(kmi)
-    except KeyError as e:
-        print(f"Error removing tablet navigation keymap: {e}")
-        return
-    
 def set_shortcuts_active(list, set=False):
-    wm = bpy.context.window_manager
-
-    try:
-        for keymap_name, idname, key, value, modifiers in list:
-            km = wm.keyconfigs.active.keymaps[keymap_name]
-            items_to_remove = [
-                kmi for kmi in km.keymap_items
-                if kmi.idname == idname and kmi.type == key and kmi.value == value and all(
-                    getattr(kmi, mod) == enabled for mod, enabled in modifiers.items()
-                )
-            ]
-            for kmi in items_to_remove:
-                kmi.active = set
-    except KeyError as e:
-        print(f"Error disable tablet navigation keymap: {e}")
-        return
+    keymaps = bpy.context.window_manager.keyconfigs.active.keymaps
+    for keymap_name, idname, key, value, modifiers in list:
+        km = keymaps.get(keymap_name)
+        if km is None:
+            continue
+        for kmi in _matching_keymap_items(km, idname, key, value, modifiers):
+            kmi.active = set

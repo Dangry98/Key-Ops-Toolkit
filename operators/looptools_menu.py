@@ -1,17 +1,26 @@
 import bpy
 from bpy.types import Menu
+from ..utils.utilities import operator_exists
+
+# Native LoopTools replacements land one by one during the 5.3/5.4 alphas
+# (e.g. 5.3 alpha has no Curve or Gstretch yet), so only draw the ones this build has.
+LOOPTOOLS_OPERATORS = (
+    ("mesh.circularize", "Circle"),
+    ("mesh.curve_edge_loops_between_selected", "Curve"),
+    ("mesh.flatten", "Flatten"),
+    ("mesh.fit_edge_loops_to_annotation", "Gstretch"),
+    ("mesh.relax_edge_loops", "Relax"),
+    ("mesh.space_edge_loops_evenly", "Space"),
+)
 
 class VIEW3D_MT_edit_mesh_looptools_menu(Menu):
     bl_label = "LoopTools"
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("mesh.circularize", text="Circle")
-        layout.operator("mesh.curve_edge_loops_between_selected", text="Curve")
-        layout.operator("mesh.flatten", text="Flatten")
-        layout.operator("mesh.fit_edge_loops_to_annotation", text="Gstretch")
-        layout.operator("mesh.relax_edge_loops", text="Relax")
-        layout.operator("mesh.space_edge_loops_evenly", text="Space")
+        for idname, text in LOOPTOOLS_OPERATORS:
+            if operator_exists(idname):
+                layout.operator(idname, text=text)
 
 def menu_func(self, context):
     self.layout.menu("VIEW3D_MT_edit_mesh_looptools_menu")

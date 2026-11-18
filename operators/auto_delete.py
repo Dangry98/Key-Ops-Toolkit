@@ -52,38 +52,18 @@ class AutoDelete(bpy.types.Operator):
     bl_label = "KeyOps: Auto Delete"
     bl_options = {'INTERNAL', 'UNDO'}
 
-    object_mode: bpy.props.BoolProperty(
-        name="Object Mode",
-        description="Delete objects in object mode",
-        default=False
-    ) # type:ignore
-
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.mode == 'EDIT'
+        return context.mode == 'EDIT_MESH'
 
     # def invoke(self, context, event):
     #     prefs = get_keyops_prefs()
     #     if prefs.auto_delete_confirm_object_mode:
     #         return context.window_manager.invoke_confirm(self, event)
     #     return self.execute(context)
-       
+
 
     def execute(self, context):
-        if self.object_mode:
-            # fast delete test
-            import time
-            start = time.time()
-            for obj in bpy.context.selected_objects:
-                for collection in list(obj.users_collection):
-                    collection.objects.unlink(obj)
-            #     bpy.data.objects.remove(obj)
-
-            # bpy.data.batch_remove()
-            # bpy.ops.object.delete(use_global=False, confirm=True)
-
-            print("Time: ", time.time() - start)
-
         prefs = get_keyops_prefs()
         select_mode = context.tool_settings.mesh_select_mode
         if select_mode[0]:

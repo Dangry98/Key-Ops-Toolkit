@@ -300,6 +300,76 @@ def _rings_match(a, b, tol):
         for ra, rb in zip(a, b))
 
 
+class _ReferenceGroup:
+    """Selected elements sharing one exact description (ints and float count).
+
+    Finds the references whose floats are all within tolerance of a candidate,
+    with the same test as _all_close(), but vectorised: references are sorted by
+    their first float so only a narrow window has to be checked at all.
+    """
+    _BLOCK = 1024          # most references tested per numpy call
+    _SMALL = 8             # below this, plain Python is faster than numpy
+
+    def __init__(self, entries):
+        n = len(entries)
+        floats = np.array([e[2] for e in entries], dtype=np.float64).reshape(n, -1)
+        self.width = floats.shape[1]
+        if self.width:
+            order = np.argsort(floats[:, 0], kind="stable")
+            floats = floats[order]
+            entries = [entries[i] for i in order]
+            self.keys = floats[:, 0]
+            # inf/nan break the window maths; fall back to checking everything.
+            self.windowed = bool(np.isfinite(self.keys).all())
+        else:
+            self.keys = None
+            self.windowed = False
+        self.entries = entries
+        self.floats = floats
+
+    def windows(self, values, tol):
+        """(lo, hi) slice of possible matches for each row of values (C x width)."""
+        n = len(self.entries)
+        count = len(values)
+        if not self.windowed or tol >= 1.0 or n <= self._SMALL:
+            return np.zeros(count, dtype=np.int64), np.full(count, n, dtype=np.int64)
+        a0 = values[:, 0]
+        # |a-b| <= tol*max(|a|,|b|) + eps  implies  |a-b| <= (tol*|a| + eps) / (1 - tol).
+        # Widened slightly so float rounding can never drop a real match.
+        mag = np.abs(a0)
+        reach = (tol * mag + _EPS) / (1.0 - tol) * (1.0 + 1e-9) + mag * 1e-12 + 1e-12
+        lo = np.searchsorted(self.keys, a0 - reach, side="left")
+        hi = np.searchsorted(self.keys, a0 + reach, side="right")
+        bad = ~np.isfinite(a0)
+        if bad.any():
+            lo[bad], hi[bad] = 0, n
+        return lo, hi
+
+    def matching(self, row, py_floats, lo, hi, tol):
+        """Yield (scanner, elem) of every reference in [lo, hi) that matches."""
+        if self.width == 0:
+            for e in self.entries[lo:hi]:
+                yield e[0], e[1]
+            return
+        # The first few in plain Python (a match is often found right away),
+        # the rest in growing numpy blocks.
+        first = min(lo + self._SMALL, hi)
+        for e in self.entries[lo:first]:
+            if _all_close(py_floats, e[2], tol):
+                yield e[0], e[1]
+        abs_row = np.abs(row)
+        start, size = first, self._SMALL * 4
+        while start < hi:
+            end = min(start + size, hi)
+            block = self.floats[start:end]
+            ok = (np.abs(block - row)
+                  <= tol * np.maximum(np.abs(block), abs_row) + _EPS).all(axis=1)
+            for i in np.flatnonzero(ok).tolist():
+                e = self.entries[start + i]
+                yield e[0], e[1]
+            start, size = end, min(size * 4, self._BLOCK)
+
+
 class EditScanner:
     """Describes the elements of one edit-mesh, caching every result."""
 
@@ -541,28 +611,44 @@ class KEYOPS_OT_select_similar(bpy.types.Operator):
         scanners = [EditScanner(o, kind, opt) for o in context.objects_in_mode_unique_data]
 
         # Reference elements, grouped by their exact (integer) description.
-        references = defaultdict(list)
+        # Float count is part of the key: different lengths never match anyway.
+        grouped = defaultdict(list)
         for sc in scanners:
             for elem in sc.selected():
                 desc = sc.describe(elem)
-                references[desc.ints].append((sc, elem, desc.floats))
-        if not references:
+                grouped[(desc.ints, len(desc.floats))].append((sc, elem, desc.floats))
+        if not grouped:
             self.report({"WARNING"}, "Nothing selected to compare against")
             return {"CANCELLED"}
+        references = {key: _ReferenceGroup(entries) for key, entries in grouped.items()}
 
+        tol = opt.tolerance
         count = 0
         for sc in scanners:
-            hits = []
+            # Bucket candidates by description so each bucket is windowed in one go.
+            buckets = defaultdict(list)
             for elem in sc.candidates():
                 desc = sc.describe(elem)
-                for ref_sc, ref_elem, ref_floats in references.get(desc.ints, ()):
-                    if not _all_close(desc.floats, ref_floats, opt.tolerance):
+                key = (desc.ints, len(desc.floats))
+                if key in references:
+                    buckets[key].append((elem, desc.floats))
+
+            hits = []
+            for key, items in buckets.items():
+                group = references[key]
+                values = np.array([f for _e, f in items], dtype=np.float64).reshape(
+                    len(items), group.width)
+                los, his = group.windows(values, tol)
+                for (elem, py_floats), row, lo, hi in zip(
+                        items, values, los.tolist(), his.tolist()):
+                    if lo >= hi:
                         continue
-                    if use_rings and not _rings_match(
-                            sc.rings(elem), ref_sc.rings(ref_elem), opt.tolerance):
-                        continue
-                    hits.append(elem)
-                    break
+                    for ref_sc, ref_elem in group.matching(row, py_floats, lo, hi, tol):
+                        if use_rings and not _rings_match(
+                                sc.rings(elem), ref_sc.rings(ref_elem), tol):
+                            continue
+                        hits.append(elem)
+                        break
             for elem in hits:
                 elem.select_set(True)
             if hits:
@@ -589,10 +675,154 @@ class KEYOPS_OT_select_similar(bpy.types.Operator):
 
 
 # ----------------------------------------------------------------------------
+# Select Thin Triangles
+# ----------------------------------------------------------------------------
+
+def _min_corner_angle(face):
+    """Smallest corner angle of a face. Degenerate faces count as 0."""
+    for edge in face.edges:
+        if edge.calc_length() <= _EPS:
+            return 0.0
+    return min(loop.calc_angle() for loop in face.loops)
+
+
+class KEYOPS_OT_select_thin_triangles(bpy.types.Operator):
+    """Select triangles with a very sharp corner (slivers)"""
+    bl_idname = "keyops.select_thin_triangles"
+    bl_label = "Select Thin Triangles"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    angle: FloatProperty(
+        name="Max Angle",
+        description="Select triangles whose smallest corner angle is at or below this",
+        subtype='ANGLE',
+        default=np.radians(10.0),
+        min=0.0,
+        max=np.radians(60.0),
+    )
+    extend: BoolProperty(
+        name="Extend",
+        description="Add to the current selection instead of replacing it",
+        default=False,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        tool_settings = context.tool_settings
+        if tuple(tool_settings.mesh_select_mode) != (False, False, True):
+            tool_settings.mesh_select_mode = (False, False, True)
+        if not self.extend:
+            bpy.ops.mesh.select_all(action='DESELECT')
+
+        found = 0
+        for ob in context.objects_in_mode_unique_data:
+            if ob.type != 'MESH':
+                continue
+            bm = bmesh.from_edit_mesh(ob.data)
+            changed = False
+            for face in bm.faces:
+                if face.hide or len(face.verts) != 3:
+                    continue
+                if _min_corner_angle(face) <= self.angle + _EPS:
+                    if not face.select:
+                        face.select_set(True)
+                        changed = True
+                    found += 1
+            if changed:
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(ob.data, loop_triangles=False, destructive=False)
+
+        self.report({'INFO'}, f"{found} thin triangle{'s' if found != 1 else ''} found")
+        return {'FINISHED'}
+
+
+def _active_triangle(context):
+    """The selected active triangle of the active edit object, or None."""
+    ob = context.edit_object
+    if ob is None or ob.type != 'MESH':
+        return None
+    face = bmesh.from_edit_mesh(ob.data).faces.active
+    if face is None or not face.is_valid or not face.select or face.hide or len(face.verts) != 3:
+        return None
+    return face
+
+
+class KEYOPS_OT_select_similar_thin_triangles(bpy.types.Operator):
+    """Select triangles whose sharpest corner matches the active triangle's"""
+    bl_idname = "keyops.select_similar_thin_triangles"
+    bl_label = "Select Similar Thin Triangles"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    compare: EnumProperty(
+        name="Compare",
+        items=(
+            ('EQUAL', "Equal", ""),
+            ('GREATER', "Greater", ""),
+            ('LESS', "Less", ""),
+        ),
+        default='EQUAL',
+    )
+    threshold: FloatProperty(
+        name="Threshold",
+        description="How far the smallest corner angle may differ from the active triangle's",
+        subtype='ANGLE',
+        default=np.radians(2.0),
+        min=0.0,
+        max=np.radians(60.0),
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        active = _active_triangle(context)
+        if active is None:
+            self.report({'WARNING'}, "Needs a selected active triangle")
+            return {'CANCELLED'}
+        reference = _min_corner_angle(active)
+
+        tool_settings = context.tool_settings
+        if tuple(tool_settings.mesh_select_mode) != (False, False, True):
+            tool_settings.mesh_select_mode = (False, False, True)
+
+        tol = self.threshold + _EPS
+        if self.compare == 'EQUAL':
+            match = lambda a: abs(a - reference) <= tol
+        elif self.compare == 'GREATER':
+            match = lambda a: a >= reference - tol
+        else:
+            match = lambda a: a <= reference + tol
+
+        found = 0
+        for ob in context.objects_in_mode_unique_data:
+            if ob.type != 'MESH':
+                continue
+            bm = bmesh.from_edit_mesh(ob.data)
+            changed = False
+            for face in bm.faces:
+                if face.hide or face.select or len(face.verts) != 3:
+                    continue
+                if match(_min_corner_angle(face)):
+                    face.select_set(True)
+                    changed = True
+                    found += 1
+            if changed:
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(ob.data, loop_triangles=False, destructive=False)
+
+        self.report({'INFO'}, f"{found} similar triangle{'s' if found != 1 else ''} selected")
+        return {'FINISHED'}
+
+
+# ----------------------------------------------------------------------------
 # Registration
 # ----------------------------------------------------------------------------
 
-classes = (KEYOPS_OT_select_similar,)
+classes = (KEYOPS_OT_select_similar, KEYOPS_OT_select_thin_triangles, KEYOPS_OT_select_similar_thin_triangles)
 
 _MENUS = ("VIEW3D_MT_edit_mesh_select_similar", "VIEW3D_MT_select_object", "HOPS_MT_SelectGrouped")
 
@@ -606,6 +836,8 @@ def menu_func(self, context):
             self.layout.operator(KEYOPS_OT_select_similar.bl_idname, text="Edges")
         else:
             self.layout.operator(KEYOPS_OT_select_similar.bl_idname, text="Vertices")
+        if _active_triangle(context) is not None:
+            self.layout.operator(KEYOPS_OT_select_similar_thin_triangles.bl_idname, text="Thin Triangles")
         self.layout.separator()
     else:
         self.layout.operator(KEYOPS_OT_select_similar.bl_idname, text="Select Similar Objects")

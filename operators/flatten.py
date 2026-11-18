@@ -16,6 +16,11 @@ DIRECTIONS = [
 ]
 
 
+def _in_uv_editor(context):
+    space = context.space_data
+    return space is not None and space.type == 'IMAGE_EDITOR' and space.mode == 'UV'
+
+
 def _snap_to_world_axis(vec):
     """Return the world axis (signed) closest to vec."""
     i = max(range(3), key=lambda n: abs(vec[n]))
@@ -39,7 +44,15 @@ class KEYOPS_OT_flatten(Operator):
     def poll(cls, context):
         return context.mode == 'EDIT_MESH'
 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "direction")
+        if not _in_uv_editor(context):
+            layout.prop(self, "snap_to_world_axis")
+
     def invoke(self, context, event):
+        if _in_uv_editor(context):
+            return self.execute(context)
         rv3d = context.region_data
         if rv3d is None:
             self.report({'WARNING'}, "Flatten needs a 3D Viewport")
@@ -64,6 +77,9 @@ class KEYOPS_OT_flatten(Operator):
         return _snap_to_world_axis(axis) if self.snap_to_world_axis else axis.normalized()
 
     def execute(self, context):
+        if _in_uv_editor(context):
+            return self.flatten_uvs(context)
+
         axis = self.get_axis()
         if axis is None:
             # Ran without invoke (e.g. from script), fall back to the current view
@@ -107,6 +123,54 @@ class KEYOPS_OT_flatten(Operator):
 
         return {'FINISHED'}
 
+    def flatten_uvs(self, context):
+        """UV Editor: line the selected UVs up on the outer most selected UV (left/right = U, top/bottom = V)."""
+        index = 0 if self.direction in {"LEFT", "RIGHT"} else 1
+        use_max = self.direction in {"RIGHT", "TOP"}
+        sync = context.tool_settings.use_uv_select_sync
+
+        data = []
+        values = []
+        for obj in context.objects_in_mode_unique_data:
+            if obj.type != 'MESH':
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            uv_layer = bm.loops.layers.uv.active
+            if uv_layer is None:
+                continue
+            # Blender 5.0+ keeps UV selection on the loop (also in sync mode, once it's valid)
+            new_api = hasattr(bm, "uv_select_sync_valid")
+            use_vert_select = sync and not (new_api and bm.uv_select_sync_valid)
+            loops = []
+            for face in bm.faces:
+                if face.hide or (not sync and not face.select):
+                    continue
+                for loop in face.loops:
+                    if use_vert_select:
+                        selected = loop.vert.select
+                    elif new_api:
+                        selected = loop.uv_select_vert
+                    else:
+                        selected = loop[uv_layer].select
+                    if selected:
+                        loops.append(loop[uv_layer])
+            if not loops:
+                continue
+            values.extend(luv.uv[index] for luv in loops)
+            data.append((obj, loops))
+
+        if not values:
+            self.report({'INFO'}, "Nothing selected")
+            return {'CANCELLED'}
+
+        target = max(values) if use_max else min(values)
+        for obj, loops in data:
+            for luv in loops:
+                luv.uv[index] = target
+            bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+
+        return {'FINISHED'}
+
 
 class KEYOPS_MT_flatten_pie(Menu):
     bl_idname = "KEYOPS_MT_flatten_pie"
@@ -124,6 +188,11 @@ class KEYOPS_MT_flatten_pie(Menu):
 def register_flatten_pie_keymaps():
     wm = bpy.context.window_manager
     km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kmi = km.keymap_items.new('wm.call_menu_pie', 'THREE', 'PRESS', alt=True)
+    kmi.properties.name = 'KEYOPS_MT_flatten_pie'
+    registered_flatten_pie_keymaps.append((km, kmi))
+
+    km = wm.keyconfigs.addon.keymaps.new(name='UV Editor', space_type='EMPTY')
     kmi = km.keymap_items.new('wm.call_menu_pie', 'THREE', 'PRESS', alt=True)
     kmi.properties.name = 'KEYOPS_MT_flatten_pie'
     registered_flatten_pie_keymaps.append((km, kmi))

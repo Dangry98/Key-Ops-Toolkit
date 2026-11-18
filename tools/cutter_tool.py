@@ -19,6 +19,7 @@ from mathutils.geometry import (
 )
 
 from ..utils.pref_utils import get_icon
+from ..utils.utilities import safe_icon
 from ..operators.add_modifier import (
     BOOLEAN_OPERATION_ITEMS,
     add_boolean_modifiers,
@@ -438,6 +439,20 @@ Add mode makes a new object from the shape instead"""
             b = location_3d_to_region_2d(self.region, self.rv3d, center + view_right)
             px_per_unit = (b - a).length if a is not None and b is not None else 0.0
             self.depth_screen_scale = 1.0 / px_per_unit if px_per_unit > 1e-6 else 0.01
+        self._depth_view = self.rv3d.perspective_matrix.copy()
+
+    def _anchor_depth(self, mouse):
+        """(Re)start depth input from the current view, keeping the current depth. Called when
+        extruding starts and whenever the view was rotated, panned or zoomed, so the mouse picks up
+        from where the depth is instead of jumping or getting stuck at the surface."""
+        self._setup_depth_input()
+        mouse_depth = self._mouse_depth(mouse)
+        self.depth_ref = (mouse_depth - self.depth) if mouse_depth is not None else -self.depth
+
+    def _view_changed(self):
+        old = getattr(self, "_depth_view", None)
+        new = self.rv3d.perspective_matrix
+        return old is None or any(abs(a - b) > 1e-6 for ra, rb in zip(old, new) for a, b in zip(ra, rb))
 
     def _mouse_depth(self, mouse):
         """Depth value under the mouse along the plane normal. Only differences are used (see depth_ref)."""
@@ -700,9 +715,7 @@ Add mode makes a new object from the shape instead"""
         # Start flat, the mouse extrudes it from here (depth = mouse_depth - depth_ref)
         self.depth = MIN_DEPTH if self.operation == 'ADD' else -MIN_DEPTH
         self.phase = 'EXTRUDE'
-        self._setup_depth_input()
-        mouse_depth = self._mouse_depth(mouse)
-        self.depth_ref = (mouse_depth - self.depth) if mouse_depth is not None else -self.depth
+        self._anchor_depth(mouse)
         self._dirty = True
         self._update_status(context)
         return {'RUNNING_MODAL'}
@@ -766,6 +779,11 @@ Add mode makes a new object from the shape instead"""
                 if (mouse - self.press_mouse).length >= CLICK_DRAG_THRESHOLD:
                     self.has_dragged = True
             else:
+                if self._view_changed():
+                    # The view moved since depth input was set up: the old reference no longer
+                    # matches, so re-anchor from the current depth. The view never decides the
+                    # direction, that comes from the surface normal and the clamp below.
+                    self._anchor_depth(mouse)
                 d = self._mouse_depth(mouse)
                 if d is not None:
                     depth = d - self.depth_ref
@@ -857,8 +875,8 @@ Add mode makes a new object from the shape instead"""
             row = header.layout.row(align=True)
             for icons, text in items:
                 for icon in icons[:-1]:
-                    row.label(text="", icon=icon)
-                row.label(text=text, icon=icons[-1])
+                    row.label(text="", icon=safe_icon(icon))
+                row.label(text=text, icon=safe_icon(icons[-1]))
                 row.separator(factor=2.0)
 
         context.workspace.status_text_set(draw_status)

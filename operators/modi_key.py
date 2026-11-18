@@ -42,6 +42,18 @@ class ModiKey(Operator):
     bl_description = ""
     bl_options = {'INTERNAL', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        # Works on the Properties editor tab; there is none in background mode
+        if not hasattr(context.space_data, "context"):
+            return False
+        # On the Scene tab, let the Polycount List keyboard navigation have W/S
+        if context.space_data.context == 'SCENE':
+            from .poly_count_list import POLYCOUNT_OT_walk
+            if POLYCOUNT_OT_walk.is_registered and POLYCOUNT_OT_walk.poll(context):
+                return False
+        return True
+
     type: bpy.props.StringProperty(name="type") #type:ignore
 
     def invoke(self, context, event):
@@ -306,6 +318,11 @@ class ModiKeyNoUndo(Operator):
     bl_idname = "keyops.modi_key_no_undo"
     bl_label = "KeyOps: Modi Key No Undo"
     bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        # Works on the Properties editor tab; there is none in background mode
+        return hasattr(context.space_data, "context")
 
     type: bpy.props.StringProperty(name="type") #type:ignore
 

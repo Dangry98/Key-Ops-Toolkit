@@ -85,8 +85,13 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object 
-  
+        # Only bound in the Mesh, UV Editor, Curve and Curves keymaps, all edit-mode
+        return (
+            context.object is not None and
+            context.area is not None and
+            context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
+        )
+
     def invoke(self, context, event):
         global first_invoked
 
@@ -255,7 +260,8 @@ class SelectEdgeLoop(bpy.types.Operator):
         return (
             context.active_object and
             context.active_object.type == 'MESH' and
-            context.scene.tool_settings.mesh_select_mode[1]
+            context.scene.tool_settings.mesh_select_mode[1] and
+            context.area is not None
         )
 
     def execute(self, context):
