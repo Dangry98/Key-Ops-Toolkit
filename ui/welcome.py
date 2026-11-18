@@ -5,7 +5,7 @@ from bpy.props import BoolProperty, IntProperty, StringProperty
 
 from .. import features as F
 from ..utils.pref_utils import get_addon_name, get_keyops_prefs
-from .splash import KEYOPS_OT_welcome
+from .splash import KEYOPS_OT_welcome, mark_seen, read_seen
 from . import branding
 
 NPANEL_TAB = "Key Ops"
@@ -38,9 +38,14 @@ def _invoke_welcome(whats_new=False):
 def first_screen(p):
     """'WELCOME' for a new install, 'WHATS_NEW' once after each update, otherwise None."""
     from .branding import version_text
-    if p.welcome_version < F.WELCOME_VERSION and not p.show_whats_new:
+    seen = read_seen()
+    welcome_version = max(p.welcome_version, int(seen.get("welcome_version", 0) or 0))
+    last_seen = seen.get("last_seen_version") or p.last_seen_version
+    if last_seen == version_text():
+        return None  # this version's screen was shown already: once ever per update
+    if welcome_version < F.WELCOME_VERSION and not p.show_whats_new:
         return 'WELCOME'
-    if p.show_whats_new or p.last_seen_version != version_text():
+    if p.show_whats_new or last_seen != version_text():
         return 'WHATS_NEW'
     return None
 
@@ -68,6 +73,87 @@ class KEYOPS_OT_toggle_feature_card(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _key_group(context, items):
+    """The user keymap items a Shortcuts row stands for ("keymap|id;keymap|id")."""
+    kc = context.window_manager.keyconfigs.user
+    out = []
+    for part in items.split(";"):
+        name, _sep, kid = part.rpartition("|")
+        km = kc.keymaps.get(name)
+        kmi = km.keymap_items.from_id(int(kid)) if km and kid.isdigit() else None
+        if kmi is not None:
+            out.append((km, kmi))
+    return out
+
+
+def _redraw_all(context):
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
+class KEYOPS_OT_shortcut_group_toggle(bpy.types.Operator):
+    bl_idname = "keyops.shortcut_group_toggle"
+    bl_label = "Use Shortcut"
+    bl_description = "Turn this shortcut on or off"
+    bl_options = {'INTERNAL'}
+    items: StringProperty() # type: ignore
+
+    def execute(self, context):
+        group = _key_group(context, self.items)
+        on = not any(kmi.active for _km, kmi in group)
+        for _km, kmi in group:
+            kmi.active = on
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_shortcut_group_restore(bpy.types.Operator):
+    bl_idname = "keyops.shortcut_group_restore"
+    bl_label = "Restore"
+    bl_description = "Put this shortcut back to the key Key Ops gave it"
+    bl_options = {'INTERNAL'}
+    items: StringProperty() # type: ignore
+
+    def execute(self, context):
+        for km, kmi in _key_group(context, self.items):
+            if kmi.is_user_modified:
+                km.restore_item_to_default(kmi)
+        return {'FINISHED'}
+
+
+_SKIP_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY",
+              "MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "TRACKPADPAN", "TRACKPADZOOM", "WINDOW_DEACTIVATE"}
+
+
+class KEYOPS_OT_shortcut_group_set_key(bpy.types.Operator):
+    bl_idname = "keyops.shortcut_group_set_key"
+    bl_label = "Set Key"
+    bl_description = ("Click, then press the new key (with Ctrl/Shift/Alt). Mouse buttons work too. "
+                      "Esc cancels")
+    bl_options = {'INTERNAL'}
+    items: StringProperty() # type: ignore
+
+    def invoke(self, context, event):
+        from ..addon_preferences import key_capture
+        key_capture["items"] = self.items
+        context.window_manager.modal_handler_add(self)
+        _redraw_all(context)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        from ..addon_preferences import key_capture
+        if event.value != 'PRESS' or event.type in _SKIP_KEYS or event.type.startswith(("TIMER", "NDOF", "EVT_")):
+            return {'RUNNING_MODAL'}
+        if event.type != 'ESC':
+            for _km, kmi in _key_group(context, self.items):  # every keymap item of the row gets the key
+                kmi.type = event.type
+                kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey = event.ctrl, event.shift, event.alt, event.oskey
+            context.window_manager.keyconfigs.update()  # so Blender sees the items as changed (restorable)
+        key_capture["items"] = ""
+        _redraw_all(context)
+        return {'FINISHED'}
+
+
 class KEYOPS_OT_dismiss_whats_new(bpy.types.Operator):
     bl_idname = "keyops.dismiss_whats_new"
     bl_label = "What's New"
@@ -75,9 +161,7 @@ class KEYOPS_OT_dismiss_whats_new(bpy.types.Operator):
 
 
     def execute(self, context):
-        p = get_keyops_prefs()
-        p.show_whats_new = False
-        p.welcome_version = F.WELCOME_VERSION
+        mark_seen(get_keyops_prefs())
         return {'FINISHED'}
 
 
@@ -127,7 +211,7 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
                 sp2.label(text=f"{pie.name} pie")
                 sub = sp2.row()
                 sub.active = False
-                sub.label(text="Pie Menus")
+                sub.label(text="Custom Menus")
                 n += 1
         if not n:
             sub = layout.column()
@@ -143,6 +227,9 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
 classes = (
     KEYOPS_OT_welcome,
     KEYOPS_OT_toggle_feature_card,
+    KEYOPS_OT_shortcut_group_toggle,
+    KEYOPS_OT_shortcut_group_restore,
+    KEYOPS_OT_shortcut_group_set_key,
     KEYOPS_OT_dismiss_whats_new,
     KEYOPS_OT_shortcut_cheatsheet,
 )

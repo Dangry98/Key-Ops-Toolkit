@@ -271,7 +271,7 @@ class NewToolkitPanel(bpy.types.Panel):
         layout = self.layout
         row = layout.row(align=True)
         row.operator("keyops.shortcut_cheatsheet", text="", icon='QUESTION', emboss=False)
-        row.operator("preferences.addon_show", text="", icon='PREFERENCES', emboss=False).module = get_addon_name()
+        row.operator("preferences.addon_show", text="Prefs", icon='PREFERENCES', emboss=True).module = get_addon_name()
 
     def draw(self, context):
         global show_object_panel

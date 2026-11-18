@@ -8,44 +8,6 @@ BLENDER_VERSION = bpy.app.version
 BLENDER_VERSION_MAJOR_POINT_MINOR = float(bpy.app.version_string[0:4].strip("."))
 
 
-def _addon_name_matches(module_name, addon_names):
-    if not module_name or not addon_names:
-        return False
-
-    module_name = str(module_name).strip().lower()
-    if not module_name:
-        return False
-
-    module_tail = module_name.split(".")[-1]
-    module_short = module_tail.split("_")[-1]
-
-    for addon_name in addon_names:
-        name = str(addon_name).strip().lower()
-        if not name:
-            continue
-
-        name_tail = name.split(".")[-1]
-        if (
-            module_name == name
-            or module_name.endswith(f".{name}")
-            or module_tail == name
-            or module_tail == name_tail
-            or module_short == name
-            or module_short == name_tail
-        ):
-            return True
-
-    return False
-
-
-def is_addon_enabled(*addon_names):
-    addons = getattr(getattr(bpy.context, "preferences", None), "addons", None)
-    if addons is None:
-        return False
-
-    return any(_addon_name_matches(module_name, addon_names) for module_name in addons.keys())
-
-
 def get_blender_key_icon(key_name):
     mapping = {
         'Ctrl': 'EVENT_CTRL',

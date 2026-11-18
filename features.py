@@ -21,11 +21,12 @@ PREFS_VERSION = 2
 WELCOME_VERSION = 1
 
 CATEGORIES = (
-    ("MODELING", "Modeling", "Modeling tools and mesh editing", "EDITMODE_HLT"),
+    ("MODELING", "Modeling", "Modeling tools, mesh editing and UVs", "EDITMODE_HLT"),
+    ("TOOLS", "Active Tools", "Tools that sit in the toolbar and work as the active tool", "TOOL_SETTINGS"),
     ("OBJECT", "Object & Modifiers", "Object operations, modifiers and materials", "OBJECT_DATAMODE"),
-    ("NAV", "Navigation & Selection", "Viewport navigation, pivot and selection", "ORIENTATION_GIMBAL"),
-    ("UV", "UV", "UV editing", "UV"),
-    ("PIPELINE", "Pipeline", "Export, baking, LODs and poly counts", "EXPORT"),
+    ("INDUSTRY", "Industry Standard", "Navigation, pivot, selection and delete the way other 3D apps do them",
+     "ORIENTATION_GIMBAL"),
+    ("GAME_ART", "Game Art", "Export, baking, LODs and poly counts", "EXPORT"),
     ("INTERFACE", "Interface", "Menus, outliner and legacy shortcuts", "WINDOW"),
 )
 
@@ -77,14 +78,14 @@ def _k(*a):
 
 FEATURES = (
     # ---------------- Modeling
-    Feature("merge_tool", "Merge Tool", "MODELING",
+    Feature("merge_tool", "Merge Tool", "TOOLS",
             "Maya-style target weld for vertices and edges, in the toolbar.",
             "modeling-tools.html#merge-tool", "tools.merge_tool", "register_merge_tool", "unregister_merge_tool"),
-    Feature("fast_loop_cut", "Fast Loop Cut", "MODELING",
+    Feature("fast_loop_cut", "Fast Loop Cut", "TOOLS",
             "Previews the loop under the cursor and cuts on click, with no slide step.",
             "modeling-tools.html#fast-loop-cut", "tools.fast_loop_cut", "register_fast_loop_cut", "unregister_fast_loop_cut",
             keys=(_k("Alt R", "Mesh", "Fast Loop Cut tool"),), plus=True),
-    Feature("cutter_tool", "Cutter Tool", "MODELING",
+    Feature("cutter_tool", "Cutter Tool", "TOOLS",
             "Draw a box, circle or ngon to boolean-cut objects. Toolbar tool.",
             "modeling-tools.html#cutter", "tools.cutter_tool", "register_cutter_tool", "unregister_cutter_tool"),
     Feature("fast_merge", "Merge / Connect", "MODELING",
@@ -93,7 +94,7 @@ FEATURES = (
             keys=(_k("1", "Mesh", "Fast merge", "Vertex select mode"),
                   _k("Shift 1", "Mesh", "Fast connect", "Extend vertex select"),
                   _k("Alt 1", "Mesh", "Merge menu")), keys_only=True),
-    Feature("auto_delete", "Auto Delete", "MODELING",
+    Feature("auto_delete", "Auto Delete", "INDUSTRY",
             "Delete in Edit Mode removes what you selected, with no menu.",
             "industry-standard.html#auto-delete", "operators.auto_delete", "register_auto_delete", "unregister_auto_delete",
             keys=(_k("Delete", "Mesh", "Context-aware delete", "Delete menu"),), keys_only=True),
@@ -127,50 +128,50 @@ FEATURES = (
             "toolkit.html#material-utils", "operators.material_index", "register_material_index", "unregister_material_index",
             keys=(_k("Alt M", "Mesh", "Material menu", "Split menu"),)),
 
-    # ---------------- Navigation & selection
-    Feature("maya_navigation", "Alt Navigation", "NAV",
+    # ---------------- Industry standard
+    Feature("maya_navigation", "Alt Navigation", "INDUSTRY",
             "Alt + left, middle and right mouse to orbit, pan and zoom.",
             "industry-standard.html#alt-navigation", "operators.maya_navigation", "register_maya_navigation", "unregister_maya_navigation",
             keys=(_k("Alt LMB drag", "3D View", "Orbit", "Loop select (Edit Mode)"),
                   _k("Alt MMB drag", "3D View / 2D editors", "Pan"),
                   _k("Alt RMB drag", "3D View / 2D editors", "Zoom")), keys_only=True),
-    Feature("maya_pivot", "Maya Pivot", "NAV",
+    Feature("maya_pivot", "Maya Pivot", "INDUSTRY",
             "Hold or tap D to edit the pivot in Object and Edit Mode.",
             "industry-standard.html#maya-pivot", "operators.maya_pivot", "register_maya_pivot", "unregister_maya_pivot",
             keys=(_k("D", "Object / Mesh", "Edit pivot", "Annotate"),), keys_only=True),
-    Feature("double_click_select_island", "Select Island", "NAV",
+    Feature("double_click_select_island", "Select Island", "INDUSTRY",
             "Double-click to select a linked island in mesh, UV and curves.",
             "industry-standard.html#select-island", "operators.double_click_select_island",
             "register_double_click_select_island", "unregister_double_click_select_island",
             keys=(_k("Double-click", "Mesh / UV / Curve", "Select island"),), keys_only=True),
-    Feature("toggle_retopology", "Retopology Toggle", "NAV",
+    Feature("toggle_retopology", "Retopology Toggle", "INDUSTRY",
             "Switches overlay, snapping and tool to a retopology setup and back.",
             "industry-standard.html#toggle-retopology", "operators.toggle_retopology", "register_toggle_retopology", "unregister_toggle_retopology",
             keys=(_k("5", "Mesh", "Toggle retopology"),), plus=True),
 
-    # ---------------- UV
-    Feature("uv_tools", "UV Tools", "UV",
+    # ---------------- UV (Modeling)
+    Feature("uv_tools", "UV Tools", "MODELING",
             "Smart UV Sync, UV Cut, unwrap in place, pack helpers and a UV editor panel.",
             "uv.html#uv-tools", "operators.uv_tools", "register_uv_tools", "unregister_uv_tools",
             keys=(_k("RMB", "UV Editor", "Smart UV sync", "Context menu"),
                   _k("X / Shift X", "UV Editor", "UV cut"),
                   _k("Alt 2", "Mesh", "Remove seam"))),
 
-    # ---------------- Pipeline
-    Feature("quick_export", "Quick Export", "PIPELINE",
+    # ---------------- Game art
+    Feature("quick_export", "Quick Export", "GAME_ART",
             "Exports the selection; low/high collections go to a bake folder.",
             "toolkit.html#quick-export", "operators.quick_export", "register_quick_export", "unregister_quick_export",
             keys=(_k("Ctrl E", "3D View", "Quick export", "Edge menu (Edit Mode)"),), keys_only=True),
-    Feature("quick_bake_name", "Quick Bake Name", "PIPELINE",
+    Feature("quick_bake_name", "Quick Bake Name", "GAME_ART",
             "Names high and low poly pairs for baking.",
             "toolkit.html#quick-bake-name", "operators.quick_bake_name", "register_quick_bake_name", "unregister_quick_bake_name"),
-    Feature("auto_lod", "Auto LOD", "PIPELINE",
+    Feature("auto_lod", "Auto LOD", "GAME_ART",
             "Generates decimated LOD chains from selected meshes.",
             "toolkit.html#auto-lod", "operators.auto_lod", "register_auto_lod", "unregister_auto_lod"),
-    Feature("cad_decimate", "CAD Decimate", "PIPELINE",
+    Feature("cad_decimate", "CAD Decimate", "GAME_ART",
             "Decimates meshes with millions of triangles.",
             "toolkit.html#cad-decimate", "operators.cad_decimate", "register_cad_decimate", "unregister_cad_decimate"),
-    Feature("polycount_list", "Polycount List", "PIPELINE",
+    Feature("polycount_list", "Polycount List", "GAME_ART",
             "Every object with its poly count and modifier evaluation time.",
             "toolkit.html#polycount-list", "operators.poly_count_list", "register_polycount_list", "unregister_polycount_list"),
 

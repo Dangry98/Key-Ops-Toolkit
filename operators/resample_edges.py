@@ -1,4 +1,4 @@
-"""Loop Resample: change how many points a selected edge chain or loop has, and respace them along its shape.
+"""Resample Edges: change how many points a selected edge chain or loop has, and respace them along its shape.
 
 Works on open chains (ends stay put) and closed loops, several at once, on wire edges or edges inside faces.
 Adding points splits the chain's edges, removing points merges them into their neighbours, so the edges
@@ -213,9 +213,9 @@ def _mesh_objects(context):
     return [o for o in (context.objects_in_mode_unique_data or [context.edit_object]) if o and o.type == 'MESH']
 
 
-class KEYOPS_OT_loop_resample(bpy.types.Operator):
-    bl_idname = "keyops.loop_resample"
-    bl_label = "Loop Resample"
+class KEYOPS_OT_resample_edges(bpy.types.Operator):
+    bl_idname = "keyops.resample_edges"
+    bl_label = "Resample Edges"
     bl_description = ("Change how many points the selected edge chains or loops have and space them along their shape.\n"
                       "Wheel: points. Shift Wheel: smoothing. Ctrl: even or original spacing. C: curve or straight")
     bl_options = {'REGISTER', 'UNDO'}
@@ -366,9 +366,9 @@ class KEYOPS_OT_loop_resample(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-def register_loop_resample():
-    bpy.utils.register_class(KEYOPS_OT_loop_resample)
+def register_resample_edges():
+    bpy.utils.register_class(KEYOPS_OT_resample_edges)
 
 
-def unregister_loop_resample():
-    bpy.utils.unregister_class(KEYOPS_OT_loop_resample)
+def unregister_resample_edges():
+    bpy.utils.unregister_class(KEYOPS_OT_resample_edges)

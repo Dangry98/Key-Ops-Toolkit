@@ -15,6 +15,8 @@ from .set_flow import register_set_flow, unregister_set_flow
 from .fast_mirror import register_fast_mirror, unregister_fast_mirror
 from ..resources.geometry_nodes_scripits import offset_uv_node_group, triplanar_uv_mapping_node_group, duplicate_linked_modifiers_node_group
 
+from .subobject_modes import draw_mode_row
+
 BLENDER_VERSION = bpy.app.version
 
 EDIT_MESH_TYPES = {"change_hard_bevel_width", "un_subdivide_cylinder", "subdivide_cylinder", "change_cylinder_segments_modifier", "set_vertex_color"}
@@ -979,8 +981,14 @@ class ToolkitPanel(bpy.types.Operator):
 def register_toolkit_panel():
     from .snap_to_floor import register_snap_to_floor
     from .parent_used_objects import register_parent_used_objects
-    from .loop_resample import register_loop_resample
-    register_loop_resample()
+    from .resample_edges import register_resample_edges
+    from .mesh_cleanup import register_mesh_cleanup
+    from .edge_trim import register_edge_trim
+    from .subobject_modes import register_sub_object_modes
+    register_sub_object_modes()
+    register_edge_trim()
+    register_resample_edges()
+    register_mesh_cleanup()
     register_set_flow()
     register_fast_mirror()
     register_snap_to_floor()
@@ -1006,8 +1014,14 @@ def register_toolkit_panel():
 def unregister_toolkit_panel():
     from .snap_to_floor import unregister_snap_to_floor
     from .parent_used_objects import unregister_parent_used_objects
-    from .loop_resample import unregister_loop_resample
-    unregister_loop_resample()
+    from .resample_edges import unregister_resample_edges
+    from .mesh_cleanup import unregister_mesh_cleanup
+    from .edge_trim import unregister_edge_trim
+    from .subobject_modes import unregister_sub_object_modes
+    unregister_sub_object_modes()
+    unregister_edge_trim()
+    unregister_resample_edges()
+    unregister_mesh_cleanup()
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     unregister_fast_mirror()
     unregister_set_flow()
@@ -1272,9 +1286,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.scale_x = 2.15
         row.scale_y = 1.5
         row.alignment = 'CENTER'
-        row.template_header_3D_mode()
-        row.operator("mesh.region_to_loop", text="", icon="MESH_CAPSULE")
-        row.operator("mesh.select_linked", text="", icon="SNAP_VOLUME")
+        # Vertex, Edge, Face plus the Border and Element modes, as one row of modes
+        draw_mode_row(row, context)
 
         # Selection
         row = box.row(align=False)
@@ -1357,7 +1370,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row = box.row(align=False)
             row.alignment = 'CENTER'
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
-            row.operator("keyops.loop_resample", text="Loop Resample")
+            row.operator("keyops.resample_edges", text="Resample Edges")
+            row.operator("keyops.edge_trim", text="Make Trim")
         # Edit edges
         if sel_mode[1]:
             row = box.row(align=False)
@@ -1371,7 +1385,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             row.operator("mesh.dissolve_limited", text="Limited Dissolve")
             row.operator("mesh.bridge_edge_loops", text="Bridge")
             row = box.row(align=False)
-            row.operator("keyops.loop_resample", text="Loop Resample")
+            row.operator("keyops.resample_edges", text="Resample Edges")
+            row.operator("keyops.edge_trim", text="Make Trim")
             # row.operator("keyops.seam_by_angle", text="Seam by Angle", icon="MOD_EDGESPLIT")
         # Edit polygons
         if sel_mode[2]:
@@ -1424,7 +1439,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.operator("mesh.subdivide", text="Subdivide")
         row.operator("mesh.unsubdivide", text="Un-Subdivide")
 
-        if BLENDER_VERSION >= (5, 0, 0):
+        if BLENDER_VERSION >= (5, 3, 0):  # these LoopTools-style tools are built into Blender from 5.3
             has_flatten = hasattr(bpy.ops.mesh, "flatten")
             has_circle = hasattr(bpy.ops.mesh, "circularize")
             has_relax = hasattr(bpy.ops.mesh, "relax_edge_loops")
@@ -1441,6 +1456,9 @@ def draw_edit_mode_panel(self, context, draw_header=False):
                 row.alignment = 'CENTER'
                 row.operator("mesh.relax_edge_loops", text="Relax")
 
+        row = box.row(align=False)
+        row.scale_y = 1.15
+        row.operator("keyops.mesh_cleanup", text="Clean Up", icon="BRUSH_DATA")
         row = box.row(align=False)
         row.operator("mesh.hide", text="Hide Selected")
         row.operator("mesh.reveal", text="Unhide All")
@@ -1602,6 +1620,9 @@ class ObjectModePanel(bpy.types.Panel):
         row = col.row(align=True)
         row.scale_y = 1.15
         row.operator("object.smart_apply_scale", text="Smart Apply Scale", icon = "FREEZE")
+        row = col.row(align=True)
+        row.scale_y = 1.15
+        row.operator("keyops.mesh_cleanup", text="Clean Up", icon="BRUSH_DATA")
         row = col.row(align=True)
         row.operator("keyops.toolkit_panel", text="Clear Custom Normals", icon="X").type = "clear_custom_normals"
 
