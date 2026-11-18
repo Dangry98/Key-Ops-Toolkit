@@ -1181,7 +1181,7 @@ class KEYOPS_OT_slot_set_kind(Operator):
 class KEYOPS_OT_pie_duplicate(Operator):
     bl_idname = "keyops.pie_duplicate"
     bl_label = "Duplicate"
-    bl_description = "Make a copy of the selected menu. The copy starts switched off"
+    bl_description = "Make a copy of the selected menu, without a key. Click No key in the list to give it one"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -1192,10 +1192,11 @@ class KEYOPS_OT_pie_duplicate(Operator):
         data = pies_to_data(prefs)["pies"][prefs.active_pie]
         data["uid"] = uuid.uuid4().hex[:12]
         data["name"] = src.name + " Copy"
-        data["enabled"] = False
-        data["preset"] = ""
+        # same on/off as the original, but no key, so the two never fight over one shortcut
+        data.update(key="NONE", ctrl=False, shift=False, alt=False, key_mod="NONE", preset="")
         pies_from_data(prefs, {"pies": [data]}, True)
         prefs.active_pie = len(prefs.pies) - 1
+        sync_keymaps()
         return {'FINISHED'}
 
 
