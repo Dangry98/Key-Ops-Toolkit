@@ -31,7 +31,7 @@ DIM = (0.62, 0.62, 0.65, 1.0)
 PRESETS = (
     ("ESSENTIALS", "Essentials", "Tools, panels and menus.", "No shortcuts.", "Recommended"),
     ("BLENDER_PLUS", "Blender+", "Shortcuts and pies only on", "keys Blender leaves free.", ""),
-    ("INDUSTRY", "Industry", "Maya-style keys: Alt navigation,", "D pivot, Delete. Like Key Ops 0.2.", ""),
+    ("INDUSTRY", "Industry", "Maya-style keys: Alt navigation,", "D pivot and Delete.", ""),
 )
 # Shown once after each update. Keep it to a handful of short, user-facing highlights.
 WHATS_NEW = (
