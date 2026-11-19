@@ -2327,6 +2327,132 @@ def draw_item_options(layout, prefs):
     layout.prop(prefs, "pie_customize", text="Advanced Options")
 
 
+# ---------------------------------------------------------------- right-click any button: add it to a menu
+_last_button = None  # (kind, idname, props, label) of the button the context menu was opened on
+
+
+def _context_path(context, ptr):
+    """The data path of `ptr` from the context (space_data.overlay, scene.tool_settings, ...), or None."""
+    for name in ("space_data", "tool_settings", "scene", "object", "view_layer", "world", "region_data",
+                 "area", "region", "preferences", "workspace", "window_manager"):
+        base = getattr(context, name, None)
+        if base is None:
+            continue
+        try:
+            if base == ptr:
+                return name
+            r, br = repr(ptr), repr(base)
+        except (ReferenceError, TypeError):
+            continue
+        if r.startswith(br + "."):
+            return name + r[len(br):]
+    return None
+
+
+def button_info(context):
+    """What the button under the mouse does, as a menu item: (kind, idname, options, label), or None.
+    An operator keeps the options it was set up with; a setting is found from the context."""
+    op = getattr(context, "button_operator", None)
+    if op is not None:
+        ident = op.bl_rna.identifier
+        if "_OT_" in ident:
+            mod, name = ident.split("_OT_", 1)
+            opts = []
+            for pr in op.bl_rna.properties:
+                pid = pr.identifier
+                if pid == "rna_type" or pr.type in {'POINTER', 'COLLECTION'} or not op.is_property_set(pid):
+                    continue
+                value = getattr(op, pid)
+                if not isinstance(value, (str, set, int, float, bool)) and hasattr(value, "__len__"):
+                    value = tuple(value)
+                opts.append(f"{pid}={value!r}")
+            return O, f"{mod.lower()}.{name}", ", ".join(opts), op.bl_rna.name
+    ptr, prop = getattr(context, "button_pointer", None), getattr(context, "button_prop", None)
+    if ptr is not None and prop is not None:
+        path = _context_path(context, ptr)
+        if path:
+            return P, f"{path}.{prop.identifier}", "", prop.name
+    return None
+
+
+def add_button_to(pie, info):
+    """Put the button (from button_info) in the menu: a pie's first empty slot, the end of anything else."""
+    kind, idname, opts, label = info
+    if pie.menu_type == "PIE":
+        item = next((it for it in pie.items if _is_empty(it)), None)
+        if item is None:
+            return None
+    else:
+        if len(pie.items) >= ITEM_LIMIT.get(pie.menu_type, 64):
+            return None
+        # an empty button waiting for an operator is filled; separators are left alone
+        empty = next((it for it in pie.items if it.kind == O and not it.idname.strip()), None)
+        item = empty or pie.items.add()
+    item.kind, item.idname, item.props, item.label, item.icon = kind, idname, opts, label, ""
+    _changed()
+    return item
+
+
+class KEYOPS_OT_add_button_to_menu(Operator):
+    bl_idname = "keyops.add_button_to_menu"
+    bl_label = "Add to Key Ops Menu"
+    bl_description = "Add this button to one of your Key Ops menus"
+    bl_options = {'INTERNAL'}
+    pie: StringProperty(options={'SKIP_SAVE'}) # type: ignore  # empty: a new popup menu
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        if _last_button is None:
+            return {'CANCELLED'}
+        if self.pie:
+            pie = find_pie(self.pie)
+        else:
+            pie = _new_pie(prefs)
+            pie.name, pie.menu_type = "My Menu", "MENU"
+            pie["enabled"] = False
+        if pie is None:
+            return {'CANCELLED'}
+        item = add_button_to(pie, _last_button)
+        if item is None:
+            self.report({'WARNING'}, f"{pie.name} is full")
+            return {'CANCELLED'}
+        prefs.active_pie = list(prefs.pies).index(pie)
+        prefs.pie_slot = list(pie.items).index(item)
+        sync_keymaps()
+        self.report({'INFO'}, f"Added {item.label or item.idname} to {pie.name}")
+        return {'FINISHED'}
+
+
+class KEYOPS_MT_add_to_menu(bpy.types.Menu):
+    bl_label = "Add to Key Ops Menu"
+    bl_idname = "KEYOPS_MT_add_to_menu"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("keyops.add_button_to_menu", text="New Popup Menu", icon='ADD').pie = ""
+        layout.separator()
+        for p in get_keyops_prefs().pies:
+            if p.menu_type in ("STICKY", "MODAL"):
+                continue
+            layout.operator("keyops.add_button_to_menu", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE')).pie = p.uid
+
+
+def _button_context_draw(self, context):
+    """Blender's right-click menu on any button: Add to Key Ops Menu."""
+    global _last_button
+    try:
+        _last_button = button_info(context)
+    except Exception:  # noqa: BLE001  never break Blender's own menu
+        _last_button = None
+    if _last_button is not None:
+        self.layout.separator()
+        self.layout.menu("KEYOPS_MT_add_to_menu", icon='ADD')
+
+
+def _button_context_menu():
+    return getattr(bpy.types, "UI_MT_button_context_menu", None) or getattr(bpy.types, "WM_MT_button_context", None)
+
+
 class KEYOPS_MT_item_add(bpy.types.Menu):
     """Add to the end of the menu: a button, label, separator, or a group to lay items out in."""
     bl_label = "Add"
@@ -3672,6 +3798,9 @@ def draw_pies_tab(prefs, context, layout):
     names = editor_names(pie)
     where = head.row(align=True)
     where.alignment = 'LEFT'  # small, like Try It
+    label = where.row()
+    label.active = False
+    label.label(text="Works In")
     ed = where.row(align=True)
     ed.ui_units_x = 6.5
     ed.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
@@ -4100,6 +4229,7 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_insert, KEYOPS_MT_item_insert, KEYOPS_OT_item_options, KEYOPS_OT_item_wrap, KEYOPS_MT_item_add,
+           KEYOPS_OT_add_button_to_menu, KEYOPS_MT_add_to_menu,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
@@ -4124,6 +4254,9 @@ def register():
     from . import marking_menu
     marking_menu.register()
     menu_canvas.register()
+    menu = _button_context_menu()
+    if menu is not None:
+        menu.append(_button_context_draw)
     bpy.types.WindowManager.keyops_export_menus = CollectionProperty(type=KeyOpsExportChoice)
     bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
     bpy.types.WindowManager.keyops_menu_filter = StringProperty(
@@ -4161,6 +4294,12 @@ def register():
 def unregister():
     restore_pie_feel()
     remove_user_panels()
+    menu = _button_context_menu()
+    if menu is not None:
+        try:
+            menu.remove(_button_context_draw)
+        except (ValueError, RuntimeError):
+            pass
     _remove_appends()
     from . import settings_store
     settings_store.flush_now()  # don't lose a change made just before disabling
