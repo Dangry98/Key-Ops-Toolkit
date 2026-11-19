@@ -250,8 +250,8 @@ def run():
     m = PM._new_pie(p)
     m.name, m.menu_type = "Look Test", "MENU"
     for kind, kw in ((PM.BOX, {"label": "Add"}),
-                     (PM.O, {"idname": "mesh.primitive_cube_add", "icon": "MESH_CUBE", "display": "ICON"}),
-                     (PM.O, {"idname": "mesh.primitive_uv_sphere_add", "icon": "MESH_UVSPHERE", "display": "ICON",
+                     (PM.O, {"idname": "mesh.primitive_cube_add", "icon": "MESH_CUBE", "label": ""}),
+                     (PM.O, {"idname": "mesh.primitive_uv_sphere_add", "icon": "MESH_UVSPHERE", "label": "",
                              "same_row": True}),
                      (PM.BOX_END, {}),
                      (PM.BREAK, {}),
@@ -265,9 +265,16 @@ def run():
     entry = next(e for e in saved["pies"] if e["name"] == "Look Test")
     PM.pies_from_data(p, saved, merge=False)
     m = next(x for x in p.pies if x.name == "Look Test")
-    check("button looks are saved and loaded", [it.display for it in m.items][:3] == ["AUTO", "ICON", "ICON"]
+    check("button looks are saved and loaded", [PM.item_text(it, "x") for it in m.items][1:3] == ["", ""]
           and m.items[2].same_row and m.items[5].alert and not m.items[5].emboss and m.items[5].height == 1.5
           and m.items[6].setting_style == "CHECKBOX", str(entry["items"][5]))
+    old = {"pies": [{"items": [{"kind": PM.O, "label": "Cube", "icon": "MESH_CUBE", "display": "ICON"},
+                               {"kind": PM.O, "label": "Sphere", "icon": "MESH_UVSPHERE", "display": "TEXT"},
+                               {"kind": PM.O, "label": "Cone", "icon": "MESH_CONE", "display": "AUTO"}]}]}
+    new = PM._migrate_pies_6_to_7(old)["pies"][0]["items"]
+    check("old Icon Only / Text Only items keep their look without the Show setting",
+          new[0]["label"] == "" and new[0]["icon"] == "MESH_CUBE" and new[1]["icon"] == "" and new[1]["label"] == "Sphere"
+          and new[2]["label"] == "Cone" and new[2]["icon"] == "MESH_CONE" and all("display" not in d for d in new), str(new))
     cols = PM.layout_groups(list(enumerate(m.items)))
     check("layout: two columns, a box holding one row of two buttons",
           len(cols) == 2 and cols[0][0][0] == "BOX" and len(cols[0][0][2]) == 1 and len(cols[0][0][2][0][1]) == 2

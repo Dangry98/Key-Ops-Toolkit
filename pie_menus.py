@@ -75,11 +75,6 @@ SCRIPT, PANEL_ITEM, LABEL = "SCRIPT", "POPOVER", "LABEL"
 BREAK = "BREAK"  # dialogs and panels: start the next column
 BOX, BOX_END = "BOX", "BOX_END"  # popup menus, dialogs and panels: a framed group of items
 LAYOUT_KINDS = (BREAK, BOX, BOX_END)  # items that shape the layout instead of being buttons
-DISPLAYS = (
-    ("AUTO", "Icon and Text", "Show the icon (if it has one) and the text", 'NONE', 0),
-    ("ICON", "Icon Only", "Only the icon (the text shows on hover). Items without an icon keep their text", 'NONE', 1),
-    ("TEXT", "Text Only", "Only the text, no icon", 'NONE', 2),
-)
 SETTING_STYLES = (
     ("AUTO", "Automatic", "A button in pies, a checkbox or field in menus, dialogs and panels"),
     ("BUTTON", "Button", "A toggle button that lights up when it's on"),
@@ -385,8 +380,6 @@ class KeyOpsPieItem(PropertyGroup):
         (BREAK, "Next Column", "Popup menus, dialogs and panels: the items after this go in the next column"),
         (BOX, "Box", "Popup menus, dialogs and panels: the items after this go in a box, with the label as its heading"),
         (BOX_END, "End Box", "Ends the box, the items after this are outside it again")), update=_changed) # type: ignore
-    display: EnumProperty(name="Show", items=DISPLAYS, update=_changed,
-                          description="Draw the button with icon and text, the icon only or the text only") # type: ignore
     emboss: BoolProperty(name="Frame", default=True, update=_changed,
                          description="Draw the button with its frame. Off: flat, only the icon and text") # type: ignore
     height: FloatProperty(name="Height", default=1.0, min=0.5, max=4.0, step=10, precision=1, update=_changed,
@@ -403,7 +396,8 @@ class KeyOpsPieItem(PropertyGroup):
                            update=_changed) # type: ignore
     steps: CollectionProperty(type=KeyOpsMacroStep) # type: ignore
     extra: StringProperty(options={'HIDDEN'}) # type: ignore  # fields from newer versions, kept as JSON
-    label: StringProperty(name="Label", update=_changed) # type: ignore
+    label: StringProperty(name="Label", update=_changed,
+                          description="The button's text. Leave it empty to show only the icon") # type: ignore
     icon: StringProperty(name="Icon", description="Blender icon name, e.g. MESH_CUBE. Leave empty for no icon", update=_changed) # type: ignore
     idname: StringProperty(name="Command", description="Operator id, menu id or setting path", update=_changed) # type: ignore
     props: StringProperty(name="Options", description="Operator options, e.g. type='WELD', segments=4", update=_changed) # type: ignore
@@ -527,9 +521,9 @@ PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", 
               "key_event", "only_mode", "columns", "dialog_mode", "stack_reset", "key_mod", "condition", "radius", "threshold",
               "append_to", "append_as", "tags")
 ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
-               "display", "emboss", "height", "width", "same_row", "alert", "setting_style")
+               "emboss", "height", "width", "same_row", "alert", "setting_style")
 STEP_FIELDS = ("idname", "props", "interactive")
-PIE_SCHEMA = 6  # bump when the saved layout changes, and add a migration below
+PIE_SCHEMA = 7  # bump when the saved layout changes, and add a migration below
 
 
 def _extra(obj):
@@ -652,8 +646,24 @@ def _migrate_pies_5_to_6(data):
     return data
 
 
+def _migrate_pies_6_to_7(data):
+    """Schema 7 dropped the Show setting (icon and text / icon only / text only): an item with an icon and no
+    label shows only its icon, an item without an icon only its text. Icon-only items lose their label,
+    text-only items their icon, so they look the same as before."""
+    for p in data.get("pies", []):
+        for it in p.get("items", []):
+            if not isinstance(it, dict):
+                continue
+            show = it.pop("display", "AUTO")
+            if show == "ICON" and it.get("icon"):
+                it["label"] = ""
+            elif show == "TEXT":
+                it["icon"] = ""
+    return data
+
+
 PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3, 3: _migrate_pies_3_to_4, 4: _migrate_pies_4_to_5,
-                  5: _migrate_pies_5_to_6}
+                  5: _migrate_pies_5_to_6, 6: _migrate_pies_6_to_7}
 
 
 def load_from_disk():
@@ -866,15 +876,15 @@ def _styled(layout, item):
 
 
 def item_text(item, default):
-    """The text a button shows, following its Show setting (icon-only keeps text when there's no icon)."""
-    if getattr(item, "display", "AUTO") == "ICON" and item.icon:
+    """The text a button shows: its label. No label and an icon: only the icon. No label and no icon: the
+    default (the action's own name), so a button is never blank."""
+    if not item.label.strip() and item.icon:
         return ""
     return default
 
 
 def item_icon(item, default='NONE'):
-    if getattr(item, "display", "AUTO") == "TEXT":
-        return 'NONE'
+    """The button's icon. No icon picked: none (or the default some kinds of item bring along)."""
     return _icon(item.icon) if item.icon else default
 
 
@@ -2671,8 +2681,6 @@ class KEYOPS_PT_icon_palette(bpy.types.Panel):
         else:
             search.prop(wm, "keyops_icon_filter", text="", icon='VIEWZOOM')
         words = [w for w in wm.keyops_icon_filter.strip().split() if w]
-        if item is not None and not _is_empty(item):  # how the button shows its icon, next to the icon itself
-            layout.row(align=True).prop(item, "display", expand=True)
 
         tabs = layout.row(align=True)
         tabs.scale_y = 1.1
@@ -2872,8 +2880,8 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
         else:
             r.label(text=item_text(item, text), icon=icon)
         return
-    icon_only = styled and item.display == "ICON" and item.icon
-    no_icon = styled and item.display == "TEXT"
+    icon_only = styled and not item.label.strip() and item.icon
+    no_icon = False
     framed = selected or not styled or item.emboss
     item_box = cell.box() if framed and not selected else cell.column()
     r = item_box.row(align=True)
