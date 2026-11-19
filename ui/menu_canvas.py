@@ -25,8 +25,11 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 
-MARK_TOP = (1.0, 0.0, 1.0)      # top marker swatch
-MARK_BOTTOM = (0.0, 1.0, 1.0)   # bottom marker swatch
+# marker swatch colours (top, bottom) of each preview; colours nothing else in the preferences uses
+MARKS = {
+    "MAIN": ((1.0, 0.0, 1.0), (0.0, 1.0, 1.0)),    # the menu being edited
+    "STYLE": ((1.0, 0.5, 0.0), (0.5, 1.0, 0.0)),   # the pie style preview in Pie Menu Settings
+}
 MARK_SCALE = 0.3                # marker rows are this many rows tall
 ICONS_PER_ROW = 16
 DRAG_START = 5                  # pixels the mouse moves with the button down before it's a drag
@@ -708,13 +711,13 @@ def _arc_dir(sc, mouse):
     return math.atan2(dy, dx)
 
 
-def draw_scene(sc, st, prefs):
+def draw_scene(sc, st, prefs, selection=True):
     th = _theme()
     s, u = ui_scale(), unit()
     hover = st.hover
     drag = st.drag if st.drag and st.drag.get("active") else None
     src = drag["src"] if drag else None
-    selected = prefs.pie_slot if prefs.pie_customize else None
+    selected = prefs.pie_slot if prefs.pie_customize and selection else None
     accent = _rgba(th.wcol_menu_item.inner_sel)
     _font()
     if sc.kind == "BLENDER_PIE":
@@ -1095,7 +1098,11 @@ def _cur_pie():
 # ---------------------------------------------------------------- per region state
 
 class Canvas:
-    def __init__(self):
+    def __init__(self, cid="MAIN"):
+        self.cid = cid
+        self.marks = MARKS[cid]
+        self.interactive = cid == "MAIN"
+        self.last_w = None        # the area's width last time it was found (the style preview fits into it)
         self.rect = None          # (x0, y0, x1, y1) in region pixels, from the last draw
         self.height = None        # pixels from the bottom of the top marker to the top of the bottom marker
         self.x_hint = None
@@ -1114,7 +1121,7 @@ class Canvas:
         self.press = None
 
 
-_canvases = {}       # region pointer -> Canvas
+_canvases = {}       # (region pointer, preview id) -> Canvas
 _running = set()     # window pointers with a running canvas modal
 _last_exit = {}      # window pointer -> time its modal ended
 _handle = None
@@ -1122,12 +1129,42 @@ _stop = False
 _debug_no_paint = False  # tests: show the raw layout under the preview
 
 
-def _canvas(region):
-    key = region.as_pointer()
+def _canvas(region, cid="MAIN"):
+    key = (region.as_pointer(), cid)
     st = _canvases.get(key)
     if st is None:
-        st = _canvases[key] = Canvas()
+        st = _canvases[key] = Canvas(cid)
     return st
+
+
+def _region_canvases(region):
+    rp = region.as_pointer()
+    return [c for (r, _cid), c in _canvases.items() if r == rp]
+
+
+def _reserve(layout, context, st, need):
+    """The layout side of a preview: markers, the icon row(s) and empty space, need pixels tall."""
+    u = unit()
+    wm = context.window_manager
+    col = layout.column(align=True)
+    top = col.row(align=True)
+    top.scale_y = MARK_SCALE
+    top.prop(wm, f"keyops_canvas_{st.cid.lower()}_top", text="")
+    rows = (len(st.icons) + ICONS_PER_ROW - 1) // ICONS_PER_ROW
+    for r in range(rows):
+        row = col.row(align=True)
+        row.alignment = 'LEFT'
+        for name in st.icons[r * ICONS_PER_ROW:(r + 1) * ICONS_PER_ROW]:
+            row.label(text="", icon=name)
+    rest = max(u, need - rows * u)
+    # the area's height when only one marker is on screen (both seen: measured instead)
+    st.height = int(rows * u + rest + pixel())
+    body = col.row(align=True)
+    body.scale_y = rest / u
+    body.label(text="")
+    bottom = col.row(align=True)
+    bottom.scale_y = MARK_SCALE
+    bottom.prop(wm, f"keyops_canvas_{st.cid.lower()}_bottom", text="")
 
 
 # ---------------------------------------------------------------- the layout side
@@ -1147,26 +1184,44 @@ def draw_layout(layout, context, pie, prefs):
         need = int(sc.h + 2.2 * u)
     except Exception:  # noqa: BLE001  never break the preferences over the preview
         need = 12 * u
-    wm = context.window_manager
-    col = layout.column(align=True)
-    top = col.row(align=True)
-    top.scale_y = MARK_SCALE
-    top.prop(wm, "keyops_canvas_mark_top", text="")
-    rows = (len(st.icons) + ICONS_PER_ROW - 1) // ICONS_PER_ROW
-    for r in range(rows):
-        row = col.row(align=True)
-        row.alignment = 'LEFT'
-        for name in st.icons[r * ICONS_PER_ROW:(r + 1) * ICONS_PER_ROW]:
-            row.label(text="", icon=name)
-    rest = max(u, need - rows * u)
-    # the area's height when only one marker is on screen (both seen: measured instead)
-    st.height = int(rows * u + rest + pixel())
-    body = col.row(align=True)
-    body.scale_y = rest / u
-    body.label(text="")
-    bottom = col.row(align=True)
-    bottom.scale_y = MARK_SCALE
-    bottom.prop(wm, "keyops_canvas_mark_bottom", text="")
+    _reserve(layout, context, st, need)
+
+
+def style_pie(prefs):
+    """The pie the style preview shows: the menu being edited if it's a pie, else the first pie."""
+    pies = list(getattr(prefs, "pies", ()) or ())
+    if not pies:
+        return None
+    cur = pies[max(0, min(prefs.active_pie, len(pies) - 1))]
+    if cur.menu_type == "PIE":
+        return cur
+    return next((p for p in pies if p.menu_type == "PIE"), None)
+
+
+def build_style(pie, prefs):
+    return build_marking(pie) if getattr(prefs, "pie_style", "BLENDER") == "MARKING" else build_blender_pie(pie)
+
+
+def draw_style_layout(layout, context, prefs):
+    """A live preview of the chosen Pie Style (Blender pie, or the marking menu with its look), drawn small
+    enough to fit. It follows the theme and the marking menu look as they change."""
+    region = context.region
+    pie = style_pie(prefs)
+    if region is None or pie is None:
+        return
+    st = _canvas(region, "STYLE")
+    st.wanted = True
+    st.misses = 0
+    st.icons = icons_needed(pie) if getattr(prefs, "pie_style", "BLENDER") != "MARKING" else []
+    u = unit()
+    try:
+        sc = build_style(pie, prefs)
+        width = st.last_w or region.width * 0.2
+        k = min(1.0, (width - u) / max(sc.w, 1))
+        need = int(sc.h * k + 1.0 * u)
+    except Exception:  # noqa: BLE001
+        need = 8 * u
+    _reserve(layout, context, st, need)
 
 
 # ---------------------------------------------------------------- finding the area on screen
@@ -1208,15 +1263,15 @@ def _locate(st, region):
         if not 0 <= x < w:
             continue
         col = _read_col(fb, vp, x, h)
-        top = _runs(col, MARK_TOP)
-        bottom = _runs(col, MARK_BOTTOM)
+        top = _runs(col, st.marks[0])
+        bottom = _runs(col, st.marks[1])
         if top or bottom:
             break
     if not (top or bottom):
         return None
     y_mid = (top[0] + top[1]) // 2 if top else (bottom[0] + bottom[1]) // 2
     row = _read_row(fb, vp, y_mid, w)
-    xr = _runs(row, MARK_TOP if top else MARK_BOTTOM)
+    xr = _runs(row, st.marks[0] if top else st.marks[1])
     if xr is None:
         return None
     x0, x1 = xr[0] - 1, xr[1] + 1
@@ -1254,9 +1309,9 @@ def _draw_callback():
     except Exception:  # noqa: BLE001  a broken preview must never spam or break the preferences
         import traceback
         traceback.print_exc()
-        st = _canvases.get(bpy.context.region.as_pointer()) if bpy.context.region else None
-        if st is not None:
-            st.wanted = False
+        if bpy.context.region:
+            for st in _region_canvases(bpy.context.region):
+                st.wanted = False
 
 
 def _draw():
@@ -1264,9 +1319,12 @@ def _draw():
     region = context.region
     if region is None:
         return
-    st = _canvases.get(region.as_pointer())
-    if st is None or not st.wanted:
-        return
+    for st in _region_canvases(region):
+        if st.wanted:
+            _draw_one(context, region, st)
+
+
+def _draw_one(context, region, st):
     found = _locate(st, region)
     if found is None:
         st.misses += 1
@@ -1293,11 +1351,19 @@ def _draw():
     if want and top:
         _capture_icons(fb, vp, list(st.icons), x0, y1, u, bg)
     st.rect = (x0, y0, x1, y1)
+    st.last_w = x1 - x0
     st.window_ptr = context.window.as_pointer() if context.window else 0
     # paint over the markers, the icon row and the area
     gpu.state.blend_set('ALPHA')
     pad = mt + 2
     _rect(x0 - 1, y0 - pad, x1 - x0 + 2, y1 - y0 + 2 * pad, (bg[0], bg[1], bg[2], 1.0))
+    if st.cid == "STYLE":
+        gpu.state.scissor_test_set(True)
+        gpu.state.scissor_set(int(vp[0] + x0), int(vp[1] + y0 - pad), int(x1 - x0), int(y1 - y0 + 2 * pad))
+        _draw_style(st, x0, y0, x1, y1)
+        gpu.state.scissor_test_set(False)
+        gpu.state.blend_set('NONE')
+        return
     prefs = _prefs()
     pie = _cur_pie()
     st.pie = pie
@@ -1322,10 +1388,36 @@ def _draw():
     gpu.state.blend_set('NONE')
     # make sure the modal that handles clicks and drags is running for this window
     wp = st.window_ptr
-    if wp and wp not in _running and time.time() - _last_exit.get(wp, 0.0) > 0.3 and not _stop:
+    if st.interactive and wp and wp not in _running and time.time() - _last_exit.get(wp, 0.0) > 0.3 and not _stop:
         _running.add(wp)  # claimed now, so only one start is scheduled
         rp = region.as_pointer()
         bpy.app.timers.register(lambda: _start_modal(wp, rp), first_interval=0.01)
+
+
+def _draw_style(st, x0, y0, x1, y1):
+    """The style preview: the pie in the chosen style with one item highlighted, so the highlight, the
+    mark line and the centre show too. Scaled down (never up) to fit the area."""
+    prefs = _prefs()
+    pie = style_pie(prefs)
+    if pie is None:
+        return
+    st.pie = pie
+    sc = build_style(pie, prefs)
+    u = unit()
+    k = min(1.0, (x1 - x0 - u) / max(sc.w, 1), (y1 - y0 - 0.5 * u) / max(sc.h, 1))
+    # highlight the right-hand item (or the first one there is), as if the mouse were on it
+    PM = _pm()
+    filled = [e for e in sc.els if e.kind == "item"]
+    target = next((e for e in filled if e.index < len(PM.ORDER) and PM.ORDER[e.index] == "E"), filled[0] if filled else None)
+    st.hover = target.index if target is not None else None
+    st.mouse = (target.x + target.w * 0.35, target.y + target.h / 2) if target is not None else None
+    st.drag = st.drop = None
+    st.show_remove = False
+    gpu.matrix.push()
+    gpu.matrix.translate((round((x0 + x1) / 2), round((y0 + y1) / 2)))
+    gpu.matrix.scale((k, k))
+    draw_scene(sc, st, prefs, selection=False)
+    gpu.matrix.pop()
 
 
 def _find(window_ptr, region_ptr):
@@ -1500,7 +1592,7 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             for reg in area.regions:
                 if reg.type != 'WINDOW':
                     continue
-                st = _canvases.get(reg.as_pointer())
+                st = _canvases.get((reg.as_pointer(), "MAIN"))
                 if st is None or st.rect is None:
                     continue
                 mx, my = event.mouse_x - reg.x, event.mouse_y - reg.y
@@ -1527,7 +1619,7 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             self._end(context)
             return {'FINISHED', 'PASS_THROUGH'}
         # still on screen somewhere in this window?
-        if not any(c.rect is not None and c.window_ptr == self.window_ptr for c in _canvases.values()):
+        if not any(c.rect is not None and c.interactive and c.window_ptr == self.window_ptr for c in _canvases.values()):
             self._end(context)
             return {'FINISHED', 'PASS_THROUGH'}
         if event.type.startswith('TIMER') or event.type == 'NONE':
@@ -1634,16 +1726,23 @@ def _redraw_prefs(context):
 
 # ---------------------------------------------------------------- registration
 
+def _fixed(colour):
+    def get(self):
+        return colour
+    return get
+
+
 def register():
     global _handle, _stop
     _stop = False
     bpy.utils.register_class(KEYOPS_OT_menu_canvas)
     wm = bpy.types.WindowManager
     # fixed colours: a click on a marker can't change them (set does nothing)
-    wm.keyops_canvas_mark_top = bpy.props.FloatVectorProperty(
-        subtype='COLOR_GAMMA', size=3, get=lambda self: MARK_TOP, set=lambda self, value: None, options={'SKIP_SAVE'})
-    wm.keyops_canvas_mark_bottom = bpy.props.FloatVectorProperty(
-        subtype='COLOR_GAMMA', size=3, get=lambda self: MARK_BOTTOM, set=lambda self, value: None, options={'SKIP_SAVE'})
+    for cid, (top, bottom) in MARKS.items():
+        for end, colour in (("top", top), ("bottom", bottom)):
+            setattr(wm, f"keyops_canvas_{cid.lower()}_{end}", bpy.props.FloatVectorProperty(
+                subtype='COLOR_GAMMA', size=3, get=_fixed(colour), set=lambda self, value: None,
+                options={'SKIP_SAVE'}))
     _handle = bpy.types.SpacePreferences.draw_handler_add(_draw_callback, (), 'WINDOW', 'POST_PIXEL')
 
 
@@ -1661,7 +1760,7 @@ def unregister():
     _icons.tex.clear()
     _icons.key = None
     wm = bpy.types.WindowManager
-    for name in ("keyops_canvas_mark_top", "keyops_canvas_mark_bottom"):
+    for name in [f"keyops_canvas_{cid.lower()}_{end}" for cid in MARKS for end in ("top", "bottom")]:
         if hasattr(wm, name):
             delattr(wm, name)
     bpy.utils.unregister_class(KEYOPS_OT_menu_canvas)
