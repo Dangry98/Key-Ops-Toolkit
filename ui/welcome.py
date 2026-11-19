@@ -204,7 +204,8 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
                 sp = col.split(factor=0.3)
                 sp.label(text=key)
                 sp2 = sp.split(factor=0.62)
-                sp2.label(text=kmi.name or kmi.idname)
+                from ..addon_preferences import shortcut_name
+                sp2.label(text=shortcut_name(kmi))
                 sub = sp2.row()
                 sub.active = False
                 sub.label(text=f.name)
