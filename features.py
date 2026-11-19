@@ -215,7 +215,7 @@ def prefs():
 
 def visible_features(p=None):
     p = p or prefs()
-    return [f for f in FEATURES if f.available() and (not f.experimental or p.experimental)]
+    return [f for f in FEATURES if f.available() and not f.experimental]
 
 
 # ---------------------------------------------------------------- key tracking

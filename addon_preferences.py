@@ -177,7 +177,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                             default=MM.MARK_LINE) # type: ignore
     marking_center_color: FloatVectorProperty(name="Centre", subtype='COLOR_GAMMA', size=4, min=0.0, max=1.0,
                                               default=MM.MARK_RING) # type: ignore
-    marking_use_theme: BoolProperty(name="Use Theme Colours", default=True,
+    marking_use_theme: BoolProperty(name="Use Blender Theme Colors", default=True,
                                     description="Take colours and corner rounding from your Blender theme's pie menus") # type: ignore
     marking_antialias: BoolProperty(name="Anti-aliasing", default=True,
                                     description="Smooth lines and box edges. Off draws them crisp, pixel by pixel") # type: ignore
@@ -263,7 +263,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         default="HOLD") # type: ignore
     maya_pivot_show_gizmo: BoolProperty(name="Show Gizmo", default=True) # type: ignore
     maya_pivot_in_edit_mode: BoolProperty(name="In Edit Mode", default=True) # type: ignore
-    maya_pivot_experimental: BoolProperty(name="Experimental", default=False) # type: ignore
+    maya_pivot_experimental: BoolProperty(name="Edit Mode Pivot", default=False, description="Also edit the pivot with D in Edit Mode") # type: ignore
     fast_merge_merge_options: EnumProperty( 
         name="Options",
         items=[
@@ -358,8 +358,6 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         col = left.column(align=True)
         col.scale_y = 1.35
         col.prop(self, "ui_category_view", expand=True)  # All and the categories, text on the left
-        left.separator()
-        left.prop(self, "experimental", text="Show Experimental")
 
         right = split.column()
         row = right.row(align=True)

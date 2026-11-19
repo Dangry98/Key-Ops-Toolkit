@@ -52,11 +52,10 @@ def _maya_pivot(p, col):
     row = col.row()
     row.prop(p, "maya_pivot_behavior")
     row.prop(p, "maya_pivot_show_gizmo")
-    if p.experimental:
-        row = col.row()
-        row.prop(p, "maya_pivot_experimental")
-        if p.maya_pivot_experimental:
-            row.prop(p, "maya_pivot_in_edit_mode")
+    row = col.row()
+    row.prop(p, "maya_pivot_experimental")
+    if p.maya_pivot_experimental:
+        row.prop(p, "maya_pivot_in_edit_mode")
 
 
 def _fast_merge(p, col):

@@ -1282,7 +1282,7 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
                 tcol = (1.0, 0.35, 0.3, alpha)
         _button_content(el, _tcol(el, tcol), u, s, align="LEFT")  # a pie's buttons keep their text on the left
         return
-    inner = _rgba(wcol.inner_sel if el.depress else (wcol.item if hovered else wcol.inner), alpha)
+    inner = _rgba(wcol.inner_sel if (el.depress or hovered) else wcol.inner, alpha)  # a pie's hovered item is active
     if alert:
         inner = (0.47, 0.07, 0.07, inner[3])
     widget_box(el.x, el.y, el.w, el.h, r, inner, _rgba(wcol.outline, alpha), wcol=wcol)
@@ -1479,8 +1479,6 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
             _panel_item(el, th, u, s, hovered, alpha)
         if selected is not None and el.index == selected:
             _selection(el, accent, s, u, 0.2 * u)
-        if hovered and st.show_remove and el.kind in ("item", "empty", "sep", "label", "boxhead", "marker"):
-            _draw_remove(el, th, u, s, st)
     if sc.show_markers or selected is not None:
         _draw_layout_marks(sc, th, s, u, hover, selected, accent)
 
@@ -1650,21 +1648,21 @@ def _panel_item(el, th, u, s, hovered, alpha):
         if fill_w > 0.5:
             rr = _corner_radii(ns.roundness * u * 0.5, j | ({"R"} if el.frac < 0.999 else set()))
             _round_fill(bx0, y, fill_w, h, rr, _rgba(ns.item, alpha))
-        tcol = _rgba(ns.text_sel if hovered else ns.text, alpha)
+        tcol = _rgba(ns.text, alpha)
         _name_value(el, tcol, u)
         return
     if style == "NUMBER":
         num = th.wcol_num
-        widget_box(bx0, y, bw, h, num.roundness * u * 0.5, _rgba(num.item if hovered else num.inner, alpha),
+        widget_box(bx0, y, bw, h, num.roundness * u * 0.5, _hover(_rgba(num.inner, alpha), hovered),
                    _rgba(num.outline, alpha), join=j, wcol=num, emboss=True)
-        tcol = _rgba(num.text_sel if hovered else num.text, alpha)
+        tcol = _rgba(num.text, alpha)
         _name_value(el, tcol, u, arrows=True)
         return
     if style in ("DROPDOWN", "TEXT"):
         wc = th.wcol_menu if style == "DROPDOWN" else th.wcol_text
         widget_box(bx0, y, bw, h, wc.roundness * u * 0.5, _rgba(wc.inner, alpha), _rgba(wc.outline, alpha), join=j,
                    wcol=wc, emboss=True)
-        tcol = _tcol(el, _rgba(wc.text_sel if hovered else wc.text, alpha))
+        tcol = _tcol(el, _rgba(wc.text, alpha))
         shown = el.value if el.value else el.text  # a choice setting shows its current choice, a popover its name
         part = El(el.index, el.x, el.y, el.w - (0.8 * u if style == "DROPDOWN" else 0), el.h, text=shown,
                   icon=el.icon)
@@ -1682,33 +1680,26 @@ def _panel_item(el, th, u, s, hovered, alpha):
         if hovered or el.depress:
             _round_fill(bx0, y, bw, h, tool.roundness * u * 0.5, _rgba(tool.inner_sel if el.depress else tool.inner,
                                                                            0.6 * alpha))
-        tcol = _rgba(tool.text_sel if hovered else tool.text, alpha)
+        tcol = _rgba(tool.text, alpha)
         if alert:
             tcol = (1.0, 0.35, 0.3, alpha)
     else:
-        base = tool.inner_sel if el.depress else (tool.item if hovered else tool.inner)
+        base = tool.inner_sel if el.depress else tool.inner
         inner = _rgba(base, alpha) if not alert else (0.47, 0.07, 0.07, alpha)
-        widget_box(bx0, y, bw, h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), join=j, wcol=tool,
-                   emboss=True)
-        tcol = _rgba(tool.text_sel if (hovered or el.depress) else tool.text, alpha)
+        widget_box(bx0, y, bw, h, tool.roundness * u * 0.5, _hover(inner, hovered and not el.depress),
+                   _rgba(tool.outline, alpha), join=j, wcol=tool, emboss=True)
+        tcol = _rgba(tool.text_sel if el.depress else tool.text, alpha)
     _button_content(el, _tcol(el, tcol), u, s, align="CENTER")
 
 
-def _remove_rect(el, u):
-    size = 0.8 * u
-    return (el.x + el.w - size - 0.1 * u, el.y + (el.h - size) / 2, size, size)
-
-
-def _draw_remove(el, th, u, s, st):
-    x, y, w, h = _remove_rect(el, u)
-    over = st.mouse is not None and x <= st.mouse[0] <= x + w and y <= st.mouse[1] <= y + h
-    if over:
-        _round_fill(x, y, w, h, w / 2, (0.75, 0.2, 0.2, 0.9))
-    col = (1, 1, 1, 0.95) if over else _rgba(th.wcol_menu_item.text, 0.6)
-    c = w * 0.22
-    mx, my = x + w / 2, y + h / 2
-    _line([(mx - c, my - c), (mx + c, my + c)], col, 1.5 * s)
-    _line([(mx - c, my + c), (mx + c, my - c)], col, 1.5 * s)
+def _hover(rgba, on):
+    """Blender's hover look: the widget's colour a little lighter (lightness x 1.15)."""
+    if not on:
+        return rgba
+    import colorsys
+    h, l, sat = colorsys.rgb_to_hls(*rgba[:3])
+    r, g, b = colorsys.hls_to_rgb(h, min(1.0, l * 1.15 + 0.02), sat)
+    return (r, g, b, rgba[3])
 
 
 def _draw_drop(sc, st, accent, s, u):
@@ -1724,7 +1715,7 @@ def _draw_drop(sc, st, accent, s, u):
     if el is None:
         return
     if axis == "x":  # a line on the item's left or right edge
-        x = el.x if kind == "before" else el.x + el.w
+        x = el.x if kind.endswith("before") else el.x + el.w
         _rect(x - 1 * s, el.y, 2 * s, el.h, accent)
         _round_fill(x - 3 * s, el.y + el.h - 3 * s, 6 * s, 6 * s, 3 * s, accent)
         return
@@ -2110,6 +2101,14 @@ def _drop_target(st, mx, my):
                  and (abs(e.x + e.w - best.x) < 8 or abs(best.x + best.w - e.x) < 8) for e in cands)
     if beside:
         return ("before" if mx < best.x + best.w / 2 else "after", best, "x")
+    # near the left or right end of a stacked item: put it beside that one, on the same row
+    edge = min(best.w * 0.25, 3 * unit())
+    if best.kind in ("item", "label") and _pm().items_can_share_row(_cur_pie(), best.index) \
+            and _pm().pie_items_kind(_cur_pie(), src) not in ("BOX", "BOX_END", "BREAK"):
+        if mx < best.x + edge:
+            return ("beside_before", best, "x")
+        if mx > best.x + best.w - edge:
+            return ("beside_after", best, "x")
     before = my > best.y + best.h / 2
     return ("before" if before else "after", best, "y")
 
@@ -2127,9 +2126,12 @@ def _do_drop(st, src):
         PM._item_from_data(pie.items[dst], a)
         prefs.pie_slot = dst
     else:
-        kind, el, _axis = st.drop
+        kind, el, axis = st.drop
         items = list(pie.items)
-        if kind == "before":
+        moved_row = items[src].same_row
+        if src + 1 < len(items) and items[src + 1].same_row and not moved_row:
+            items[src + 1].same_row = False  # the item after it starts the row it leaves
+        if kind in ("before", "beside_before"):
             pos = el.index
         elif items[el.index].kind == PM.BOX and el.kind in ("grouptag", "boxhead"):
             pos = (PM.group_end(items, el.index) or el.index) + 1  # after the whole group
@@ -2149,6 +2151,14 @@ def _do_drop(st, src):
             for k in range(n):
                 pie.items.move(src + k, pos + k)
             prefs.pie_slot = pos
+        new = pie.items[prefs.pie_slot]
+        if kind == "beside_after":  # on the row of the one before it
+            new.same_row = True
+        elif kind == "beside_before":  # it takes the row's start, the other one sits beside it
+            other = pie.items[prefs.pie_slot + 1]
+            new.same_row, other.same_row = other.same_row, True
+        elif axis == "y" and n == 1:  # dropped above or below: on a line of its own
+            new.same_row = False
     PM._changed()
 
 
@@ -2159,9 +2169,7 @@ def _click(context, st, el, zone, win, area, region):
         # a second click on the same item (the first one only selects it) picks its action
         was_selected = prefs.pie_slot == el.index and st.picked == (st.pie.uid if st.pie else "", el.index)
         st.picked = (st.pie.uid if st.pie else "", el.index)
-        if zone == "remove":
-            bpy.ops.keyops.menu_item_remove(slot=el.index)
-        elif zone == "icon" and el.kind == "item":  # the icon spot: straight to the icons
+        if zone == "icon" and el.kind == "item":  # the icon spot: straight to the icons
             prefs.pie_slot = el.index
             bpy.ops.keyops.pie_icon_picker('INVOKE_DEFAULT', slot=el.index)
         elif not was_selected or el.kind in ("marker", "boxhead", "label", "group", "grouptag"):
@@ -2173,10 +2181,6 @@ def _click(context, st, el, zone, win, area, region):
 
 def _zone(st, el, mx, my):
     u = unit()
-    if st.show_remove:
-        x, y, w, h = _remove_rect(el, u)
-        if x <= mx <= x + w and y <= my <= y + h:
-            return "remove"
     if el.icon and el.kind == "item":
         if st.scene.kind == "BLENDER_PIE":
             ix = el.x + 0.3 * u
@@ -2343,7 +2347,7 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
         if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
             st.mouse = (mx, my)
             if not d["active"] and math.hypot(mx - d["start"][0], my - d["start"][1]) > DRAG_START * ui_scale():
-                if d["zone"] != "remove" and st.scene is not None:
+                if st.scene is not None:
                     d["active"] = True
                     try:
                         context.window.cursor_modal_set('SCROLL_XY')
