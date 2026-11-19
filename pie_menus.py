@@ -1580,6 +1580,20 @@ def group_end(items, start):
     return None
 
 
+def items_can_share_row(pie, index):
+    """Whether an item can have others beside it on its row ("Same Row"): not in a row, split or grid
+    group, which lay items side by side already."""
+    if pie is None or pie.menu_type == "PIE" or not 0 <= index < len(pie.items):
+        return False
+    items = list(pie.items)
+    parent = parent_group(items, index)
+    return parent is None or items[parent].group_type in ("BOX", "COLUMN", "PANEL")
+
+
+def pie_items_kind(pie, index):
+    return pie.items[index].kind if pie is not None and 0 <= index < len(pie.items) else ""
+
+
 def parent_group(items, index):
     """Start index of the innermost group the item at `index` is in, or None."""
     stack = []
@@ -1619,7 +1633,7 @@ def layout_tree(items, shown):
         target = stack[-1]
         last = target[-1] if target else None
         parent = items[groups[-1][1]].group_type if groups else "COLUMN"
-        if it.same_row and last is not None and last[0] in ("ITEM", "RUN") and parent in ("COLUMN", "BOX"):
+        if it.same_row and last is not None and last[0] in ("ITEM", "RUN") and parent in ("COLUMN", "BOX", "PANEL"):
             if last[0] == "ITEM":
                 target[-1] = ["RUN", [last[1], i]]
             else:
@@ -3011,9 +3025,6 @@ class KEYOPS_OT_pie_filter_popup(Operator):
         layout.row(align=True).prop(wm, "keyops_menu_filter_state", expand=True)
         layout.label(text="Works In")
         layout.prop(wm, "keyops_menu_filter_editor", text="")
-        if all_tags():
-            layout.label(text="Tag")
-            layout.prop(wm, "keyops_menu_filter_tag", text="", icon='BOOKMARKS')
         if _filter_active(wm):
             layout.separator()
             layout.operator("keyops.pie_filter_clear", icon='X')
@@ -3716,12 +3727,17 @@ def draw_canvas_overview(layout, context, pie, prefs):
             k.active = False
             k.label(text=hint)
     menu_canvas.draw_layout(layout, context, pie, prefs)
+    row = layout.row()  # in the middle, under the menu: add to it, and try it
+    row.alignment = 'CENTER'
     if pie.menu_type != "PIE" and len(pie.items) < ITEM_LIMIT.get(pie.menu_type, 64):
-        row = layout.row()
-        row.alignment = 'CENTER'
         add = row.row()
-        add.ui_units_x = 11.0
+        add.ui_units_x = 8.0
         add.menu("KEYOPS_MT_item_add", text="Add", icon='ADD')
+    if pie.menu_type != "PANEL":
+        tryit = row.row()
+        tryit.ui_units_x = 5.0
+        op = tryit.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
+        op.pie, op.direct = pie.uid, True
 
 
 class KEYOPS_MT_menu_list_specials(bpy.types.Menu):
@@ -3736,8 +3752,6 @@ class KEYOPS_MT_menu_list_specials(bpy.types.Menu):
         layout.separator()
         layout.operator("keyops.settings_import", text="Import Menus...", icon='IMPORT').scope = "PIES"
         layout.operator("keyops.settings_export", text="Export Menus...", icon='EXPORT').scope = "PIES"
-        layout.separator()
-        layout.operator("keyops.pie_remove", text="Delete", icon='X')
 
 
 class KEYOPS_UL_menus(bpy.types.UIList):
@@ -3817,6 +3831,7 @@ def draw_pies_tab(prefs, context, layout):
     pie = prefs.pies[active]
     box = layout.box()
     # header: where it works and Try It (its name and key are in the list on the left)
+    box.separator(factor=0.3)
     head = box.row()
     names = editor_names(pie)
     where = head.row(align=True)
@@ -3829,17 +3844,15 @@ def draw_pies_tab(prefs, context, layout):
     ed.ui_units_x = 6.5
     ed.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
                          icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
+    mode = where.row(align=True)  # ...and in which mode of it
+    mode.ui_units_x = 5.5
+    mode.prop(pie, "only_mode", text="")
     if pie.menu_type == "PANEL":
         tab = where.row(align=True)
-        tab.ui_units_x = 7
+        tab.ui_units_x = 6
         tab.prop(pie, "tab", text="", icon='MENU_PANEL')
-    else:
-        small = head.row()
-        small.alignment = 'RIGHT'  # just as wide as its text
-        tryit = small.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
-        tryit.pie, tryit.direct = pie.uid, True
 
-    box.separator(factor=0.4)
+    box.separator(factor=0.8)
     # the preview, and the selected item's settings beside it (a wide window) or under it
     if wide:
         split = box.split(factor=0.62)
@@ -3880,6 +3893,15 @@ def item_title(pie, item):
     return item.label or action_name(item) or KIND_NAMES.get(item.kind, "Item")
 
 
+def card_kind(pie, item):
+    """The item card's heading: the kind of item (its name shows in the fields under it)."""
+    if item.kind == BOX:
+        return GROUP_NAMES.get(item.group_type, "Group")
+    if _is_empty(item):
+        return "Separator" if pie.menu_type != "PIE" else "Empty Slot"
+    return KIND_NAMES.get(item.kind, "Item")
+
+
 def look_options(pie, item):
     """The look settings Blender can apply to this item, so only those are offered."""
     k = item.kind
@@ -3892,10 +3914,8 @@ def look_options(pie, item):
     opts = {"width", "height", "emboss", "alert", "active"}
     if k in (O, M, SUB, SCRIPT, MACRO):
         opts.add("depress")
-    if pie.menu_type != "PIE":
-        parent = parent_group(list(pie.items), list(pie.items).index(item)) if len(pie.items) else None
-        if parent is None or pie.items[parent].group_type in ("BOX", "COLUMN", "PANEL"):
-            opts.add("same_row")
+    if items_can_share_row(pie, list(pie.items).index(item)):
+        opts.add("same_row")
     return opts
 
 
@@ -3921,7 +3941,9 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
     head = col.row(align=True)
     labels = LIST_LABELS.get(pie.menu_type)
     where = labels(slot) if labels else (POSITION_NAMES[ORDER[slot]] if not is_menu else "")
-    head.label(text=item_title(pie, item) + (f"  ·  {where}" if where else ""),
+    # what it is and where: its name is on the Operator button and in the label field below
+    kind = card_kind(pie, item)
+    head.label(text=kind + (f"  ·  {where}" if where else ""),
                icon=KIND_ICONS.get(item.kind, 'DOT') if not _is_empty(item) else 'DOT')
     tools = head.row(align=True)
     tools.alignment = 'RIGHT'
@@ -3935,6 +3957,7 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
     if is_menu and len(pie.items) > ITEM_MIN.get(pie.menu_type, 0):
         tools.operator("keyops.menu_item_remove", text="", icon='X').slot = slot
 
+    col.separator(factor=0.6)
     k = item.kind
     if k == BREAK:
         _note(col, "The items after this go in the next column")
@@ -3994,6 +4017,8 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
     looks = look_options(pie, item)
     toggles = [(n, i) for n, i in (("emboss", 'MESH_PLANE'), ("alert", 'ERROR'), ("active", 'HIDE_OFF'),
                                    ("depress", 'CHECKBOX_HLT')) if n in looks]
+    if toggles or "width" in looks:
+        col.separator(factor=0.6)
     if toggles:
         r = col.row(align=True)
         for name, icon in toggles:
@@ -4008,6 +4033,7 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
 
     if k in (BREAK, BOX_END):
         return
+    col.separator(factor=0.6)
     if _foldout(col, prefs, "pie_customize", "Advanced"):
         adv = col.box().column()
         draw_item_advanced(context, adv, pie, item, slot, looks)
@@ -4088,9 +4114,9 @@ def draw_menu_settings(prefs, layout, pie):
     if not _foldout(pbox, prefs, "pie_show_settings", "Menu Settings"):
         return
     c = pbox.column()
-    c.prop(pie, "menu_type", text="Type")
-    c.prop(pie, "tags", text="Tags", icon='BOOKMARKS')
-    c.prop(pie, "only_mode", text="Only In")
+    c.use_property_split = True
+    c.use_property_decorate = False
+    c.separator(factor=0.3)
     c.prop(pie, "condition", text="Show When", icon='SCRIPT')
     if pie.menu_type not in {"PANEL", "STICKY", "MODAL"}:
         c.prop(pie, "key_event", text="Opens On")
@@ -4110,15 +4136,13 @@ def draw_menu_settings(prefs, layout, pie):
             warn = c.row()
             warn.alert = True
             warn.label(text="Blender has no menu, header or panel with that name", icon='ERROR')
-    if pie.menu_type == "PIE":
-        feel = c.row(align=True)
-        feel.prop(pie, "radius")
-        feel.prop(pie, "threshold")
-    r = c.row(align=True)
+    if pie.menu_type == "PIE" and prefs.pie_style == "MARKING":  # Blender's pies take these from its preferences
+        feel = c.column(align=True)
+        feel.prop(pie, "radius", text="Size")
+        feel.prop(pie, "threshold", text="Flick Distance")
     if pie.preset in PRESET_BY_ID:
-        r.operator("keyops.pie_reset", text="Reset to Preset")
-    r.operator("keyops.pie_duplicate", text="Duplicate")
-    r.operator("keyops.pie_remove", text="Delete")
+        c.separator(factor=0.5)
+        c.operator("keyops.pie_reset", text="Reset to Preset", icon='LOOP_BACK')
 
 
 def draw_values(context, layout):

@@ -532,19 +532,17 @@ def draw_look_settings(prefs, layout):
     flags.prop(prefs, "marking_use_theme")
     flags.prop(prefs, "marking_antialias")
     flags.prop(prefs, "marking_shadow")
-    col = layout.column(align=True)
-    col.active = not prefs.marking_use_theme  # the theme decides these while it's used
-    grid = col.grid_flow(columns=2, even_columns=True, align=True)
-    for name in ("item", "highlight", "text", "highlight_text", "border", "line", "center"):
-        grid.prop(prefs, f"marking_{name}_color")
+    if not prefs.marking_use_theme:  # the theme decides the colours while it's used
+        grid = layout.column(align=True).grid_flow(columns=2, even_columns=True, align=True)
+        for name in ("item", "highlight", "text", "highlight_text", "border", "line", "center"):
+            grid.prop(prefs, f"marking_{name}_color")
     layout.separator(factor=0.5)
     col = layout.column(align=True)
     col.prop(prefs, "marking_font_size")
     col.prop(prefs, "marking_box_height")
     col.prop(prefs, "marking_padding")
-    corner = col.row(align=True)
-    corner.active = not prefs.marking_use_theme
-    corner.prop(prefs, "marking_corner")
+    if not prefs.marking_use_theme:
+        col.prop(prefs, "marking_corner")
     col.prop(prefs, "marking_line_width")
     layout.separator(factor=0.5)
     col = layout.column(align=True)

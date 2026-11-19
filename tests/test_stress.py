@@ -141,7 +141,25 @@ def test_drag(PM, MC):
     st = SimpleNamespace(drop=("before", el(1), "y"))
     MC._do_drop(st, 1)
     check("dropping an item on itself changes nothing", [l for _k, _g, l in shape(pie)][1] == "B")
-    pie2 = next(p for p in prefs().pies if p.menu_type == "PIE")
+    # beside another item: drop on its left or right end
+    pie.items.clear()
+    for name in "PQR":
+        add(pie, kind=PM.O, idname="object.delete", label=name)
+    MC._do_drop(SimpleNamespace(drop=("beside_after", el(0), "x")), 2)  # R beside P
+    check("dropping on an item's side puts it beside, on the same row",
+          [it.label for it in pie.items] == ["P", "R", "Q"] and pie.items[1].same_row and not pie.items[2].same_row,
+          str([(it.label, it.same_row) for it in pie.items]))
+    tree = PM.layout_tree(list(pie.items), list(enumerate(pie.items)))
+    check("and the layout draws them as one row", tree[0][0][0] == "RUN", str(tree))
+    MC._do_drop(SimpleNamespace(drop=("after", el(2), "y")), 1)  # R back below Q
+    check("dropped above or below again, it's on a line of its own",
+          [it.label for it in pie.items] == ["P", "Q", "R"] and not any(it.same_row for it in pie.items),
+          str([(it.label, it.same_row) for it in pie.items]))
+    MC._do_drop(SimpleNamespace(drop=("beside_before", el(0), "x")), 1)  # Q on P's left
+    check("dropping on an item's left side puts it first on the row",
+          [it.label for it in pie.items] == ["Q", "P", "R"] and not pie.items[0].same_row and pie.items[1].same_row,
+          str([(it.label, it.same_row) for it in pie.items]))
+    pie2 =next(p for p in prefs().pies if p.menu_type == "PIE")
     prefs().active_pie = list(prefs().pies).index(pie2)
     names = [it.label for it in pie2.items]
     MC._do_drop(SimpleNamespace(drop=3), 0)
