@@ -250,7 +250,14 @@ _loading = False  # True while pies are read from disk, so reading doesn't trigg
 loaded_from_disk = False
 
 
+def _panels_changed(self=None, context=None):
+    _changed()
+    schedule_panel_sync()
+
+
 def _changed(self=None, context=None):
+    if not _loading and getattr(get_keyops_prefs(), "pies", None) is not None:
+        schedule_panel_sync()  # a panel's name or tab may have changed (cheap when nothing did)
     if not _loading:
         from . import settings_store
         settings_store.save_soon("pie_menus")
@@ -457,6 +464,8 @@ class KeyOpsPie(PropertyGroup):
                           items=[(i.identifier, "Nothing" if i.identifier == "NONE" else _KEY_NAMES.get(i.identifier, i.name), "")
                                  for i in bpy.types.KeyMapItem.bl_rna.properties["key_modifier"].enum_items]) # type: ignore
     columns: IntProperty(name="Columns", default=2, min=1, max=6, update=_changed) # type: ignore
+    tab: StringProperty(name="Tab", default="Toolkit", update=_panels_changed,
+                        description="Sidebar panels: the sidebar (N) tab the panel is in. A new name makes a new tab") # type: ignore
     dialog_mode: EnumProperty(name="Behaviour", items=(
         ("POPUP", "Popup", "Closes when the mouse moves away"),
         ("DIALOG", "Dialog", "Stays open until you close it")), update=_changed) # type: ignore
@@ -557,7 +566,7 @@ def install_presets(prefs, style):
 
 PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", "ctrl", "shift", "alt",
               "key_event", "only_mode", "columns", "dialog_mode", "stack_reset", "key_mod", "condition", "radius", "threshold",
-              "append_to", "append_as", "tags")
+              "append_to", "append_as", "tags", "tab")
 ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
                "emboss", "active", "depress", "group_type", "align", "alignment", "factor", "grid_columns",
                "prop_split", "closed", "sep_type", "sep_factor", "height", "width", "same_row", "alert", "setting_style")
@@ -869,6 +878,7 @@ def sync_appends():
 def sync_keymaps():
     _remove_pie_keymaps()
     sync_appends()
+    schedule_panel_sync()
     kc = bpy.context.window_manager.keyconfigs.addon
     prefs = get_keyops_prefs()
     if kc is None or not getattr(prefs, "pies_installed", False) or prefs.pause_shortcuts:
@@ -1698,39 +1708,80 @@ def draw_grid(layout, context, pie):
         draw_item(grid, context, item, pie.uid, i, slider=True)
 
 
-def _panel_poll(editors):
+# ---------------------------------------------------------------- your own sidebar panels
+# Every Sidebar Panel menu is a real panel of its own, in the tab you name, in each editor it works in.
+PANEL_SPACES = (("VIEW_3D", {"3D View Generic", "Object Mode", "Mesh", "Sculpt", "Weight Paint", "Window"}),
+                ("IMAGE_EDITOR", {"UV Editor", "Image", "Window"}),
+                ("NODE_EDITOR", {"Node Editor", "Window"}))
+_user_panels = []        # the panel classes made from your menus
+_panel_signature = None  # what they were made from, so they're only remade when that changes
+
+
+def _user_panel_class(pie, space, n):
+    uid = pie.uid
+
     def poll(cls, context):
-        prefs = get_keyops_prefs()
-        return any(p.menu_type == "PANEL" and p.enabled and set(editor_names(p)) & editors for p in (getattr(prefs, "pies", None) or ()))
-    return classmethod(poll)
+        p = find_pie(uid)
+        return p is not None and p.enabled and (p.only_mode == "ANY" or context.mode == p.only_mode) \
+            and condition_ok(context, p)
 
-
-def _panel_draw(editors):
     def draw(self, context):
-        prefs = get_keyops_prefs()
-        for p in prefs.pies:
-            if p.menu_type == "PANEL" and p.enabled and set(editor_names(p)) & editors:
-                if p.only_mode != "ANY" and context.mode != p.only_mode or not condition_ok(context, p):
-                    continue
-                box = self.layout.box()
-                box.label(text=p.name, icon=TYPE_ICON["PANEL"])
-                draw_grid(box, context, p)
-    return draw
+        p = find_pie(uid)
+        if p is not None:
+            draw_grid(self.layout, context, p)
+
+    name = f"KEYOPS_PT_user_{n}_{space.lower()}"
+    return type(name, (bpy.types.Panel,), {
+        "bl_idname": name, "bl_label": pie.name or "Panel", "bl_space_type": space, "bl_region_type": 'UI',
+        "bl_category": (pie.tab or "Toolkit").strip() or "Toolkit", "poll": classmethod(poll), "draw": draw})
 
 
-_VIEW3D_EDITORS = {"3D View Generic", "Object Mode", "Mesh", "Sculpt", "Weight Paint", "Window"}
-KEYOPS_PT_user_panels_3d = type("KEYOPS_PT_user_panels_3d", (bpy.types.Panel,), {
-    "bl_label": "My Panels", "bl_idname": "KEYOPS_PT_user_panels_3d", "bl_space_type": 'VIEW_3D',
-    "bl_region_type": 'UI', "bl_category": "Toolkit",
-    "poll": _panel_poll(_VIEW3D_EDITORS), "draw": _panel_draw(_VIEW3D_EDITORS)})
-KEYOPS_PT_user_panels_image = type("KEYOPS_PT_user_panels_image", (bpy.types.Panel,), {
-    "bl_label": "My Panels", "bl_idname": "KEYOPS_PT_user_panels_image", "bl_space_type": 'IMAGE_EDITOR',
-    "bl_region_type": 'UI', "bl_category": "Toolkit",
-    "poll": _panel_poll({"UV Editor", "Image", "Window"}), "draw": _panel_draw({"UV Editor", "Image", "Window"})})
-KEYOPS_PT_user_panels_node = type("KEYOPS_PT_user_panels_node", (bpy.types.Panel,), {
-    "bl_label": "My Panels", "bl_idname": "KEYOPS_PT_user_panels_node", "bl_space_type": 'NODE_EDITOR',
-    "bl_region_type": 'UI', "bl_category": "Toolkit",
-    "poll": _panel_poll({"Node Editor", "Window"}), "draw": _panel_draw({"Node Editor", "Window"})})
+def sync_user_panels():
+    """Make (or remake) a sidebar panel for every Sidebar Panel menu."""
+    global _panel_signature
+    prefs = get_keyops_prefs()
+    pies = [p for p in (getattr(prefs, "pies", None) or ()) if p.menu_type == "PANEL"]
+    sig = tuple((p.uid, p.name, p.tab, tuple(sorted(editor_names(p)))) for p in pies)
+    if sig == _panel_signature:
+        return
+    remove_user_panels()
+    _panel_signature = sig
+    for n, pie in enumerate(pies):
+        names = set(editor_names(pie))
+        for space, editors in PANEL_SPACES:
+            if names & editors:
+                cls = _user_panel_class(pie, space, n)
+                try:
+                    bpy.utils.register_class(cls)
+                    _user_panels.append(cls)
+                except (RuntimeError, ValueError):
+                    pass
+
+
+def remove_user_panels():
+    global _panel_signature
+    while _user_panels:
+        cls = _user_panels.pop()
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass
+    _panel_signature = None
+
+
+def schedule_panel_sync():
+    """Panels can't be registered from inside a property update: do it right after."""
+    if not bpy.app.timers.is_registered(_panel_sync_timer):
+        bpy.app.timers.register(_panel_sync_timer, first_interval=0.05)
+
+
+def _panel_sync_timer():
+    try:
+        sync_user_panels()
+    except Exception:  # noqa: BLE001  never break over a panel
+        pass
+    return None
+
 
 
 def parse_command(text):
@@ -1915,8 +1966,7 @@ class KEYOPS_OT_pie_add(Operator):
             pie["enabled"] = self.menu_type == "PANEL"  # panels need no key
             for _i in range({"DIALOG": 4, "PANEL": 4, "STACK": 2, "STICKY": 2}.get(self.menu_type, 1)):
                 it = pie.items.add()
-                if self.menu_type == "MODAL":
-                    it.kind = P
+                it.kind = P if self.menu_type == "MODAL" else O  # empty buttons, ready to pick operators for
         else:
             pie.name = "My Pie"
             pie["enabled"] = False  # enable once it has a key and items
@@ -2228,10 +2278,10 @@ def draw_item_options(layout, prefs):
     if item.kind not in (BREAK, BOX_END) and not (empty and item.kind == N):
         layout.prop(item, "label", text="", icon='FONT_DATA')  # first, so it opens under the mouse
     if not layouty and item.kind != LABEL:
-        op = layout.operator("keyops.pie_slot_search", text="Pick Action...", icon='VIEWZOOM')
+        op = layout.operator("keyops.pie_slot_search", text="Operator", icon='VIEWZOOM')
         op.slot, op.scope = slot, "ALL"
     if not layouty and not empty:
-        layout.operator("keyops.pie_icon_picker", text="Pick Icon...", icon='IMAGE_DATA').slot = slot
+        layout.operator("keyops.pie_icon_picker", text="Icon", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
     if item.kind == BOX:  # a group: how it lays out its items
         layout.separator()
         layout.prop_menu_enum(item, "group_type", text=f"Layout: {GROUP_NAMES.get(item.group_type, '')}")
@@ -2245,7 +2295,7 @@ def draw_item_options(layout, prefs):
             layout.prop(item, "closed")
         layout.prop(item, "prop_split")
         if not item.label.strip():
-            layout.operator("keyops.pie_icon_picker", text="Pick Icon...", icon='IMAGE_DATA').slot = slot
+            layout.operator("keyops.pie_icon_picker", text="Icon", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
     looks = look_options(pie, item)
     if looks:  # only what Blender can do for this kind of item
         layout.separator()
@@ -3002,7 +3052,7 @@ def ctrl_click_move(op, context, slot):
 
 class KEYOPS_OT_pie_slot_search(Operator):
     bl_idname = "keyops.pie_slot_search"
-    bl_label = "Pick an Action"
+    bl_label = "Operator"
     bl_description = ("Search for what this slot should do: a Key Ops action, any operator or a menu.\n"
                       "Ctrl+click to pick it up, then Ctrl+click another slot to move it there")
     bl_options = {'INTERNAL'}
@@ -3101,7 +3151,7 @@ class KEYOPS_OT_pie_slot_select(Operator):
 class KEYOPS_PT_icon_palette(bpy.types.Panel):
     """Icon palette popup. Shown with wm.call_panel, so it closes when an icon is clicked."""
     bl_idname = "KEYOPS_PT_icon_palette"
-    bl_label = "Pick an Icon"
+    bl_label = "Icon"
     bl_space_type = 'TOPBAR'
     bl_region_type = 'HEADER'
     bl_ui_units_x = 24
@@ -3205,7 +3255,7 @@ class KEYOPS_UL_icon_rows(bpy.types.UIList):
 
 class KEYOPS_OT_pie_icon_picker(Operator):
     bl_idname = "keyops.pie_icon_picker"
-    bl_label = "Pick an Icon"
+    bl_label = "Icon"
     bl_description = "Choose this slot's icon from all of Blender's icons"
     bl_options = {'INTERNAL'}
     slot: IntProperty() # type: ignore
@@ -3440,7 +3490,7 @@ LIST_LABELS = {
 }
 TYPE_HINT = {
     "DIALOG": "Opens a small window with these buttons and settings",
-    "PANEL": "Shows in the editor's sidebar (N), in the Toolkit tab",
+    "PANEL": "Shows in the editor's sidebar (N), in its own tab (set beside Works In)",
     "STACK": "Each press runs the next item",
     "STICKY": "A toggle setting here is only changed while the key is held",
     "MODAL": "Move the mouse or scroll to change it. Options like step=0.1, min=0, max=1",
@@ -3614,8 +3664,13 @@ def draw_pies_tab(prefs, context, layout):
     names = editor_names(pie)
     head.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
                         icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
-    tryit = head.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
-    tryit.pie, tryit.direct = pie.uid, True
+    if pie.menu_type == "PANEL":
+        head.prop(pie, "tab", text="", icon='MENU_PANEL')
+    else:
+        small = head.row(align=True)
+        small.ui_units_x = 4
+        tryit = small.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
+        tryit.pie, tryit.direct = pie.uid, True
 
     box.separator(factor=0.4)
     if menu_canvas.supported(pie):  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
@@ -3623,8 +3678,7 @@ def draw_pies_tab(prefs, context, layout):
         tip = box.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text="Click an item to edit it below, again to pick its action. Drag to move. "
-                       "Right-click for more.")
+        tip.label(text="Click an item to edit it, click it again for its operator. Drag to move. Right-click for more.")
     else:
         draw_pie_overview(box, pie, prefs)
     draw_item_card(prefs, context, layout, pie)
@@ -3734,7 +3788,7 @@ def draw_item_card(prefs, context, layout, pie):
         r = col.row(align=True)
         r.prop(item, "sep_type", expand=True)
         r.prop(item, "sep_factor")
-        op = col.operator("keyops.pie_slot_search", text="Make It a Button...", icon='VIEWZOOM')
+        op = col.operator("keyops.pie_slot_search", text="Operator", icon='VIEWZOOM')
         op.slot, op.scope = slot, "ALL"
     elif k == LABEL:
         r = col.row(align=True)
@@ -3746,7 +3800,7 @@ def draw_item_card(prefs, context, layout, pie):
         if k == MACRO:
             r.label(text=item.label or "Macro", icon='SEQUENCE')
         else:
-            op = r.operator("keyops.pie_slot_search", text=("Pick an action..." if _is_empty(item) else
+            op = r.operator("keyops.pie_slot_search", text=("Operator" if _is_empty(item) else
                                                             action_name(item) or item.idname), icon='VIEWZOOM')
             op.slot, op.scope = slot, "ALL"
         if not _is_empty(item):
@@ -3791,7 +3845,7 @@ def draw_item_advanced(context, col, pie, item, slot, looks):
         col.prop(item, "prop_split")
         return
     kinds = col.row(align=True)
-    for kind, text, icon in ((O, "Action", 'RADIOBUT_OFF'), (SCRIPT, "Python", 'SCRIPT'), (MACRO, "Macro", 'SEQUENCE'),
+    for kind, text, icon in ((O, "Operator", 'RADIOBUT_OFF'), (SCRIPT, "Python", 'SCRIPT'), (MACRO, "Macro", 'SEQUENCE'),
                              (LABEL, "Label", 'FONT_DATA')):
         if kind == MACRO:
             kinds.operator("keyops.slot_make_macro", text=text, icon=icon, depress=k == MACRO)
@@ -4020,7 +4074,7 @@ def _unregister_support():
 
 property_classes = (KeyOpsValue, KeyOpsMacroStep, KeyOpsPieItem, KeyOpsPie, KeyOpsExportChoice)
 classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save, KEYOPS_OT_slot_set_kind,
-           KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
+           KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_insert, KEYOPS_MT_item_insert, KEYOPS_OT_item_options, KEYOPS_OT_item_wrap, KEYOPS_MT_item_add,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
@@ -4083,6 +4137,7 @@ def register():
 
 def unregister():
     restore_pie_feel()
+    remove_user_panels()
     _remove_appends()
     from . import settings_store
     settings_store.flush_now()  # don't lose a change made just before disabling

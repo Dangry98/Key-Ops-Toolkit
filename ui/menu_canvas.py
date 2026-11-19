@@ -986,7 +986,8 @@ class _Panel:
         tw = _text_w(name) + 10 * s
         _font()
         th = int(0.62 * u)
-        self.late.append(El(i, gx - int(2 * s), int(top - th / 2), int(tw), th, kind="grouptag", text=name))
+        self.late.append(El(i, gx - int(2 * s), int(top - th / 2), int(tw), th, kind="grouptag", text=name,
+                            col=end if end is not None else i))
         if end is not None:  # its End Group: a marker on the bottom edge
             _font(FONT_POINTS * 0.8)
             ew = _text_w("End Group") + 10 * s
@@ -1013,6 +1014,9 @@ def _finish_panel(sc, pie, items, texts, keys, hover, s, u, pad, colw, gap, titl
         columns = PM.layout_tree(items, shown)
         ncol, grid = len(columns), False
     breaks = [i for i, it in shown if it.kind == PM.BREAK]
+    if pie.menu_type == "DIALOG" and not grid:  # the dialog is 180 px per Columns wide, whatever is in it
+        total = 180 * s * max(1, pie.columns)
+        colw = int((total - gap * (ncol - 1)) / max(1, ncol))
     width = colw * (ncol if not grid else max(1, pie.columns)) + gap * ((ncol if not grid else 1) - 1)
     heights = []
     y0 = -(pad + title_h + header_h)
@@ -1250,19 +1254,7 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
     back = th.wcol_menu_back
     x, y, w, h = sc.frame
     if pie is not None and pie.menu_type == "PANEL":
-        space = bpy.context.preferences.themes[0].view_3d.space
-        try:
-            pc = space.panelcolors
-            header, body = _rgba(pc.header), _rgba(pc.back)
-        except AttributeError:
-            header, body = (0.18, 0.18, 0.18, 1), (0.16, 0.16, 0.16, 1)
-        r = 0.2 * u
-        _round_fill(x, y, w, h, r, body)
-        hx, hy, hw, hh = sc.panel_header
-        _round_fill(hx, hy, hw, hh, r, header)
-        _rect(hx, hy, hw, hh / 2, header)
-        _tria_down(hx + 0.6 * u, hy + hh / 2, 0.35 * u, _rgba(th.wcol_regular.text, 0.8))
-        _text_in(hx + 1.2 * u, hy, hw, hh, pie.name, _rgba(th.wcol_regular.text), "LEFT")
+        _draw_sidebar(sc, pie, th, s, u, x, y, w, h)
     else:
         r = back.roundness * u * 0.5
         _shadow(x, y, w, h, r, 6 * s)
@@ -1336,9 +1328,10 @@ def _draw_layout_marks(sc, th, s, u, hover, selected, accent):
     """While the mouse is on the menu: each group's outline and tag, and the End Group / Next Column markers,
     so the layout items can be seen, clicked, dragged and right-clicked. (The real menu doesn't draw them.)"""
     text = th.wcol_menu_back.text
+    tags = {el.index: el.show for el in sc.els if el.kind == "grouptag"}
     for i, x, y, w, h, _t in sc.groups:
         on = i == hover or i == selected
-        if not (sc.show_markers or on):
+        if not (on or (sc.show_markers and tags.get(i))):
             continue
         col = accent[:3] + (0.9,) if on else _rgba(text, 0.22)
         pts = _outline_pts(x - 1.5 * s, y - 1.5 * s, w + 3 * s, h + 3 * s, 3 * s)
@@ -1356,6 +1349,53 @@ def _draw_layout_marks(sc, th, s, u, hover, selected, accent):
         _line(_outline_pts(el.x + 0.5, el.y + 0.5, el.w - 1, el.h - 1, el.h / 2 - 0.5), _rgba(text, 0.35), 1.0, closed=True)
         _text_in(el.x, el.y, el.w, el.h, el.text, (1, 1, 1, 0.95) if on else _rgba(text, 0.85), "CENTER")
     _font()
+
+
+def _sidebar_colors():
+    space = bpy.context.preferences.themes[0].view_3d.space
+    get = lambda name, default: _rgba(getattr(space, name)) if hasattr(space, name) else default
+    try:
+        pc = space.panelcolors
+        header, body = _rgba(pc.header), _rgba(pc.back)
+    except AttributeError:
+        header, body = (0.19, 0.19, 0.19, 1), (0.16, 0.16, 0.16, 1)
+    return dict(region=get("button", (0.11, 0.11, 0.11, 1)), header=header, body=body,
+                title=get("button_title", (0.9, 0.9, 0.9, 1)), tab_back=get("tab_back", (0.1, 0.1, 0.1, 1)),
+                tab_active=get("tab_active", (0.27, 0.27, 0.27, 1)), tab_outline=get("tab_outline", (0.15, 0.15, 0.15, 1)))
+
+
+def _draw_sidebar(sc, pie, th, s, u, x, y, w, h):
+    """A Sidebar Panel as it looks in the editor's sidebar (N): the region, the panel in it and its tab."""
+    c = _sidebar_colors()
+    margin = int(0.4 * u)
+    tab_w = int(1.1 * u)
+    # the sidebar region, with the tab strip on its right
+    _rect(x - margin, y - margin, w + 2 * margin + tab_w, h + 2 * margin, c["region"])
+    tx = x + w + margin
+    _rect(tx, y - margin, tab_w, h + 2 * margin, c["tab_back"])
+    name = (pie.tab or "Toolkit").strip() or "Toolkit"
+    _font(FONT_POINTS)
+    tw = _text_w(name)
+    th_ = tw + 0.8 * u
+    ty = y + h - th_ - 0.2 * u + margin
+    _round_fill(tx + 2 * s, ty, tab_w - 3 * s, th_, 3 * s, c["tab_active"])
+    blf.enable(0, blf.ROTATION)
+    blf.rotation(0, -math.pi / 2)  # sidebar tabs read top to bottom
+    _text(tx + tab_w / 2 + 0.3 * u, ty + th_ - 0.4 * u, name, c["title"])
+    blf.rotation(0, 0)
+    blf.disable(0, blf.ROTATION)
+    # the panel: header with its arrow and name, then the body
+    r = 4 * s
+    _round_fill(x, y, w, h, r, c["body"])
+    hx, hy, hw, hh = sc.panel_header
+    # the header is the panel's own colour in Blender's sidebar, with the drag dots on its right
+    for dx in range(4):
+        for dy in range(2):
+            _rect(hx + hw - 0.5 * u - dx * 3 * s, hy + hh / 2 - 2 * s + dy * 3 * s, 1.2 * s, 1.2 * s,
+                  c["title"][:3] + (0.35,))
+    cx, cy, k = hx + 0.55 * u, hy + hh / 2, 0.18 * u
+    _line([(cx - k, cy + k * 0.5), (cx, cy - k * 0.5), (cx + k, cy + k * 0.5)], c["title"], 1.2 * s)
+    _text_in(hx + 1.1 * u, hy, hw, hh, pie.name, c["title"], "LEFT")
 
 
 def _tria_down(x, y, size, color):
@@ -1753,10 +1793,16 @@ def _draw():
         sc.show_markers = True
     # End Group markers only for the group the mouse is in (or the selected one), so they don't crowd the menu
     sel = prefs.pie_slot
-    for el in sc.els:
+    dragging = bool(st.drag and st.drag.get("active"))
+    for el in sc.els:  # only the group the mouse is in (or the selected one) shows its tag and End Group
         if el.kind == "marker" and el.text == "End Group":
-            inside = lambda k: k is not None and el.col <= k <= el.index
-            el.show = inside(st.hover) or inside(sel) or bool(st.drag and st.drag.get("active"))
+            lo, hi = el.col, el.index
+        elif el.kind == "grouptag":
+            lo, hi = el.index, el.col
+        else:
+            continue
+        inside = lambda k: k is not None and lo <= k <= hi
+        el.show = inside(st.hover) or inside(sel) or dragging
     st.scene = sc
     st.show_remove = pie.menu_type != "PIE" and len(pie.items) > _pm().ITEM_MIN.get(pie.menu_type, 0)
     gpu.state.scissor_test_set(True)

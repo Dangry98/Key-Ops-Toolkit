@@ -384,7 +384,11 @@ def run():
     bpy.ops.keyops.pie_add(menu_type="PANEL")
     panel = p.pies[-1]
     panel.items[0].kind, panel.items[0].idname = "PROPERTY", "scene.render.resolution_percentage"
-    check("sidebar panels appear in the 3D View sidebar", bpy.types.KEYOPS_PT_user_panels_3d.poll(bpy.context))
+    panel.enabled = True
+    PM.sync_user_panels()
+    cls = next((c for c in PM._user_panels if c.bl_space_type == 'VIEW_3D' and c.bl_label == panel.name), None)
+    check("sidebar panels are panels of their own in the 3D View sidebar, in their tab",
+          cls is not None and cls.bl_category == panel.tab and cls.poll(bpy.context), str(PM._user_panels))
     bpy.ops.keyops.pie_add(menu_type="DIALOG")
     dialog = p.pies[-1]
     PM.apply_action(dialog.items[0], "O:mesh.primitive_cube_add")
