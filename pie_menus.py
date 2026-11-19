@@ -2512,19 +2512,32 @@ def button_info(context):
     return None
 
 
-def add_button_to(pie, info):
-    """Put the button (from button_info) in the menu: a pie's first empty slot, the end of anything else."""
+def add_button_to(pie, info, position=-1):
+    """Put the button (from button_info) in the menu. position -1: a pie's first empty slot, the end of
+    anything else. A pie: the slot to put it in (an extra item past the last one). Others: the index it goes in at."""
     kind, idname, opts, label = info
     if pie.menu_type == "PIE":
-        item = next((it for it in pie.items if _is_empty(it)), None)
+        if 0 <= position < len(pie.items):
+            item = pie.items[position]
+        elif position >= len(pie.items) and len(pie.items) < ITEM_LIMIT["PIE"]:
+            item = pie.items.add()
+        else:
+            item = next((it for it in pie.items if _is_empty(it)), None)
         if item is None:
             return None
     else:
         if len(pie.items) >= ITEM_LIMIT.get(pie.menu_type, 64):
             return None
-        # an empty button waiting for an operator is filled; separators are left alone
-        empty = next((it for it in pie.items if it.kind == O and not it.idname.strip()), None)
-        item = empty or pie.items.add()
+        if position >= 0:
+            pie.items.add()
+            new = len(pie.items) - 1
+            pos = min(position, new)
+            pie.items.move(new, pos)
+            item = pie.items[pos]
+        else:
+            # an empty button waiting for an operator is filled; separators are left alone
+            empty = next((it for it in pie.items if it.kind == O and not it.idname.strip()), None)
+            item = empty or pie.items.add()
     item.kind, item.idname, item.props, item.label, item.icon = kind, idname, opts, label, ""
     _changed()
     return item
@@ -2536,6 +2549,7 @@ class KEYOPS_OT_add_button_to_menu(Operator):
     bl_description = "Add this button to one of your Key Ops menus"
     bl_options = {'INTERNAL'}
     pie: StringProperty(options={'SKIP_SAVE'}) # type: ignore  # empty: a new popup menu
+    position: IntProperty(default=-1, options={'SKIP_SAVE'}) # type: ignore  # see add_button_to
 
     def execute(self, context):
         prefs = get_keyops_prefs()
@@ -2549,7 +2563,7 @@ class KEYOPS_OT_add_button_to_menu(Operator):
             pie["enabled"] = False
         if pie is None:
             return {'CANCELLED'}
-        item = add_button_to(pie, _last_button)
+        item = add_button_to(pie, _last_button, self.position)
         if item is None:
             self.report({'WARNING'}, f"{pie.name} is full")
             return {'CANCELLED'}
@@ -2571,19 +2585,196 @@ class KEYOPS_MT_add_to_menu(bpy.types.Menu):
         for p in get_keyops_prefs().pies:
             if p.menu_type in ("STICKY", "MODAL"):
                 continue
-            layout.operator("keyops.add_button_to_menu", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE')).pie = p.uid
+            layout.context_pointer_set("keyops_menu", p)  # which menu the next submenu places it in
+            layout.menu("KEYOPS_MT_add_to_where", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE'))
+
+
+class KEYOPS_MT_add_to_where(bpy.types.Menu):
+    """Where in the menu the right-clicked button goes."""
+    bl_label = "Where"
+    bl_idname = "KEYOPS_MT_add_to_where"
+
+    def draw(self, context):
+        layout = self.layout
+        pie = getattr(context, "keyops_menu", None)
+        if pie is None:
+            return
+        layout.label(text=pie.name)
+
+        def put(text, position, icon='NONE'):
+            op = layout.operator("keyops.add_button_to_menu", text=text, icon=icon)
+            op.pie, op.position = pie.uid, position
+
+        if pie.menu_type == "PIE":
+            for i in range(min(PIE_SLOTS, len(pie.items))):
+                it = pie.items[i]
+                put(f"{slot_name(i)}" + ("" if _is_empty(it) else f"  ·  replaces {item_title(pie, it)}"), i,
+                    'RADIOBUT_OFF' if _is_empty(it) else 'FILE_REFRESH')
+            if len(pie.items) < ITEM_LIMIT["PIE"]:
+                layout.separator()
+                put("As an Extra Item", len(pie.items), 'ADD')
+            return
+        put("At the Top", 0, 'TRIA_UP_BAR')
+        shown = [(i, it) for i, it in enumerate(pie.items) if it.kind not in (BOX_END,)][:24]
+        if shown:
+            layout.separator()
+        for i, it in shown:
+            put(f"After {item_title(pie, it)}", i + 1 if it.kind != BOX else (group_end(list(pie.items), i) or i) + 1)
+        layout.separator()
+        put("At the End", len(pie.items), 'TRIA_DOWN_BAR')
+
+
+# ---------------------------------------------------------------- your menus in Blender's own UI (like PME)
+
+def _here_targets(context):
+    """What a Key Ops menu can be added to where the right-click was: this editor's header, and the panels of
+    the sidebar tab (or Properties tab) on screen. [(class name, readable name, is a panel)]"""
+    area, region = context.area, context.region
+    if area is None or region is None:
+        return []
+    out = []
+    space = area.type
+    prefix = {"VIEW_3D": "VIEW3D", "IMAGE_EDITOR": "IMAGE", "NODE_EDITOR": "NODE", "PROPERTIES": "PROPERTIES",
+              "OUTLINER": "OUTLINER", "TEXT_EDITOR": "TEXT", "SEQUENCE_EDITOR": "SEQUENCER",
+              "GRAPH_EDITOR": "GRAPH", "DOPESHEET_EDITOR": "DOPESHEET"}.get(space)
+    if prefix and hasattr(bpy.types, f"{prefix}_HT_header"):
+        out.append((f"{prefix}_HT_header", "This Editor's Header", False))
+    if region.type in ('UI', 'WINDOW'):
+        tab = getattr(region, "active_panel_category", "") if region.type == 'UI' else ""
+        ctx = getattr(context.space_data, "context", "") if space == 'PROPERTIES' else ""
+        for cls in bpy.types.Panel.__subclasses__():
+            if getattr(cls, "bl_space_type", "") != space or getattr(cls, "bl_region_type", "") != region.type:
+                continue
+            if getattr(cls, "bl_parent_id", "") or cls.__name__.startswith("KEYOPS_PT_user_"):
+                continue
+            if tab and getattr(cls, "bl_category", "") != tab:
+                continue
+            if ctx and getattr(cls, "bl_context", ctx).lower() != ctx.lower():
+                continue
+            try:
+                if hasattr(cls, "poll") and not cls.poll(context):
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            name = getattr(cls, "bl_idname", "") or cls.__name__
+            if hasattr(bpy.types, name):
+                out.append((name, getattr(cls, "bl_label", name), True))
+    return out[:30]
+
+
+class KEYOPS_OT_menu_append_here(Operator):
+    bl_idname = "keyops.menu_append_here"
+    bl_label = "Show Key Ops Menu Here"
+    bl_description = "Show this Key Ops menu in Blender's own header or panel, below what's there"
+    bl_options = {'INTERNAL'}
+    pie: StringProperty(options={'SKIP_SAVE'}) # type: ignore  # empty: a new popup menu
+    target: StringProperty(options={'SKIP_SAVE'}) # type: ignore
+
+    def execute(self, context):
+        prefs = get_keyops_prefs()
+        pie = find_pie(self.pie) if self.pie else None
+        if pie is None:
+            pie = _new_pie(prefs)
+            pie.name, pie.menu_type = "My Menu", "MENU"
+            it = pie.items.add()
+            it.kind = O
+        pie.append_to = self.target
+        pie.append_as = "ITEMS" if pie.menu_type == "MENU" else pie.append_as
+        pie["enabled"] = True
+        prefs.active_pie = list(prefs.pies).index(pie)
+        sync_keymaps()
+        self.report({'INFO'}, f"{pie.name} now shows in {self.target}. Edit it in Preferences > Custom Menus")
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_panel_to_menu(Operator):
+    bl_idname = "keyops.panel_to_menu"
+    bl_label = "Add Panel to Key Ops Menu"
+    bl_description = "Add this Blender panel to one of your Key Ops menus (it opens from there)"
+    bl_options = {'INTERNAL'}
+    pie: StringProperty(options={'SKIP_SAVE'}) # type: ignore
+    panel: StringProperty(options={'SKIP_SAVE'}) # type: ignore
+
+    def execute(self, context):
+        global _last_button
+        cls = getattr(bpy.types, self.panel, None)
+        pie = find_pie(self.pie)
+        if cls is None or pie is None:
+            return {'CANCELLED'}
+        item = add_button_to(pie, (PANEL_ITEM, self.panel, "", getattr(cls, "bl_label", self.panel)))
+        if item is None:
+            self.report({'WARNING'}, f"{pie.name} is full")
+            return {'CANCELLED'}
+        sync_keymaps()
+        self.report({'INFO'}, f"Added {item.label} to {pie.name}")
+        return {'FINISHED'}
+
+
+_here = []  # (class name, readable name, is a panel): where the last right-click was, see _here_targets
+HERE_MENUS = 30
+
+
+def _draw_here_menu(self, context):
+    """For one header or panel: which Key Ops menu to show in it, or which menu to add the panel to."""
+    layout = self.layout
+    n = int(type(self).bl_idname.rsplit("_", 1)[-1])
+    if n >= len(_here):
+        return
+    name = _here[n][0]
+    layout.label(text="Show in it")
+    op = layout.operator("keyops.menu_append_here", text="New Popup Menu", icon='ADD')
+    op.target, op.pie = name, ""
+    for p in get_keyops_prefs().pies:
+        if p.menu_type in ("PIE", "MENU", "DIALOG"):
+            op = layout.operator("keyops.menu_append_here", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE'))
+            op.target, op.pie = name, p.uid
+    if "_PT_" in name:
+        layout.separator()
+        layout.label(text="Add this panel to")
+        for p in get_keyops_prefs().pies:
+            if p.menu_type not in ("STICKY", "MODAL", "STACK"):
+                op = layout.operator("keyops.panel_to_menu", text=p.name, icon=TYPE_ICON.get(p.menu_type, 'NONE'))
+                op.pie, op.panel = p.uid, name
+
+
+_here_menu_classes = [type(f"KEYOPS_MT_here_{n}", (bpy.types.Menu,), {
+    "bl_idname": f"KEYOPS_MT_here_{n}", "bl_label": "Key Ops Menus", "draw": _draw_here_menu}) for n in range(HERE_MENUS)]
+
+
+class KEYOPS_MT_extend_here(bpy.types.Menu):
+    """Right-click anywhere: put your menus in Blender's own header and panels here, or its panels in your menus."""
+    bl_label = "Key Ops: Customize This UI"
+    bl_idname = "KEYOPS_MT_extend_here"
+
+    def draw(self, context):
+        layout = self.layout
+        if not _here:
+            layout.label(text="Nothing here can show a menu")
+            return
+        for n, (_name, label, panel) in enumerate(_here[:HERE_MENUS]):
+            layout.menu(f"KEYOPS_MT_here_{n}", text=label, icon='MENU_PANEL' if panel else 'TOPBAR')
 
 
 def _button_context_draw(self, context):
-    """Blender's right-click menu on any button: Add to Key Ops Menu."""
+    """Blender's right-click menu on any button: Add to Key Ops Menu, and put your menus in this UI."""
     global _last_button
     try:
         _last_button = button_info(context)
     except Exception:  # noqa: BLE001  never break Blender's own menu
         _last_button = None
-    if _last_button is not None:
+    # remembered now, for the submenus; not when it's redrawn from inside the menu itself (a popup region)
+    if context.region is None or context.region.type != 'TEMPORARY':
+        try:
+            _here[:] = _here_targets(context)
+        except Exception:  # noqa: BLE001
+            _here[:] = []
+    here = bool(_here)
+    if _last_button is not None or here:
         self.layout.separator()
+    if _last_button is not None:
         self.layout.menu("KEYOPS_MT_add_to_menu", icon='ADD')
+    if here:
+        self.layout.menu("KEYOPS_MT_extend_here", icon='MENU_PANEL')
 
 
 def _button_context_menu():
@@ -4408,7 +4599,8 @@ classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
            KEYOPS_OT_menu_item_insert, KEYOPS_MT_item_insert, KEYOPS_OT_item_options, KEYOPS_OT_item_wrap, KEYOPS_MT_item_add,
-           KEYOPS_OT_add_button_to_menu, KEYOPS_MT_add_to_menu,
+           KEYOPS_OT_add_button_to_menu, KEYOPS_MT_add_to_menu, KEYOPS_MT_add_to_where, KEYOPS_OT_menu_append_here,
+           KEYOPS_OT_panel_to_menu, KEYOPS_MT_extend_here, *_here_menu_classes,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,

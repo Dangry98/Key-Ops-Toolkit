@@ -172,6 +172,24 @@ def main():
     check("Add to Key Ops Menu > a full pie says so instead of replacing a slot",
           [it.idname for it in pie.items] == pie_items)
 
+    # where it goes: a pie slot, or a place in a menu
+    PM._last_button = (PM.O, "object.delete", "", "Delete")
+    bpy.ops.keyops.add_button_to_menu(pie=new.uid, position=0)
+    check("Add to Key Ops Menu > a menu > At the Top: first in the menu", new.items[0].idname == "object.delete",
+          str([it.idname for it in new.items]))
+    bpy.ops.keyops.add_button_to_menu(pie=pie.uid, position=2)
+    check("Add to Key Ops Menu > a pie > a direction: in that slot", pie.items[2].idname == "object.delete")
+    # your menus in Blender's own UI, and Blender's panels in yours
+    bpy.ops.keyops.menu_append_here(pie=new.uid, target="VIEW3D_HT_header")
+    check("Customize This UI: a menu shows in the editor's header", new.append_to == "VIEW3D_HT_header" and new.enabled)
+    bpy.ops.keyops.panel_to_menu(pie=new.uid, panel="VIEW3D_PT_shading")
+    check("Customize This UI: a Blender panel added to a menu", new.items[-1].kind == PM.PANEL_ITEM
+          and new.items[-1].idname == "VIEW3D_PT_shading")
+    with bpy.context.temp_override(window=win, area=area, region=next(r for r in area.regions if r.type == 'UI')):
+        targets = PM._here_targets(bpy.context)
+    check("Customize This UI: the header is offered in the 3D Viewport", any(t[0] == "VIEW3D_HT_header" for t in targets))
+    new.append_to = ""
+
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)} passed, {len(failed)} failed")
     sys.stdout.flush()
