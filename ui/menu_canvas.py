@@ -883,7 +883,13 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
             mid = el.y + el.h / 2
             if hovered:
                 _round_fill(el.x + 0.15 * u, el.y + 1, el.w - 0.3 * u, el.h - 2, 0.15 * u, _rgba(item_col.inner_sel, 0.35))
-            _rect(el.x + 0.25 * u, mid, el.w - 0.5 * u, pixel(), _rgba(back.text, 0.15 * alpha + (0.25 if hovered else 0)))
+            if hovered:  # an empty item: click to pick an action
+                tw = _text_w("Empty")
+                _text_in(el.x + (el.w - tw) / 2 - 0.3 * u, el.y, tw + 0.6 * u, el.h, "Empty", _rgba(back.text, 0.6), "CENTER")
+                _rect(el.x + 0.25 * u, mid, (el.w - tw) / 2 - 0.6 * u, pixel(), _rgba(back.text, 0.4))
+                _rect(el.x + (el.w + tw) / 2 + 0.35 * u, mid, (el.w - tw) / 2 - 0.6 * u, pixel(), _rgba(back.text, 0.4))
+            else:
+                _rect(el.x + 0.25 * u, mid, el.w - 0.5 * u, pixel(), _rgba(back.text, 0.15 * alpha))
         elif el.kind == "marker":
             col = _rgba(back.text, (0.6 if hovered else 0.35) * alpha)
             _text_in(el.x, el.y, el.w, el.h, el.text, col, "CENTER")
@@ -1434,7 +1440,7 @@ def _click(context, st, el, zone, win, area, region):
             bpy.ops.keyops.menu_item_remove(slot=el.index)
         elif prefs.pie_customize:
             prefs.pie_slot = el.index
-        elif el.kind in ("marker", "boxhead", "label", "sep"):
+        elif el.kind in ("marker", "boxhead", "label"):
             prefs.pie_customize = True  # layout items are edited in Customize
             prefs.pie_slot = el.index
         elif zone == "icon" and el.kind == "item":
