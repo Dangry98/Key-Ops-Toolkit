@@ -3629,17 +3629,24 @@ def draw_pies_tab(prefs, context, layout):
         layout.operator("keyops.pie_preset_popup", text="Add Preset", icon='PRESET')
         return
     active = max(0, min(prefs.active_pie, len(prefs.pies) - 1))
+    # fit the window: Blender's default Preferences window is small (about 520 px for this area)
+    width = (context.region.width if context.region else 1600) / max(0.5, context.preferences.system.ui_scale)
+    narrow, wide = width < 820, width >= 1350
 
-    # pie list on the side: on/off, name, key
-    outer = layout.split(factor=0.22)
-    side = outer.column()
+    # the menu list: on the left, or on top in a narrow window
+    if narrow:
+        outer = layout.column()
+        side = outer.column()
+    else:
+        outer = layout.split(factor=0.22 if wide else 0.3)
+        side = outer.column()
     wm = context.window_manager
     srow = side.row(align=True)
     srow.prop(wm, "keyops_menu_filter", text="", icon='VIEWZOOM')
     srow.operator("keyops.pie_filter_popup", text="", icon='FILTER', depress=_filter_active(wm))
     lrow = side.row(align=False)
     # Blender's own list: click a row to edit that menu, double-click its name to rename, scroll, resize
-    lrow.template_list("KEYOPS_UL_menus", "", prefs, "pies", prefs, "active_pie", rows=12)
+    lrow.template_list("KEYOPS_UL_menus", "", prefs, "pies", prefs, "active_pie", rows=5 if narrow else 12)
     # beside the list, like Blender's own lists: add, remove, more, then move
     tools = lrow.column(align=True)
     tools.operator("keyops.pie_new_popup", text="", icon='ADD')
@@ -3653,8 +3660,9 @@ def draw_pies_tab(prefs, context, layout):
         empty = side.row()
         empty.active = False
         empty.label(text="No menus match")
-    draw_pie_feel(prefs, side)
-    draw_values(context, side)
+    if not narrow:
+        draw_pie_feel(prefs, side)
+        draw_values(context, side)
     layout = outer.column()
 
     pie = prefs.pies[active]
@@ -3679,9 +3687,12 @@ def draw_pies_tab(prefs, context, layout):
         tryit.pie, tryit.direct = pie.uid, True
 
     box.separator(factor=0.4)
-    # the preview on the left, the selected item's settings beside it on the right
-    split = box.split(factor=0.62)
-    left, right = split.column(), split.column()
+    # the preview, and the selected item's settings beside it (a wide window) or under it
+    if wide:
+        split = box.split(factor=0.62)
+        left, right = split.column(), split.column()
+    else:
+        left = right = box.column()
     if menu_canvas.supported(pie):  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
         draw_canvas_overview(left, context, pie, prefs)
         tip = left.row()
@@ -3692,6 +3703,9 @@ def draw_pies_tab(prefs, context, layout):
         draw_pie_overview(left, pie, prefs)
     draw_item_card(prefs, context, right, pie)
     draw_menu_settings(prefs, right, pie)
+    if narrow:  # the pie settings and your values, under everything
+        draw_pie_feel(prefs, layout)
+        draw_values(context, layout)
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
