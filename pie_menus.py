@@ -3663,10 +3663,15 @@ def draw_pies_tab(prefs, context, layout):
     head = box.row()
     names = editor_names(pie)
     where = head.row(align=True)
-    where.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
+    where.alignment = 'LEFT'  # small, like Try It
+    ed = where.row(align=True)
+    ed.ui_units_x = 6.5
+    ed.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
                          icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
     if pie.menu_type == "PANEL":
-        where.prop(pie, "tab", text="", icon='MENU_PANEL')
+        tab = where.row(align=True)
+        tab.ui_units_x = 7
+        tab.prop(pie, "tab", text="", icon='MENU_PANEL')
     else:
         small = head.row()
         small.alignment = 'RIGHT'  # just as wide as its text
