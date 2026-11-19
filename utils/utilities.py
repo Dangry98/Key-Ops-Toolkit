@@ -295,12 +295,13 @@ def set_uv_island_select_mode(context):
     """Switch the UV editor to island selection.
     Blender 5.0 removed the 'ISLAND' UV select mode; it became a toggle on top of Face mode."""
     ts = context.tool_settings
-    if 'ISLAND' in ts.bl_rna.properties['uv_select_mode'].enum_items:
-        bpy.ops.uv.select_mode(type='ISLAND')
-    else:
-        bpy.ops.uv.select_mode(type='FACE')
-        if hasattr(ts, "use_uv_select_island"):
-            ts.use_uv_select_island = True
+    mode = 'ISLAND' if 'ISLAND' in ts.bl_rna.properties['uv_select_mode'].enum_items else 'FACE'
+    try:
+        bpy.ops.uv.select_mode(type=mode)
+    except RuntimeError:  # not run from a UV editor (a pie, a shortcut elsewhere): set the mode directly
+        ts.uv_select_mode = mode
+    if mode == 'FACE' and hasattr(ts, "use_uv_select_island"):
+        ts.use_uv_select_island = True
 
 def operator_exists(idname):
     """True if an operator like "mesh.relax_edge_loops" is registered.
