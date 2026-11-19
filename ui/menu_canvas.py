@@ -283,6 +283,9 @@ _icon_queue = []  # icons wait here and are drawn together (see flush_icons)
 
 def draw_icon(name, cx, cy, tint, alpha=1.0):
     """Queue a picked-up icon centred on (cx, cy), pixel aligned. Drawn by flush_icons."""
+    if name == ADD_ICON:  # an item without an icon, hovered: a spot to click to pick one
+        _add_icon(cx, cy, tint, alpha)
+        return
     got = _icons.get(name)
     if got is None:
         return
@@ -290,6 +293,29 @@ def draw_icon(name, cx, cy, tint, alpha=1.0):
     x, y = round(cx - size / 2), round(cy - size / 2)
     colour = (tint[0], tint[1], tint[2], tint[3] * alpha) if mono else (1, 1, 1, alpha)
     _icon_queue.append((tex, x, y, size, uv, colour))
+
+
+def _add_icon(cx, cy, tint, alpha=1.0):
+    s = ui_scale()
+    size = 14 * s
+    col = (tint[0], tint[1], tint[2], tint[3] * alpha * 0.55)
+    x, y = round(cx - size / 2) + 0.5, round(cy - size / 2) + 0.5
+    pts = _outline_pts(x, y, size, size, 3 * s)
+    for k in range(0, len(pts), 2):  # dashed
+        _line(pts[k:k + 2], col, 1.0)
+    p = 3.5 * s
+    _line([(cx - p, cy), (cx + p, cy)], col, 1.2 * s)
+    _line([(cx, cy - p), (cx, cy + p)], col, 1.2 * s)
+
+
+def _tcol(el, c):
+    """Text and icon colour: faded for an inactive item (Active off), and for the action's name shown while hovered."""
+    a = c[3]
+    if not el.active:
+        a *= 0.5
+    if el.dim:
+        a *= 0.5
+    return c[:3] + (a,)
 
 
 def flush_icons():
@@ -311,7 +337,8 @@ def flush_icons():
 
 class El:
     """One drawn thing: an item (index), its rectangle and how it's drawn."""
-    __slots__ = ("index", "x", "y", "w", "h", "kind", "text", "icon", "num", "key", "sub", "style", "icon_rect", "col")
+    __slots__ = ("index", "x", "y", "w", "h", "kind", "text", "icon", "num", "key", "sub", "style", "icon_rect", "col",
+                 "emboss", "active", "depress", "dim")
 
     def __init__(self, index, x, y, w, h, kind="item", text="", icon="", **kw):
         self.index, self.x, self.y, self.w, self.h = index, x, y, w, h
@@ -322,6 +349,10 @@ class El:
         self.style = kw.get("style", "")
         self.icon_rect = kw.get("icon_rect")
         self.col = kw.get("col", 0)
+        self.emboss = kw.get("emboss", True)
+        self.active = kw.get("active", True)
+        self.depress = kw.get("depress", False)
+        self.dim = kw.get("dim", False)  # the text is the action's name, shown while hovered (an icon-only item)
 
     def contains(self, mx, my, pad=0):
         return self.x - pad <= mx <= self.x + self.w + pad and self.y - pad <= my <= self.y + self.h + pad
@@ -372,6 +403,25 @@ class Scene:
             self.marking = [(bx + dx, by + dy) + tuple(rest) for bx, by, *rest in self.marking]
 
 
+ADD_ICON = "+ADD"  # the icon spot a hovered item shows when it has no icon yet: click it to pick one
+
+
+def _look(item):
+    return dict(emboss=item.emboss, active=getattr(item, "active", True), depress=getattr(item, "depress", False))
+
+
+def _hovered(text, icon, default, hover):
+    """While the mouse is on an item it shows both of its parts, so each can be clicked: the icon (a spot to
+    add one if it has none) and the text (the action's name, dimmed, if it shows only its icon)."""
+    dim = False
+    if hover:
+        if not icon:
+            icon = ADD_ICON
+        if not text:
+            text, dim = default, True
+    return text, icon, dim
+
+
 NUMPAD = {"W": "4", "E": "6", "S": "2", "N": "8", "NW": "7", "NE": "9", "SW": "1", "SE": "3"}
 DIR_VEC = {"E": (1, 0), "NE": (math.sqrt(0.5), math.sqrt(0.5)), "N": (0, 1), "NW": (-math.sqrt(0.5), math.sqrt(0.5)),
            "W": (-1, 0), "SW": (-math.sqrt(0.5), -math.sqrt(0.5)), "S": (0, -1), "SE": (math.sqrt(0.5), -math.sqrt(0.5))}
@@ -392,9 +442,9 @@ def _item_texts(item):
         default = item.label or item.idname.strip().split(".")[-1].replace("_", " ").title()
         icon = PM.item_icon(item)
     else:
-        default, icon = item.label or item.idname, PM.item_icon(item)
+        default, icon = item.label or PM.action_name(item), PM.item_icon(item)
     text = PM.item_text(item, default)
-    return text, ("" if icon in ('NONE', '', None) else icon)
+    return text, ("" if icon in ('NONE', '', None) else icon), default
 
 
 def _accel_kinds():
@@ -429,7 +479,7 @@ def _styled(item):
     return not (item.height == 1.0 and item.width == 1.0 and item.emboss and not item.alert)
 
 
-def build_blender_pie(pie):
+def build_blender_pie(pie, hover=None):
     """Blender's pie layout (ui_litem_layout_radial), centred on (0, 0)."""
     PM = _pm()
     sc = Scene("BLENDER_PIE")
@@ -440,9 +490,9 @@ def build_blender_pie(pie):
     sc.radius, sc.threshold = R, thr
     _font()
     items = list(pie.items)[:8]
-    texts = [_item_texts(it) if not PM._is_empty(it) else ("", "") for it in items]
+    texts = [_item_texts(it) if not PM._is_empty(it) else ("", "", "") for it in items]
     keys = accelerators([t if (not PM._is_empty(it) and it.kind in _accel_kinds()) else ""
-                         for it, (t, _i) in zip(items, texts)])
+                         for it, (t, _i, _d) in zip(items, texts)])
     aligned = diagonal = False
     for i, item in enumerate(items):
         d = PM.ORDER[i]
@@ -450,10 +500,13 @@ def build_blender_pie(pie):
         fx = 0.0 if vx > 0.01 else (-1.0 if vx < -0.01 else -0.5)
         fy = 0.0 if vy > 0.99 else (-1.0 if vy < -0.99 else -0.5)
         empty = PM._is_empty(item)
-        text, icon = texts[i]
+        text, icon, default = texts[i]
         styled = not empty and _styled(item)
+        dim = False
         if empty:
             text, icon = "Empty", ""
+        else:
+            text, icon, dim = _hovered(text, icon, default, i == hover)
         tw = _text_w(text)
         if icon and not text:
             w = u
@@ -474,9 +527,9 @@ def build_blender_pie(pie):
             aligned |= d in ("N", "S", "E", "W")
             diagonal |= d not in ("N", "S", "E", "W")
         sc.els.append(El(i, x, y, w, h, kind="empty" if empty else "item", text=text, icon=icon,
-                         num=NUMPAD[d], key=keys[i], sub=item.kind == PM.SUB,
+                         num=NUMPAD[d], key="" if dim else keys[i], sub=item.kind == PM.SUB,
                          style=("BUTTON" if styled else "PIE") + ("_ALERT" if not empty and item.alert else ""),
-                         icon_rect=None))
+                         icon_rect=None, dim=dim, **({} if empty else _look(item))))
     sc.dirmask = (aligned, diagonal)
     sc.title = pie.name
     tw = _text_w(pie.name)
@@ -513,7 +566,7 @@ def _menu_item_w(text, icon, u):
     return _text_w(text) + (u if icon else 0) + u * (0.2 + 0.4 + 0.6)
 
 
-def build_menu(pie):
+def build_menu(pie, hover=None):
     """A popup menu (Blender's menu look), a popup panel, a dialog or a sidebar panel."""
     PM = _pm()
     s, u = ui_scale(), unit()
@@ -527,13 +580,13 @@ def build_menu(pie):
     texts = []
     for it in items:
         if it.kind in PM.LAYOUT_KINDS:
-            texts.append(("", ""))
+            texts.append(("", "", ""))
         elif PM._is_empty(it):
-            texts.append(("", ""))
+            texts.append(("", "", ""))
         else:
             texts.append(_item_texts(it))
     keys = accelerators([t if as_menu and not PM._is_empty(it) and it.kind in _accel_kinds() else ""
-                         for it, (t, _i) in zip(items, texts)])
+                         for it, (t, _i, _d) in zip(items, texts)])
 
     # columns of rows; a row is a list of item indices (Same Row joins the one before)
     columns = [[]]
@@ -605,7 +658,7 @@ def build_menu(pie):
             if entry[0] == "BOX":
                 i = entry[1]
                 h = u
-                text, icon = texts[i] if items[i].label.strip() else ("Box", "")
+                text, icon = (texts[i][0], texts[i][1]) if items[i].label.strip() else ("Box", "")
                 y -= int(u * 0.25)
                 sc.els.append(El(i, x0, y - h - int(u * 0.25), colw, h + int(u * 0.25), kind="boxhead",
                                  text=items[i].label.strip() or "Box", icon=texts[i][1], col=c))
@@ -634,12 +687,16 @@ def build_menu(pie):
             for i, kind in row_items:
                 it = items[i]
                 w = avail * it.width / total_w
-                text, icon = texts[i]
+                text, icon, default = texts[i]
+                dim = False
                 if kind == "empty":
                     text = "Empty"
+                elif kind == "item":
+                    text, icon, dim = _hovered(text, icon, default, i == hover)
                 style = "MENU" if as_menu else _panel_style(it)
-                el = El(i, int(xx), y - rh, int(w), rh, kind=kind, text=text, icon=icon, key=keys[i],
-                        sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), col=c)
+                el = El(i, int(xx), y - rh, int(w), rh, kind=kind, text=text, icon=icon, key="" if dim else keys[i],
+                        sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), col=c, dim=dim,
+                        **_look(it))
                 if icon and kind == "item":
                     el.icon_rect = (int(xx), y - rh, u + int(0.3 * u), rh)
                 sc.els.append(el)
@@ -672,10 +729,10 @@ def _panel_style(item):
     return "BUTTON"
 
 
-def build(pie, prefs):
+def build(pie, prefs, hover=None):
     if pie.menu_type == "PIE":
-        return build_marking(pie) if getattr(prefs, "pie_style", "BLENDER") == "MARKING" else build_blender_pie(pie)
-    return build_menu(pie)
+        return build_marking(pie) if getattr(prefs, "pie_style", "BLENDER") == "MARKING" else build_blender_pie(pie, hover)
+    return build_menu(pie, hover)
 
 
 def supported(pie):
@@ -688,7 +745,7 @@ def icons_needed(pie):
     for it in pie.items:
         if PM._is_empty(it) or it.kind in PM.LAYOUT_KINDS and it.kind != PM.BOX:
             continue
-        _t, icon = _item_texts(it)
+        _t, icon, _d = _item_texts(it)
         if it.kind == PM.BOX:
             icon = PM.item_icon(it)
             icon = "" if icon == 'NONE' else icon
@@ -740,20 +797,27 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
         _text_in(el.x, el.y, el.w, el.h, "Empty", tcol, align="CENTER")
         return
     alert = el.style.endswith("_ALERT")
-    if el.style.startswith("BUTTON"):
+    if el.style.startswith("BUTTON"):  # a sub-layout in the pie: drawn as a plain button
         tool = _theme().wcol_tool
-        inner = _rgba(tool.inner_sel if hovered else tool.inner, alpha)
-        if alert:
-            inner = (0.6, 0.15, 0.15, alpha)
-        widget_box(el.x, el.y, el.w, el.h, tool.roundness * u, inner, _rgba(tool.outline, alpha))
-        tcol = _rgba(tool.text_sel if hovered else tool.text, alpha)
-        _button_content(el, tcol, u, s, align="CENTER" if not el.icon else "LEFT")
+        sel = hovered or el.depress
+        tcol = _rgba(tool.text_sel if sel else tool.text, alpha)
+        if el.emboss:
+            inner = _rgba(tool.inner_sel if sel else tool.inner, alpha)
+            if alert:
+                inner = (0.6, 0.15, 0.15, alpha)
+            widget_box(el.x, el.y, el.w, el.h, tool.roundness * u, inner, _rgba(tool.outline, alpha))
+        else:  # Emboss off: flat, only the icon and text
+            if hovered:
+                _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u, _rgba(tool.inner, 0.5 * alpha))
+            if alert:
+                tcol = (1.0, 0.35, 0.3, alpha)
+        _button_content(el, _tcol(el, tcol), u, s, align="CENTER" if not el.icon else "LEFT")
         return
-    inner = _rgba(wcol.item if hovered else wcol.inner, alpha)
+    inner = _rgba(wcol.inner_sel if el.depress else (wcol.item if hovered else wcol.inner), alpha)
     if alert:
         inner = (0.6, 0.15, 0.15, inner[3])
     widget_box(el.x, el.y, el.w, el.h, r, inner, _rgba(wcol.outline, alpha))
-    tcol = _rgba(wcol.text_sel if hovered else wcol.text, alpha)
+    tcol = _tcol(el, _rgba(wcol.text_sel if (hovered or el.depress) else wcol.text, alpha))
     rx = el.x
     if el.icon and not el.text:  # icon only: centred, like Blender's icon-only pie buttons
         draw_icon(el.icon, el.x + el.w / 2, el.y + el.h / 2, tcol)
@@ -875,7 +939,7 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
     if not menu:
         _draw_boxes(sc, th, s, u)
     item_col = th.wcol_menu_item
-    any_icon = any(el.icon for el in sc.els if el.kind == "item")
+    any_icon = any(el.icon and el.icon != ADD_ICON for el in sc.els if el.kind == "item")
     for el in sc.els:
         hovered = el.index == hover and src is None
         alpha = 0.35 if el.index == src else 1.0
@@ -958,11 +1022,15 @@ def _menu_item(el, wcol, th, u, s, hovered, alpha, any_icon):
         col = _rgba(th.wcol_menu_back.text, 0.6 * alpha)
         _text_in(el.x + 0.2 * u + (u if any_icon else 0) + 0.4 * u - u * 0.4, el.y, el.w, el.h, el.text, col, "LEFT")
         return
-    if hovered:
-        _round_fill(el.x + 0.15 * u, el.y, el.w - 0.3 * u, el.h, wcol.roundness * u, _rgba(wcol.inner_sel, alpha))
-    tcol = _rgba(wcol.text_sel if hovered else wcol.text, alpha)
+    if hovered or el.depress:
+        _round_fill(el.x + 0.15 * u, el.y, el.w - 0.3 * u, el.h, wcol.roundness * u,
+                    _rgba(wcol.inner_sel, alpha * (1.0 if hovered else 0.6)))
+    tcol = _rgba(wcol.text_sel if (hovered or el.depress) else wcol.text, alpha)
+    if el.style.endswith("_ALERT"):
+        tcol = (1.0, 0.35, 0.3, alpha)
     if el.kind == "empty":
         tcol = _rgba(wcol.text, 0.35 * alpha)
+    tcol = _tcol(el, tcol)
     x = el.x + 0.2 * u
     if el.style.startswith("MENU") and el.kind == "item" and _pm().P == _kind(el):
         # settings show as checkboxes in menus
@@ -973,7 +1041,7 @@ def _menu_item(el, wcol, th, u, s, hovered, alpha, any_icon):
     else:
         if el.icon:
             draw_icon(el.icon, x + 8 * s + 2 * s, el.y + el.h / 2, tcol, 1.0)
-        tx0 = x + ((u + 0.2 * u) if any_icon else 0.2 * u)
+        tx0 = x + ((u + 0.2 * u) if any_icon or el.icon else 0.2 * u)
     tx, ty = _text_in(tx0, el.y, el.w, el.h, el.text, tcol, "LEFT")
     if el.key:
         _underline(tx, ty, el.text, el.key, tcol)
@@ -1006,7 +1074,7 @@ def _panel_item(el, th, u, s, hovered, alpha):
         size = 14 * s
         bx, by = el.x + 0.2 * u, el.y + (el.h - size) / 2
         widget_box(bx, by, size, size, opt.roundness * size, _rgba(opt.item if hovered else opt.inner, alpha), _rgba(opt.outline, alpha))
-        _text_in(bx + size + 0.3 * u, el.y, el.w, el.h, el.text, _rgba(opt.text, alpha), "LEFT")
+        _text_in(bx + size + 0.3 * u, el.y, el.w, el.h, el.text, _tcol(el, _rgba(opt.text, alpha)), "LEFT")
         return
     if style == "SLIDER":
         ns = th.wcol_numslider
@@ -1018,14 +1086,18 @@ def _panel_item(el, th, u, s, hovered, alpha):
         return
     tool = th.wcol_tool
     if style == "FLAT":
-        if hovered:
-            _round_fill(el.x + 1, y, el.w - 2, h, tool.roundness * u, _rgba(tool.inner, 0.6 * alpha))
+        if hovered or el.depress:
+            _round_fill(el.x + 1, y, el.w - 2, h, tool.roundness * u, _rgba(tool.inner_sel if el.depress else tool.inner,
+                                                                           0.6 * alpha))
         tcol = _rgba(tool.text_sel if hovered else tool.text, alpha)
+        if alert:
+            tcol = (1.0, 0.35, 0.3, alpha)
     else:
-        inner = _rgba(tool.item if hovered else tool.inner, alpha) if not alert else (0.6, 0.15, 0.15, alpha)
+        base = tool.inner_sel if el.depress else (tool.item if hovered else tool.inner)
+        inner = _rgba(base, alpha) if not alert else (0.6, 0.15, 0.15, alpha)
         widget_box(el.x + 1, y, el.w - 2, h, tool.roundness * u, inner, _rgba(tool.outline, alpha))
-        tcol = _rgba(tool.text_sel if hovered else tool.text, alpha)
-    _button_content(el, tcol, u, s, align="CENTER")
+        tcol = _rgba(tool.text_sel if (hovered or el.depress) else tool.text, alpha)
+    _button_content(el, _tcol(el, tcol), u, s, align="CENTER")
 
 
 def _remove_rect(el, u):
@@ -1103,6 +1175,7 @@ def _cur_pie():
 class Canvas:
     def __init__(self):
         self.rect = None          # (x0, y0, x1, y1) in region pixels, from the last draw
+        self.pad = 0              # how far the marker rows reach beyond the rect
         self.height = None        # pixels from the bottom of the top marker to the top of the bottom marker
         self.x_hint = None
         self.scene = None
@@ -1303,6 +1376,7 @@ def _draw():
     # paint over the markers, the icon row and the area
     gpu.state.blend_set('ALPHA')
     pad = mt + 2
+    st.pad = pad + 2
     _rect(x0 - 1, y0 - pad, x1 - x0 + 2, y1 - y0 + 2 * pad, (bg[0], bg[1], bg[2], 1.0))
     prefs = _prefs()
     pie = _cur_pie()
@@ -1310,7 +1384,7 @@ def _draw():
     if pie is None or not supported(pie):
         gpu.state.blend_set('NONE')
         return
-    sc = build(pie, prefs)
+    sc = build(pie, prefs, st.hover if not st.drag else None)
     cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
     sc.offset(cx, cy)
     st.scene = sc
@@ -1557,6 +1631,11 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             return self._dragging(context, event, st, area, reg, mx, my)
 
         if event.type == 'MOUSEMOVE' or event.type == 'INBETWEEN_MOUSEMOVE':
+            # over a marker row (hidden under the preview): keep the mouse from Blender, so its colour swatch
+            # never shows a tooltip
+            band = st.pad
+            if x0 <= mx <= x1 and (y0 - band <= my < y0 or y1 < my <= y1 + band):
+                return {'RUNNING_MODAL'}
             el = _item_under(st, mx, my) if inside else None
             new = el.index if el is not None else None
             zone = _zone(st, el, mx, my) if el is not None else ""
@@ -1585,6 +1664,14 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             zone = _zone(st, el, mx, my)
             st.drag = {"src": el.index, "start": (mx, my), "grab": (mx - el.x, my - el.y), "active": False,
                        "zone": zone, "el": el, "area": area.as_pointer()}
+            return {'RUNNING_MODAL'}
+        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':  # everything about the item, in one menu
+            el = _item_under(st, mx, my)
+            if el is None:
+                return {'PASS_THROUGH'}
+            with context.temp_override(window=context.window, area=area, region=reg):
+                bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=el.index)
+            reg.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type in {'DEL', 'X'} and event.value == 'PRESS' and st.hover is not None and st.show_remove \
                 and not (event.ctrl or event.alt or event.shift):
