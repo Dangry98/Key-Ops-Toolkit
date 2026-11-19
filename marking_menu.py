@@ -289,7 +289,7 @@ def marking_boxes(pie, slots, cx, cy, look, s, k, active=None, show_empty=False)
         empty = PM._is_empty(item)
         if empty and not show_empty:
             continue
-        label = "Empty" if empty else (item.label or item.idname)
+        label = "Empty" if empty else (item.label or PM.action_name(item))
         sub = item.kind == PM.SUB and not empty
         w, _h = blf.dimensions(0, label)
         arrow = 12 * s if sub else 0

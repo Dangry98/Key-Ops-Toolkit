@@ -512,6 +512,30 @@ def run():
     check("upgrade keeps a pie the user switched on in 0.2 (Workspace)", states["workspace"] is True)
     check("upgrade keeps 0.2 shortcuts on", any(kmi.type == "DEL" and kmi.active for _k, kmi in addon_items()))
     check("upgrade shows What's new", p.show_whats_new)
+
+    # previews draw what the real menus draw
+    MC = sys.modules[MOD + ".ui.menu_canvas"]
+    bpy.ops.keyops.pie_add(menu_type="PIE")
+    pie = p.pies[p.active_pie]
+    it = pie.items[0]
+    it.kind, it.idname, it.label = PM.P, "tool_settings.use_snap", ""
+    check("a setting with no label is named the way Blender names it", PM.action_name(it) == "Snap",
+          PM.action_name(it))
+    it.idname, it.setting_style = "tool_settings.transform_pivot_point", "EXPAND"
+    segs = MC._segments(it)
+    check("an expanded setting previews as its row of choices",
+          segs is not None and len(segs) > 2 and sum(c for _t, _i, c in segs) == 1, str(segs))
+    lab = pie.items[3]
+    lab.kind, lab.label = PM.LABEL, "Heading"
+    sc = MC.build_blender_pie(pie)
+    check("a pie's label keeps its slot", sc.els[3].style.startswith("LABEL") and len(sc.els) == len(pie.items))
+    op = pie.items[1]
+    op.kind, op.idname, op.label = PM.O, "object.delete", "Delete"
+    w1 = MC.build_blender_pie(pie).els[1].w
+    op.width = 2.0
+    w2 = MC.build_blender_pie(pie).els[1].w
+    check("a wider pie button grows like Blender's (more than its scale)", w2 > 2 * (w1 - 1.5 * MC.unit()),
+          f"{w1} -> {w2}")
     addon_utils.disable(MOD, default_set=True)
 
 

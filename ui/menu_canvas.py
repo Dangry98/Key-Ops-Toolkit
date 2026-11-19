@@ -397,7 +397,7 @@ def flush_icons():
 class El:
     """One drawn thing: an item (index), its rectangle and how it's drawn."""
     __slots__ = ("index", "x", "y", "w", "h", "kind", "text", "icon", "num", "key", "sub", "style", "icon_rect", "col",
-                 "emboss", "active", "depress", "dim", "join", "show")
+                 "emboss", "active", "depress", "dim", "join", "show", "segs", "value", "frac")
 
     def __init__(self, index, x, y, w, h, kind="item", text="", icon="", **kw):
         self.index, self.x, self.y, self.w, self.h = index, x, y, w, h
@@ -414,6 +414,9 @@ class El:
         self.dim = kw.get("dim", False)  # the text is the action's name, shown while hovered (an icon-only item)
         self.join = set()  # sides joined to a neighbour in an aligned row or column: "L", "R", "T", "B"
         self.show = True   # markers: drawn and clickable now
+        self.segs = kw.get("segs")  # an expanded setting: its choices [(text, icon, chosen)], drawn as one row
+        self.value = kw.get("value", "")  # a setting's current value, as its field shows it
+        self.frac = kw.get("frac", 0.5)   # how full a slider is
 
     def contains(self, mx, my, pad=0):
         return self.x - pad <= mx <= self.x + self.w + pad and self.y - pad <= my <= self.y + self.h + pad
@@ -497,6 +500,97 @@ DIR_VEC = {"E": (1, 0), "NE": (math.sqrt(0.5), math.sqrt(0.5)), "N": (0, 1), "NW
            "W": (-1, 0), "SW": (-math.sqrt(0.5), -math.sqrt(0.5)), "S": (0, -1), "SE": (math.sqrt(0.5), -math.sqrt(0.5))}
 
 
+def _setting(item):
+    """(Blender's property, its current value) for a setting item, or None when it can't be found here."""
+    PM = _pm()
+    try:
+        data, prop = PM._resolve(bpy.context, item.idname)
+        rna = data.bl_rna.properties[prop]
+        return rna, getattr(data, prop)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _value_text(rna, value):
+    """A number setting's value the way its field shows it."""
+    if rna.type == 'INT':
+        return f"{value}%" if rna.subtype == 'PERCENTAGE' else str(value)
+    if rna.type == 'FLOAT':
+        if getattr(rna, "array_length", 0):
+            return ""
+        txt = f"{value:.{max(0, min(rna.precision, 5))}f}"
+        if rna.subtype == 'PERCENTAGE':
+            return txt + "%"
+        if rna.subtype in ('DISTANCE', 'LENGTH'):
+            return txt + " m"
+        if rna.subtype == 'ANGLE':
+            return f"{math.degrees(value):.0f}\u00b0"
+        return txt
+    return ""
+
+
+def _slider_frac(rna, value):
+    try:
+        lo, hi = rna.soft_min, rna.soft_max
+        return min(1.0, max(0.0, (value - lo) / (hi - lo))) if hi > lo else 0.5
+    except Exception:  # noqa: BLE001
+        return 0.5
+
+
+def _field(item):
+    """How a setting is drawn in a dialog or panel, from what kind of setting it is (style AUTO) or its
+    style: (style, value text, slider fill)."""
+    st = getattr(item, "setting_style", "AUTO")
+    found = _setting(item)
+    if found is None:
+        return ({"SLIDER": "SLIDER", "BUTTON": "BUTTON", "EXPAND": "BUTTON"}.get(st, "CHECK"), "", 0.5)
+    rna, value = found
+    kind = rna.type
+    if kind in ('INT', 'FLOAT') and not getattr(rna, "array_length", 0):
+        slider = st == "SLIDER" or rna.subtype in ('PERCENTAGE', 'FACTOR')
+        return ("SLIDER" if slider else "NUMBER", _value_text(rna, value), _slider_frac(rna, value))
+    if kind == 'BOOLEAN':
+        if st == "BUTTON" or (st == "AUTO" and rna.icon != 'NONE'):  # a setting with an icon is a toggle button
+            return ("BUTTON", "", 0.5)
+        return ("CHECK", "", 0.5)
+    if kind == 'ENUM' and st != "EXPAND" and not rna.is_enum_flag:
+        name = next((e.name for e in rna.enum_items if e.identifier == value), "")
+        return ("DROPDOWN", name, 0.5)
+    if kind == 'STRING':
+        return ("TEXT", str(value), 0.5)
+    return ("BUTTON", "", 0.5)
+
+
+def _clip(text, w):
+    """Text cut to fit a width the way Blender does it: with "..." while there's room for it."""
+    if _text_w(text) <= w:
+        return text
+    for n in range(len(text) - 1, 0, -1):
+        if _text_w(text[:n] + "...") <= w:
+            return text[:n] + "..."
+    for n in range(len(text) - 1, 0, -1):
+        if _text_w(text[:n]) <= w:
+            return text[:n]
+    return ""
+
+
+def _segments(item):
+    """An expanded choice setting's buttons: [(text, icon, chosen)], or None."""
+    if getattr(item, "setting_style", "AUTO") != "EXPAND":
+        return None
+    found = _setting(item)
+    if found is None or found[0].type != 'ENUM':
+        return None
+    rna, value = found
+    chosen = value if isinstance(value, set) else {value}
+    return [(e.name, "" if e.icon == 'NONE' else e.icon, e.identifier in chosen) for e in rna.enum_items]
+
+
+def _segments_w(segs):
+    u = unit()
+    return sum(_text_w(t) + math.ceil(u * (1.5 + (0.25 if i else 0.0))) if t else u for t, i, _c in segs)
+
+
 def _item_texts(item):
     """(text, icon name or '') the way the real menu button shows them."""
     PM = _pm()
@@ -509,8 +603,11 @@ def _item_texts(item):
     elif item.kind == PM.MACRO:
         default, icon = item.label or "Macro", PM.item_icon(item)
     elif item.kind == PM.P:
-        default = item.label or item.idname.strip().split(".")[-1].replace("_", " ").title()
+        found = _setting(item)
+        default = item.label or (found[0].name if found else item.idname.strip().split(".")[-1].replace("_", " ").title())
         icon = PM.item_icon(item)
+        if icon in ('NONE', '', None) and found and getattr(item, "setting_style", "AUTO") != "CHECKBOX":
+            icon = found[0].icon  # Blender shows the setting's own icon
     else:
         default, icon = item.label or PM.action_name(item), PM.item_icon(item)
     text = PM.item_text(item, default)
@@ -546,7 +643,9 @@ def accelerators(texts):
 
 
 def _styled(item):
-    return not (item.height == 1.0 and item.width == 1.0 and item.emboss and not item.alert)
+    """The item is drawn in a sub-layout of its own (pie_menus._styled), so the pie shows it as a plain button."""
+    return not (item.height == 1.0 and item.width == 1.0 and item.emboss and not item.alert
+                and getattr(item, "active", True)) or _segments(item) is not None
 
 
 def build_blender_pie(pie, hover=None):
@@ -571,22 +670,32 @@ def build_blender_pie(pie, hover=None):
         fy = 0.0 if vy > 0.99 else (-1.0 if vy < -0.99 else -0.5)
         empty = PM._is_empty(item)
         text, icon, default = texts[i]
-        styled = not empty and _styled(item)
+        styled = not empty and item.kind != PM.LABEL and _styled(item)
         dim = False
         if empty:
             text, icon = "Empty", ""
         else:
             text, icon, dim = _hovered(text, icon, default, i == hover)
         tw = _text_w(text)
-        if icon and not text:
+        segs = None if empty else _segments(item)
+        label = not empty and item.kind == PM.LABEL
+        if segs:
+            w = _segments_w(segs)
+        elif label:  # a heading, in a sub-layout of its own so it keeps its slot: just its text
+            w = tw + (u if icon else 0) + math.ceil(0.4 * u)
+        elif icon and not text:
             w = u
         elif text:
             w = tw + math.ceil(u * (1.5 + (0.25 if icon else 0.0)))
         else:
             w = u
-        if styled:  # a sub-layout: a plain button, not a pie item
+        if label:
+            h = u
+        elif styled:  # a sub-layout: a plain button, not a pie item
             h = u * item.height
-            w = w * item.width
+            sx = item.width
+            # measured on Blender's pies: a wider row grows by more than its scale (1.5 u per unit of scale)
+            w = w * sx + (1.5 * u * sx * (sx - 1) if sx != 1.0 else 0)
         else:
             w += 1.5 * u
             h = 1.5 * u
@@ -596,10 +705,11 @@ def build_blender_pie(pie, hover=None):
         if not empty:
             aligned |= d in ("N", "S", "E", "W")
             diagonal |= d not in ("N", "S", "E", "W")
+        style = "LABEL" if label else ("BUTTON" if styled else "PIE")
         sc.els.append(El(i, x, y, w, h, kind="empty" if empty else "item", text=text, icon=icon,
-                         num=NUMPAD[d], key="" if dim else keys[i], sub=item.kind == PM.SUB,
-                         style=("BUTTON" if styled else "PIE") + ("_ALERT" if not empty and item.alert else ""),
-                         icon_rect=None, dim=dim, **({} if empty else _look(item))))
+                         num="" if label else NUMPAD[d], key="" if dim or label else keys[i], sub=item.kind == PM.SUB,
+                         style=style + ("_ALERT" if not empty and item.alert else ""),
+                         icon_rect=None, dim=dim, segs=segs, **({} if empty else _look(item))))
     sc.dirmask = (aligned, diagonal)
     sc.title = pie.name
     tw = _text_w(pie.name)
@@ -813,6 +923,9 @@ class _Panel:
             text, icon, _d = self.texts[node[1]]
             if PM._is_empty(it):
                 text = "Empty"
+            segs = None if PM._is_empty(it) else _segments(it)
+            if segs:
+                return _segments_w(segs) * it.width
             base = _text_w(text) + (u if icon else 0) + u
             if _panel_style(it) in ("CHECK",):
                 base += u * 0.8
@@ -863,9 +976,16 @@ class _Panel:
             text = "Empty"
         elif kind == "item":
             text, icon, dim = _hovered(text, icon, default, i == self.hover)
+        segs = _segments(it) if kind == "item" else None
         style = "MENU" if self.menu_look and it.kind != PM.LABEL else _panel_style(it)
+        if segs:  # an expanded setting is a row of buttons, in a menu too
+            style = "BUTTON"
+        value, frac = "", 0.5
+        if kind == "item" and it.kind == PM.P and not segs:
+            _st, value, frac = _field(it)
         el = El(i, int(x), int(y - h), int(w), h, kind=kind, text=text, icon=icon, key="" if dim else self.keys[i],
-                sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), dim=dim, **_look(it))
+                sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), dim=dim, segs=segs,
+                value=value, frac=frac, **_look(it))
         if icon and kind == "item":
             el.icon_rect = (int(x), int(y - h), u + int(0.3 * u), h)
         self.sc.els.append(el)
@@ -1060,8 +1180,9 @@ def _panel_style(item):
     if item.kind == PM.LABEL:
         return "LABEL"
     if item.kind == PM.P:
-        st = getattr(item, "setting_style", "AUTO")
-        return {"SLIDER": "SLIDER", "BUTTON": "BUTTON", "EXPAND": "BUTTON"}.get(st, "CHECK")
+        return _field(item)[0]
+    if item.kind == PM.PANEL_ITEM:  # a popover: a dropdown button
+        return "DROPDOWN"
     if not item.emboss:
         return "FLAT"
     return "BUTTON"
@@ -1087,8 +1208,9 @@ def icons_needed(pie):
         if it.kind == PM.BOX:
             icon = PM.item_icon(it)
             icon = "" if icon == 'NONE' else icon
-        if icon and icon not in names:
-            names.append(icon)
+        for name in [icon] + [i for _t, i, _c in (_segments(it) or [])]:
+            if name and name not in names:
+                names.append(name)
     return names
 
 
@@ -1135,6 +1257,14 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
         _text_in(el.x, el.y, el.w, el.h, "Empty", tcol, align="CENTER")
         return
     alert = el.style.endswith("_ALERT")
+    if el.style.startswith("LABEL"):  # a heading in its own sub-layout: plain text
+        col = _tcol(el, _rgba(_theme().wcol_regular.text, alpha))
+        _button_content(el, col, u, s, align="LEFT") if el.icon else _text_in(el.x + 0.2 * u, el.y, el.w, el.h, el.text,
+                                                                              col, "LEFT")
+        return
+    if el.segs:
+        _draw_segments(el, _theme(), u, s, hovered, alpha)
+        return
     if el.style.startswith("BUTTON"):  # a sub-layout in the pie: drawn as a plain button
         tool = _theme().wcol_tool
         sel = hovered or el.depress
@@ -1150,7 +1280,7 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
                 _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, _rgba(tool.inner, 0.5 * alpha))
             if alert:
                 tcol = (1.0, 0.35, 0.3, alpha)
-        _button_content(el, _tcol(el, tcol), u, s, align="CENTER" if not el.icon else "LEFT")
+        _button_content(el, _tcol(el, tcol), u, s, align="LEFT")  # a pie's buttons keep their text on the left
         return
     inner = _rgba(wcol.inner_sel if el.depress else (wcol.item if hovered else wcol.inner), alpha)
     if alert:
@@ -1168,14 +1298,60 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
         if el.key:
             _underline(tx, ty, el.text, el.key, tcol)
     else:
-        tx0 = rx + round(0.4 * u)
-        tx, ty = _text_in(tx0, el.y, el.w - 2 * round(0.4 * u), el.h, el.text, tcol, "CENTER")
+        tx0 = rx + round(0.4 * u)  # Blender's pie items keep their text on the left
+        tx, ty = _text_in(tx0, el.y, el.w - 2 * round(0.4 * u), el.h, el.text, tcol, "LEFT")
         if el.key:
             _underline(tx, ty, el.text, el.key, tcol)
     if el.num:
         clip = 0.25 * u
         ncol = tcol[:3] + (tcol[3] * 0.5,)
         _text_in(el.x, el.y, el.w - clip, el.h, el.num, ncol, "RIGHT")
+
+
+def _name_value(el, tcol, u, arrows=False):
+    """A number field's text: its name on the left, its value on the right (just the value with no name)."""
+    pad = 0.4 * u + (0.4 * u if arrows else 0)
+    if el.text and el.value:
+        vw = _text_w(el.value)
+        _text_in(el.x + el.w - pad - vw, el.y, vw, el.h, el.value, tcol, "LEFT")
+        _text_in(el.x + pad, el.y, el.w, el.h, _clip(el.text, el.w - 2 * pad - vw - 0.4 * u), tcol, "LEFT")
+    else:
+        _text_in(el.x, el.y, el.w, el.h, el.value or el.text, tcol, "CENTER")
+
+
+def _chevron(cx, cy, size, color, s):
+    _line([(cx - size, cy + size * 0.5), (cx, cy - size * 0.5), (cx + size, cy + size * 0.5)], color, 1.4 * s)
+
+
+def _draw_segments(el, th, u, s, hovered, alpha):
+    """An expanded choice setting: one aligned row of buttons, the chosen one(s) pressed in."""
+    radio = th.wcol_radio
+    segs = el.segs
+    nat = [max(1.0, _text_w(t) + math.ceil(u * (1.5 + (0.25 if i else 0.0))) if t else u) for t, i, _c in segs]
+    if abs(sum(nat) - el.w) > 1.5:  # given a width of its own (a dialog, a panel): Blender splits it evenly
+        nat = [1.0] * len(segs)
+    scale = el.w / max(sum(nat), 1.0)
+    x = el.x
+    r = radio.roundness * u * 0.5
+    for n, ((text, icon, chosen), nw) in enumerate(zip(segs, nat)):
+        w = nw * scale if n < len(segs) - 1 else el.x + el.w - x
+        join = set(el.join)
+        if n > 0:
+            join.add("L")
+        if n < len(segs) - 1:
+            join.add("R")
+        inner = _rgba(radio.inner_sel if chosen else radio.inner, alpha)
+        widget_box(x + (0 if "L" in join else 1), el.y + 1, w - (0 if "L" in join else 1) - (0 if "R" in join else 1),
+                   el.h - 2, r, inner, _rgba(radio.outline, alpha), join=join, wcol=radio, emboss=True)
+        tcol = _tcol(el, _rgba(radio.text_sel if chosen else radio.text, alpha))
+        room = w - 0.4 * u - (16 * s + 0.2 * u if icon else 0)
+        shown = _clip(text, room) if text else ""
+        if icon and shown and _text_w(text) > room:  # squeezed: the icon, then what's left of the text after it
+            draw_icon(icon, x + 0.2 * u + 8 * s, el.y + el.h / 2, tcol)
+            _text_in(x + 0.4 * u + 16 * s, el.y, room, el.h, shown, tcol, "LEFT")
+        else:
+            _button_content(El(el.index, x, el.y, w, el.h, text=shown, icon=icon), tcol, u, s, align="CENTER")
+        x += w
 
 
 def _button_content(el, tcol, u, s, align="CENTER"):
@@ -1297,7 +1473,7 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
                 _text_in(el.x + 0.4 * u + 16 * s + 0.4 * u, el.y, el.w, el.h, el.text, col, "LEFT")
             else:
                 _text_in(el.x + 0.4 * u, el.y, el.w, el.h, el.text, col, "LEFT")
-        elif menu or el.style.startswith("MENU"):
+        elif (menu or el.style.startswith("MENU")) and not el.segs:
             _menu_item(el, item_col, th, u, s, hovered, alpha, any_icon)
         else:
             _panel_item(el, th, u, s, hovered, alpha)
@@ -1470,10 +1646,36 @@ def _panel_item(el, th, u, s, hovered, alpha):
         ns = th.wcol_numslider
         widget_box(bx0, y, bw, h, ns.roundness * u * 0.5, _rgba(ns.inner, alpha), _rgba(ns.outline, alpha), join=j,
                    wcol=ns, emboss=True)
-        fill_w = bw * 0.5
-        _round_fill(bx0, y, fill_w, h, _corner_radii(ns.roundness * u * 0.5, j | {"R"}), _rgba(ns.item, alpha))
+        fill_w = bw * el.frac
+        if fill_w > 0.5:
+            rr = _corner_radii(ns.roundness * u * 0.5, j | ({"R"} if el.frac < 0.999 else set()))
+            _round_fill(bx0, y, fill_w, h, rr, _rgba(ns.item, alpha))
         tcol = _rgba(ns.text_sel if hovered else ns.text, alpha)
-        _text_in(el.x + 0.4 * u, el.y, el.w - 0.8 * u, el.h, el.text, tcol, "LEFT")
+        _name_value(el, tcol, u)
+        return
+    if style == "NUMBER":
+        num = th.wcol_num
+        widget_box(bx0, y, bw, h, num.roundness * u * 0.5, _rgba(num.item if hovered else num.inner, alpha),
+                   _rgba(num.outline, alpha), join=j, wcol=num, emboss=True)
+        tcol = _rgba(num.text_sel if hovered else num.text, alpha)
+        _name_value(el, tcol, u, arrows=True)
+        return
+    if style in ("DROPDOWN", "TEXT"):
+        wc = th.wcol_menu if style == "DROPDOWN" else th.wcol_text
+        widget_box(bx0, y, bw, h, wc.roundness * u * 0.5, _rgba(wc.inner, alpha), _rgba(wc.outline, alpha), join=j,
+                   wcol=wc, emboss=True)
+        tcol = _tcol(el, _rgba(wc.text_sel if hovered else wc.text, alpha))
+        shown = el.value if el.value else el.text  # a choice setting shows its current choice, a popover its name
+        part = El(el.index, el.x, el.y, el.w - (0.8 * u if style == "DROPDOWN" else 0), el.h, text=shown,
+                  icon=el.icon)
+        if part.text:
+            part.text = _clip(part.text, part.w - 0.8 * u - (u if part.icon else 0))
+        _button_content(part, tcol, u, s, align="LEFT")
+        if style == "DROPDOWN":
+            _chevron(el.x + el.w - 0.55 * u, el.y + el.h / 2, 0.22 * u, tcol, s)
+        return
+    if el.segs:
+        _draw_segments(el, th, u, s, hovered, alpha)
         return
     tool = th.wcol_tool
     if style == "FLAT":
