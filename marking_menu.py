@@ -209,12 +209,22 @@ class MenuState:
     def _slots(self, context, pie):
         return dict(_pm().pie_slots(context, list(pie.items)))
 
+    def _list(self, context, pie, cx, cy, active=None):
+        extras = _pm().pie_extras(context, list(pie.items))
+        if not extras:
+            return []
+        return marking_list_boxes(pie, extras, cx, cy, _look(), self._scale(), self._layout_scale(pie), active)
+
     def _active(self, context):
         """(pie, item index, distance) under the current direction of the top level, item None at the centre."""
         level = self.levels[-1]
         pie = _pm().find_pie(level.uid)
         dx, dy = self.mx - level.x, self.my - level.y
         dist = math.hypot(dx, dy)
+        if pie is not None:  # over one of the extra items listed under the menu
+            for bx, by, bw, *_r, index in self._list(context, pie, level.x, level.y):
+                if bx <= self.mx <= bx + bw and by <= self.my <= by + marking_box_height(_look(), self._scale()):
+                    return pie, index, dist
         if pie is None or dist < self._threshold(pie):
             return pie, None, dist
         sector = SECTORS[int(round(math.atan2(dy, dx) / (math.pi / 4))) % 8]
@@ -252,6 +262,7 @@ class MenuState:
             return
         boxes = marking_boxes(pie, self._slots(context, pie).items(), level.x - rx, level.y - ry,
                               look, s, self._layout_scale(pie), active)
+        boxes += self._list(context, pie, level.x - rx, level.y - ry, active)
         draw_marking_boxes(boxes, look, s, colours)
         gpu.state.blend_set('NONE')
 
@@ -298,6 +309,33 @@ def marking_boxes(pie, slots, cx, cy, look, s, k, active=None, show_empty=False)
         bx = cx + inner * k if side > 0 else (cx - inner * k - bw if side < 0 else cx - bw / 2)
         by = cy + mid * k - bh / 2
         boxes.append((bx, by, bw, w, arrow, label, sub, index == active, index))
+    return boxes
+
+
+def marking_list_boxes(pie, indices, cx, cy, look, s, k, active=None, show_empty=False):
+    """A pie's extra items (after its 8 directions): a list under the menu, like Maya's marking menus.
+    Same box format as marking_boxes, every box as wide as the widest."""
+    PM = _pm()
+    blf.size(0, look.marking_font_size * s)
+    bh = look.marking_box_height * s
+    pad = look.marking_padding * s
+    rows = []
+    for index in indices:
+        item = pie.items[index]
+        empty = PM._is_empty(item)
+        if empty and not show_empty:
+            continue
+        label = "Empty" if empty else (item.label or PM.action_name(item))
+        sub = item.kind == PM.SUB and not empty
+        rows.append((label, sub, index, blf.dimensions(0, label)[0]))
+    if not rows:
+        return []
+    bw = max(w for _l, _s, _i, w in rows) + 2 * pad + (12 * s if any(r[1] for r in rows) else 0)
+    top = cy - look.marking_top * k - bh / 2 - bh * 0.9  # under the bottom item
+    boxes = []
+    for n, (label, sub, index, w) in enumerate(rows):
+        by = top - (n + 1) * (bh + 2 * s)
+        boxes.append((cx - bw / 2, by, bw, w, 12 * s if sub else 0, label, sub, index == active, index))
     return boxes
 
 

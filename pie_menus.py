@@ -52,7 +52,8 @@ MENU_TYPES = (
     ("MODAL", "Modal Value", "Move the mouse or scroll to change a setting, click to confirm", 'MOUSE_MOVE', 6),
 )
 TYPE_ICON = {t[0]: t[3] for t in MENU_TYPES}
-ITEM_LIMIT = {"PIE": 8, "STICKY": 2, "MODAL": 1}  # others: up to 64
+ITEM_LIMIT = {"PIE": 24, "STICKY": 2, "MODAL": 1}  # others: up to 64. Pies: 8 directions + 16 extra items
+PIE_SLOTS = 8  # a pie's first 8 items are its directions; the rest are extra items (a list, like Maya's)
 ITEM_MIN = {"PIE": 8, "STICKY": 2, "MODAL": 1}
 
 ONLY_MODES = (
@@ -93,6 +94,17 @@ SETTING_STYLES = (
     ("SLIDER", "Slider", "For numbers: a slider"),
 )
 _ = (N, "", "", "", "")
+
+
+def _orient(label, icon, value):
+    """A preset item that sets the transform orientation."""
+    return (O, label, icon, "wm.context_set_enum",
+            f"data_path='scene.transform_orientation_slots[0].type', value='{value}'")
+
+
+def _pivot(label, icon, value):
+    """A preset item that sets the pivot point."""
+    return (O, label, icon, "wm.context_set_enum", f"data_path='tool_settings.transform_pivot_point', value='{value}'")
 
 
 def _op(label, icon, idname, props=""):
@@ -235,7 +247,39 @@ PRESETS = (
                  *(("mesh.select_edge_ring_multi",) if bpy.app.version >= (5, 1, 0) else ("mesh.loop_multi_select", "ring=True"))),
              _op("To Inner Region", "SNAP_FACE", "mesh.loop_to_region"),
              _op("To Edge Perimeter", "MESH_CAPSULE", "mesh.region_to_loop"))),
+    # Maya's tool marking menus: hold W, E or R and click (drag to pick)
+    dict(id="marking_move", name="Move Options", editor="Object Mode, Mesh", key="LEFTMOUSE", key_mod="W",
+         optional=True, styles=set(), items=(
+             _orient("Object", "ORIENTATION_LOCAL", "LOCAL"),
+             _orient("Component", "ORIENTATION_NORMAL", "NORMAL"),
+             _op("Move Tool", "CON_LOCLIKE", "wm.tool_set_by_id", "name='builtin.move'"),
+             _orient("World", "ORIENTATION_GLOBAL", "GLOBAL"),
+             _orient("View", "ORIENTATION_VIEW", "VIEW"),
+             _orient("Gimbal", "ORIENTATION_GIMBAL", "GIMBAL"),
+             _orient("Cursor", "ORIENTATION_CURSOR", "CURSOR"),
+             _orient("Parent", "ORIENTATION_PARENT", "PARENT"))),
+    dict(id="marking_rotate", name="Rotate Options", editor="Object Mode, Mesh", key="LEFTMOUSE", key_mod="E",
+         optional=True, styles=set(), items=(
+             _pivot("Individual Origins", "PIVOT_INDIVIDUAL", "INDIVIDUAL_ORIGINS"),
+             _pivot("Active Element", "PIVOT_ACTIVE", "ACTIVE_ELEMENT"),
+             _op("Rotate Tool", "CON_ROTLIKE", "wm.tool_set_by_id", "name='builtin.rotate'"),
+             _pivot("Median Point", "PIVOT_MEDIAN", "MEDIAN_POINT"),
+             _pivot("Bounding Box", "PIVOT_BOUNDBOX", "BOUNDING_BOX_CENTER"),
+             _pivot("3D Cursor", "PIVOT_CURSOR", "CURSOR"),
+             (P, "Snap", "SNAP_ON", "tool_settings.use_snap", ""),
+             (P, "Affect Only Origins", "OBJECT_ORIGIN", "tool_settings.use_transform_data_origin", ""))),
+    dict(id="marking_scale", name="Scale Options", editor="Object Mode, Mesh", key="LEFTMOUSE", key_mod="R",
+         optional=True, styles=set(), items=(
+             (P, "Soft Select", "PROP_ON", "tool_settings.use_proportional_edit", ""),
+             (P, "Connected Only", "PROP_CON", "tool_settings.use_proportional_connected", ""),
+             _op("Scale Tool", "CON_SIZELIKE", "wm.tool_set_by_id", "name='builtin.scale'"),
+             _pivot("Median Point", "PIVOT_MEDIAN", "MEDIAN_POINT"),
+             _pivot("Individual Origins", "PIVOT_INDIVIDUAL", "INDIVIDUAL_ORIGINS"),
+             _pivot("3D Cursor", "PIVOT_CURSOR", "CURSOR"),
+             (P, "Snap", "SNAP_ON", "tool_settings.use_snap", ""),
+             _op("Apply Scale", "CON_SIZELIKE", "object.transform_apply", "location=False, rotation=False, scale=True"))),
 )
+MAYA_PRESETS = {p["id"] for p in PRESETS if p["id"].startswith("marking_")}  # need the Marking style
 PRESET_BY_ID = {p["id"]: p for p in PRESETS}
 # The presets that existed before files recorded which presets they had seen
 FIRST_PRESETS = ("add_objects", "add_modifier", "flatten", "cursor", "workspace", "utility", "uv_space", "uv_islands")
@@ -549,6 +593,7 @@ def _fill(pie, preset):
     pie.shift = preset.get("shift", False)
     pie.alt = preset.get("alt", False)
     pie.key_event = preset.get("key_event", "PRESS")
+    pie.key_mod = preset.get("key_mod", "NONE")
     pie.items.clear()
     for kind, label, icon, idname, props in preset["items"]:
         it = pie.items.add()
@@ -1101,6 +1146,17 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
         layout.label(text=f"{label} (check command)", icon='ERROR')
 
 
+def slot_name(i):
+    """A pie item's place: its direction, or Extra n for the items after the 8 directions."""
+    return POSITION_NAMES[ORDER[i]] if i < PIE_SLOTS else f"Extra {i - PIE_SLOTS + 1}"
+
+
+def pie_extras(context, items):
+    """The indices of a pie's extra items (after its 8 directions) shown here."""
+    return [i for i in range(PIE_SLOTS, len(items)) if not _is_empty(items[i]) and item_visible(context, items[i])
+            and not (context.mode != 'OBJECT' and items[i].idname.strip() in _OBJECT_MODE_ONLY)]
+
+
 def pie_slots(context, items):
     """(direction, item index) for the items a pie shows here, in Blender's slot order
     (left, right, bottom, top, then the corners). Skipped items move the later ones up a slot."""
@@ -1112,11 +1168,26 @@ def pie_slots(context, items):
 
 def draw_pie_items(layout, context, items, pie_uid):
     """The eight slots of a pie, drawn by Blender."""
-    for _direction, i in pie_slots(context, items):
+    extras = pie_extras(context, items)
+
+    def draw_extras(col):
+        box = col.box().column(align=True)
+        for x in extras:
+            draw_item(box, context, items[x], pie_uid, x)
+
+    slots = pie_slots(context, items)
+    for direction, i in slots:
         item = items[i]
+        if direction == "N" and extras:  # the extra items: a column on top of the pie's top item
+            col = layout.column()
+            draw_extras(col)
+            draw_item(col, context, item, pie_uid, i)
+            continue
         # Blender gives a pie's labels no direction (the items after them would move up a slot): in a
         # sub-layout of its own a label keeps the slot the editor shows it in
         draw_item(layout.column() if item.kind == LABEL else layout, context, item, pie_uid, i)
+    if extras and not any(d == "N" for d, _i in slots):  # no top item here: they take the next direction
+        draw_extras(layout.column())
 
 
 _stack_state = {}  # menu id -> (next index, time of last press)
@@ -2019,6 +2090,9 @@ class KEYOPS_OT_pie_add(Operator):
         pie = _new_pie(prefs)
         if self.preset in PRESET_BY_ID:
             _fill(pie, PRESET_BY_ID[self.preset])
+            if self.preset in MAYA_PRESETS and prefs.pie_style != "MARKING":
+                prefs.pie_style = "MARKING"  # Maya's marking menus only work as marking menus
+                self.report({'INFO'}, "Pie menus now use the Marking style, for Maya's marking menus")
         elif self.menu_type != "PIE":
             names = {"MENU": "My Menu", "DIALOG": "My Dialog", "PANEL": "My Panel", "STACK": "My Stack Key",
                      "STICKY": "My Sticky Key", "MODAL": "My Modal Value"}
@@ -2045,13 +2119,13 @@ def _active_pie(prefs):
 class KEYOPS_OT_menu_item_add(Operator):
     bl_idname = "keyops.menu_item_add"
     bl_label = "Add Item"
-    bl_description = "Add an item to this popup menu"
+    bl_description = "Add an item to this menu (a pie: an extra item, beyond its 8 directions)"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
         prefs = get_keyops_prefs()
         pie = _active_pie(prefs)
-        if pie is None or pie.menu_type == "PIE" or len(pie.items) >= ITEM_LIMIT.get(pie.menu_type, 64):
+        if pie is None or len(pie.items) >= ITEM_LIMIT.get(pie.menu_type, 64):
             return {'CANCELLED'}
         pie.items.add()
         prefs.pie_slot = len(pie.items) - 1
@@ -2073,6 +2147,8 @@ class KEYOPS_OT_menu_item_remove(Operator):
             prefs.pie_slot = self.slot
         if pie is None or not (0 <= prefs.pie_slot < len(pie.items)) or len(pie.items) <= ITEM_MIN.get(pie.menu_type, 0):
             return {'CANCELLED'}
+        if pie.menu_type == "PIE" and prefs.pie_slot < PIE_SLOTS:
+            return {'CANCELLED'}  # a direction: emptied, not removed (see Clear)
         if pie.items[prefs.pie_slot].kind == BOX:  # a group: its End Group goes too, its items stay
             end = group_end(list(pie.items), prefs.pie_slot)
             if end is not None:
@@ -2123,7 +2199,7 @@ def _slot_target_list():
     pie = _active_pie(prefs)
     if pie is None:
         return [("NONE", "", "")]
-    return [(str(i), f"{POSITION_NAMES[ORDER[i]]}  ·  {pie.items[i].label or ('Empty' if _is_empty(pie.items[i]) else pie.items[i].idname)}",
+    return [(str(i), f"{slot_name(i)}  ·  {pie.items[i].label or ('Empty' if _is_empty(pie.items[i]) else pie.items[i].idname)}",
              "Swap with this slot") for i in range(len(pie.items)) if i != prefs.pie_slot] or [("NONE", "", "")]
 
 
@@ -3104,10 +3180,15 @@ class KEYOPS_OT_pie_preset_popup(Operator):
         col = self.layout.column(align=True)
         marking_heading = False
         for preset in PRESETS:
-            if preset.get("optional") and not marking_heading:
+            if preset["id"] in MAYA_PRESETS and not marking_heading:
                 marking_heading = True
                 self.layout.separator()
-                self.layout.label(text="Marking Menus")
+                self.layout.label(text="Maya Marking Menus")
+                if get_keyops_prefs().pie_style != "MARKING":
+                    note = self.layout.row()
+                    note.active = False
+                    note.label(text="Adding one switches pie menus to the Marking style (Pie Menu Settings)",
+                               icon='INFO')
                 col = self.layout.column(align=True)
                 col.emboss = 'PULLDOWN_MENU'
             split = col.split(factor=0.3, align=True)
@@ -3760,6 +3841,10 @@ def draw_canvas_overview(layout, context, pie, prefs):
         add = row.row()
         add.ui_units_x = 8.0
         add.menu("KEYOPS_MT_item_add", text="Add", icon='ADD')
+    elif pie.menu_type == "PIE" and len(pie.items) < ITEM_LIMIT["PIE"]:  # beyond the 8 directions
+        add = row.row()
+        add.ui_units_x = 8.0
+        add.operator("keyops.menu_item_add", text="Add Extra", icon='ADD')
     if pie.menu_type != "PANEL":
         tryit = row.row()
         tryit.ui_units_x = 5.0
@@ -3967,7 +4052,7 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
     col = box.column()
     head = col.row(align=True)
     labels = LIST_LABELS.get(pie.menu_type)
-    where = labels(slot) if labels else (POSITION_NAMES[ORDER[slot]] if not is_menu else "")
+    where = labels(slot) if labels else (slot_name(slot) if not is_menu else "")
     # what it is and where: its name is on the Operator button and in the label field below
     kind = card_kind(pie, item)
     head.label(text=kind + (f"  ·  {where}" if where else ""),
@@ -3981,7 +4066,7 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
         tools.operator_menu_enum("keyops.slot_swap", "target", text="", icon='ARROW_LEFTRIGHT')
     tools.operator("keyops.slot_copy", text="", icon='COPYDOWN')
     tools.operator("keyops.slot_paste", text="", icon='PASTEDOWN')
-    if is_menu and len(pie.items) > ITEM_MIN.get(pie.menu_type, 0):
+    if (is_menu and len(pie.items) > ITEM_MIN.get(pie.menu_type, 0)) or (not is_menu and slot >= PIE_SLOTS):
         tools.operator("keyops.menu_item_remove", text="", icon='X').slot = slot
 
     col.separator(factor=0.6)
