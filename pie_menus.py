@@ -3660,29 +3660,33 @@ def draw_pies_tab(prefs, context, layout):
     pie = prefs.pies[active]
     box = layout.box()
     # header: where it works and Try It (its name and key are in the list on the left)
-    head = box.row(align=True)
+    head = box.row()
     names = editor_names(pie)
-    head.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
-                        icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
+    where = head.row(align=True)
+    where.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
+                         icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
     if pie.menu_type == "PANEL":
-        head.prop(pie, "tab", text="", icon='MENU_PANEL')
+        where.prop(pie, "tab", text="", icon='MENU_PANEL')
     else:
-        small = head.row(align=True)
-        small.ui_units_x = 4
+        small = head.row()
+        small.alignment = 'RIGHT'  # just as wide as its text
         tryit = small.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
         tryit.pie, tryit.direct = pie.uid, True
 
     box.separator(factor=0.4)
+    # the preview on the left, the selected item's settings beside it on the right
+    split = box.split(factor=0.62)
+    left, right = split.column(), split.column()
     if menu_canvas.supported(pie):  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
-        draw_canvas_overview(box, context, pie, prefs)
-        tip = box.row()
+        draw_canvas_overview(left, context, pie, prefs)
+        tip = left.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text="Click an item to edit it, click it again for its operator. Drag to move. Right-click for more.")
+        tip.label(text="Click to edit, again for its operator. Drag to move. Right-click for more.")
     else:
-        draw_pie_overview(box, pie, prefs)
-    draw_item_card(prefs, context, layout, pie)
-    draw_menu_settings(prefs, layout, pie)
+        draw_pie_overview(left, pie, prefs)
+    draw_item_card(prefs, context, right, pie)
+    draw_menu_settings(prefs, right, pie)
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
