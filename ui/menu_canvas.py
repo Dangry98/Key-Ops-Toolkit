@@ -1548,6 +1548,7 @@ class Canvas:
         self.misses = 0
         self.window_ptr = 0
         self.press = None
+        self.picked = None        # (menu, item) the last click in the preview was on
 
 
 _canvases = {}       # region pointer -> Canvas
@@ -1898,7 +1899,9 @@ def _click(context, st, el, zone, win, area, region):
     PM = _pm()
     prefs = _prefs()
     with context.temp_override(window=win, area=area, region=region):
-        was_selected = prefs.pie_slot == el.index
+        # a second click on the same item (the first one only selects it) picks its action
+        was_selected = prefs.pie_slot == el.index and st.picked == (st.pie.uid if st.pie else "", el.index)
+        st.picked = (st.pie.uid if st.pie else "", el.index)
         if zone == "remove":
             bpy.ops.keyops.menu_item_remove(slot=el.index)
         elif zone == "icon" and el.kind == "item":  # the icon spot: straight to the icons
@@ -2049,7 +2052,7 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
 
         if not inside:
             return {'PASS_THROUGH'}
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+        if event.type == 'LEFTMOUSE' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
