@@ -344,22 +344,28 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         picked = set(self.ui_category)
         return picked or {c[0] for c in F.CATEGORIES}
 
-    def _feature_matches(self, f):
+    def _feature_matches(self, f, every_category=False):
         q = self.ui_search.strip().lower()
         if q and q not in f"{f.name} {f.description}".lower():
             return False
-        if not q and f.category not in self._categories():
+        if not q and not every_category and f.category not in self._categories():
             return False
         return True
 
     def draw_features(self, context, layout):
-        split = layout.split(factor=0.22)
-        left = split.column()
-        col = left.column(align=True)
-        col.scale_y = 1.35
-        col.prop(self, "ui_category_view", expand=True)  # All and the categories, text on the left
-
-        right = split.column()
+        # a small Preferences window: no category list beside the features (it would cut their
+        # descriptions short), every feature under its category heading instead
+        width = (context.region.width if context.region else 1600) / max(0.5, context.preferences.system.ui_scale)
+        narrow = width < 820
+        if narrow:
+            right = layout.column()
+        else:
+            split = layout.split(factor=0.22)
+            left = split.column()
+            col = left.column(align=True)
+            col.scale_y = 1.35
+            col.prop(self, "ui_category_view", expand=True)  # All and the categories, text on the left
+            right = split.column()
         row = right.row(align=True)
         if bpy.app.version >= (4, 1, 0):
             row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features")
@@ -368,7 +374,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         right.separator(factor=0.5)
 
         order = {c[0]: i for i, c in enumerate(F.CATEGORIES)}
-        shown = sorted((f for f in F.visible_features(self) if self._feature_matches(f)),
+        shown = sorted((f for f in F.visible_features(self) if self._feature_matches(f, narrow)),
                        key=lambda f: order.get(f.category, 99))  # stable: keeps the order within a category
         if not shown:
             right.box().label(text="No features match your search.")

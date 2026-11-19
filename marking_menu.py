@@ -16,7 +16,7 @@ import gpu
 from bpy.props import StringProperty
 from gpu_extras.batch import batch_for_shader
 
-SHOW_DELAY = 0.12  # seconds before the menu is drawn; a faster flick picks without showing it
+SHOW_DELAY = 0.0  # drawn as soon as the key goes down, like Maya (a flick picks without waiting for it)
 TAP_TIME = 0.25    # a press shorter than this, without moving, leaves the menu open to click
 # compass direction of each 45 degree sector, counter-clockwise from the right
 SECTORS = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")
@@ -236,7 +236,7 @@ class MenuState:
         _item_c, _high_c, _text_c, _high_text_c, border, line_c, centre_c = colours
         rx, ry = region.x, region.y
         s = self._scale()
-        shown = self.click_mode or time.time() - self.start >= look.marking_delay
+        shown = True  # drawn at once; picking never waits for the drawing
         gpu.state.blend_set('ALPHA')
 
         # the mark: a line from the first press through every opened submenu to the mouse
@@ -410,6 +410,7 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         _open.append(st)
         self.st = st
         context.window_manager.modal_handler_add(self)
+        context.area.tag_redraw()  # on screen right away, not at the next mouse move
         return {'RUNNING_MODAL'}
 
     def cancel(self, context):
@@ -555,7 +556,6 @@ def draw_look_settings(prefs, layout):
         row = layout.split(factor=0.3, align=True)
         row.label(text=text)
         row.row(align=True).prop(prefs, name, expand=True)
-    layout.prop(prefs, "marking_delay")
     layout.operator("keyops.marking_look_reset", icon='LOOP_BACK')
 
 

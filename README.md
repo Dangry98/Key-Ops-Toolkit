@@ -18,7 +18,7 @@
 
 <p align="center">
   <img alt="Blender 4.2+" src="https://img.shields.io/badge/Blender-4.2%2B-orange?logo=blender&logoColor=white">
-  <img alt="Version 0.2.7" src="https://img.shields.io/badge/version-0.2.7-blue">
+  <img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-blue">
   <img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-green">
 </p>
 

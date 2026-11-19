@@ -369,6 +369,31 @@ def editor_names(pie_or_text):
     return [n for n in (x.strip() for x in text.split(",")) if n in _EDITOR_LABELS]
 
 
+# the editor (area type) each Works In choice means; None: every editor
+_EDITOR_AREAS = {"3D View Generic": 'VIEW_3D', "Object Mode": 'VIEW_3D', "Mesh": 'VIEW_3D', "Sculpt": 'VIEW_3D',
+                 "Weight Paint": 'VIEW_3D', "UV Editor": 'IMAGE_EDITOR', "Image": 'IMAGE_EDITOR',
+                 "Node Editor": 'NODE_EDITOR', "Graph Editor": 'GRAPH_EDITOR', "Dopesheet": 'DOPESHEET_EDITOR',
+                 "Outliner": 'OUTLINER', "Property Editor": 'PROPERTIES', "Sequencer": 'SEQUENCE_EDITOR',
+                 "Text": 'TEXT_EDITOR', "Window": None}
+
+
+def editor_ok(context, pie):
+    """Whether the mouse is over an editor the menu works in (the UV Editor: an image editor showing UVs)."""
+    area = context.area
+    if area is None:
+        return True
+    for name in editor_names(pie):
+        want = _EDITOR_AREAS.get(name)
+        if want is None:
+            return True
+        if area.type != want:
+            continue
+        if name == "UV Editor" and getattr(area, "ui_type", 'UV') != 'UV':
+            continue
+        return True
+    return False
+
+
 def editor_text(pie):
     names = editor_names(pie)
     return ", ".join(_EDITOR_LABELS[n] for n in names) if names else "Nowhere"
@@ -1316,6 +1341,8 @@ class WM_OT_keyops_call_pie(Operator):
             return {'CANCELLED'}
         if pie.only_mode != "ANY" and context.mode != pie.only_mode:
             return {'PASS_THROUGH'}  # let Blender's own key do its thing here
+        if not self.direct and not editor_ok(context, pie):
+            return {'PASS_THROUGH'}  # a key shared with another editor: only where the menu works
         if not self.direct and not condition_ok(context, pie):
             return {'PASS_THROUGH'}
         self._hold = None
