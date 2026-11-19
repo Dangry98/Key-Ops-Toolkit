@@ -3416,8 +3416,6 @@ def draw_pie_feel(prefs, layout):
     row = box.row(align=True)
     row.label(text="Style")
     row.prop(prefs, "pie_style", expand=True)
-    # the chosen style, drawn live: theme and marking menu look changes show as they're made
-    menu_canvas.draw_style_layout(box.column(), bpy.context, prefs)
     if prefs.pie_style == "MARKING":
         look = box.row()
         look.alignment = 'LEFT'
