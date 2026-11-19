@@ -16,6 +16,7 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatPrope
 from bpy.types import Operator, PropertyGroup
 
 from .utils.pref_utils import get_keyops_prefs
+from .ui import menu_canvas
 
 # Blender's pie order: the 8 slots are filled in this sequence
 ORDER = ("W", "E", "S", "N", "NW", "NE", "SW", "SE")
@@ -3055,6 +3056,26 @@ def draw_pie_overview(layout, pie, prefs):
         col.separator(factor=0.35)
 
 
+def draw_canvas_overview(layout, context, pie, prefs):
+    """Pies, popup menus, dialogs and panels, drawn with the GPU the way they really look (ui/menu_canvas.py)."""
+    if pie.menu_type != "PIE":
+        hint = TYPE_HINT.get(pie.menu_type, "")
+        if pie.menu_type == "MENU" and needs_panel_popup(pie.items):
+            hint = "Opens as a popup panel, since menus can't draw rows, sizes or boxes"
+        if hint:
+            k = layout.row()
+            k.alignment = 'CENTER'
+            k.active = False
+            k.label(text=hint)
+    menu_canvas.draw_layout(layout, context, pie, prefs)
+    if pie.menu_type != "PIE" and len(pie.items) < ITEM_LIMIT.get(pie.menu_type, 64):
+        row = layout.row()
+        row.alignment = 'CENTER'
+        add = row.row()
+        add.ui_units_x = 11.0
+        add.operator("keyops.menu_item_add", text="Add Item", icon='ADD')
+
+
 class KEYOPS_MT_menu_list_specials(bpy.types.Menu):
     """The ▾ menu beside the Custom Menus list."""
     bl_label = "Custom Menus"
@@ -3154,14 +3175,21 @@ def draw_pies_tab(prefs, context, layout):
 
     box.separator(factor=0.4)
     split = box.split(factor=0.58) if prefs.pie_customize else box.column()
-    draw_pie_overview(split.column() if prefs.pie_customize else split, pie, prefs)
+    target = split.column() if prefs.pie_customize else split
+    gpu_drawn = menu_canvas.supported(pie)
+    if gpu_drawn:  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
+        draw_canvas_overview(target, context, pie, prefs)
+    else:
+        draw_pie_overview(target, pie, prefs)
     if prefs.pie_customize:
         draw_slot_editor(prefs, split.column(), pie)
     else:
         tip = box.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text="Click a slot to search for a different action, or its icon to change the icon. Customize for more.")
+        tip.label(text=("Click an item to pick a different action, or its icon to change the icon. "
+                        "Drag an item to move it. Customize for more.") if gpu_drawn else
+                  "Click a slot to search for a different action, or its icon to change the icon. Customize for more.")
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
@@ -3515,6 +3543,7 @@ def register():
         bpy.utils.register_class(cls)
     from . import marking_menu
     marking_menu.register()
+    menu_canvas.register()
     bpy.types.WindowManager.keyops_export_menus = CollectionProperty(type=KeyOpsExportChoice)
     bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
     bpy.types.WindowManager.keyops_menu_filter = StringProperty(
@@ -3572,6 +3601,7 @@ def unregister():
     del bpy.types.WindowManager.keyops_no_lag_pies
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    menu_canvas.unregister()
     from . import marking_menu
     marking_menu.unregister()
 
