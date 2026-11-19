@@ -1084,11 +1084,6 @@ class SmartExtrude(bpy.types.Operator):
     def unregister():
         bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_extrude)
         
-def menu_extrude(self, context):
-    layout = self.layout
-    layout.operator(SmartExtrude.bl_idname, text="Smart Extrude (Slow, Outdated)")
-
-
 class ExtrudeEdgeByNormal(bpy.types.Operator):
     bl_idname = "mesh.extrude_edge_by_normal"
     bl_label = "Extrude Edge by Normal"
@@ -1109,11 +1104,6 @@ class ExtrudeEdgeByNormal(bpy.types.Operator):
 
         return {'FINISHED'}
     
-def register():
-    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.prepend(menu_extrude)
-def unregister():
-    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.remove(menu_extrude)
-
 def menu_extrude(self, context):
     if bpy.context.mode == 'EDIT_MESH' and not bpy.context.tool_settings.mesh_select_mode[2] == True:
         self.layout.operator(ExtrudeEdgeByNormal.bl_idname, text="Extrude Edge by Normal")
