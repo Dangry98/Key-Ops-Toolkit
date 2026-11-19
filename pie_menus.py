@@ -2185,13 +2185,13 @@ class KEYOPS_OT_menu_item_insert(Operator):
                 return {'CANCELLED'}
             head = _insert_item(pie, pos, BOX)
             head.group_type, head.label = self.kind[2:], ""
-            _insert_item(pie, pos + 1, N)
+            _insert_item(pie, pos + 1, O)  # an empty button inside, to pick an action for
             _insert_item(pie, pos + 2, BOX_END).label = "End Group"
             prefs.pie_slot = pos
             _changed()
             _redraw_all(context)
             return {'FINISHED'}
-        it = _insert_item(pie, pos, N if self.kind == O else self.kind)
+        it = _insert_item(pie, pos, self.kind)  # a Button starts empty (no action yet)
         it.label = {LABEL: "Heading", BREAK: "Next Column"}.get(self.kind, "")
         prefs.pie_slot = pos
         _changed()
