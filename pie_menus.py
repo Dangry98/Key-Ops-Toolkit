@@ -3799,6 +3799,7 @@ def draw_pies_tab(prefs, context, layout):
     where = head.row(align=True)
     where.alignment = 'LEFT'  # small, like Try It
     label = where.row()
+    label.ui_units_x = 3.2
     label.active = False
     label.label(text="Works In")
     ed = where.row(align=True)
@@ -3830,21 +3831,13 @@ def draw_pies_tab(prefs, context, layout):
         tip.label(text="Click to edit, again for its operator. Drag to move. Right-click for more.")
     else:
         draw_pie_overview(left, pie, prefs)
-    draw_item_card(prefs, context, right, pie)
+    card_w = width * (0.78 if not narrow else 1.0) * (0.38 if wide else 1.0)
+    draw_item_card(prefs, context, right, pie, compact=card_w < 430)
     draw_menu_settings(prefs, right, pie)
     if narrow:  # the pie settings and your values, under everything
         draw_pie_feel(prefs, layout)
         draw_values(context, layout)
 
-    if any(it.idname == "keyops.add_mesh" for it in pie.items):
-        sbox = layout.box()
-        r = sbox.row()
-        r.label(text="Add Objects size")
-        r.prop(prefs, "add_object_pie_use_relative")
-        sub = r.row()
-        sub.active = prefs.add_object_pie_use_relative
-        sub.prop(prefs, "add_object_pie_relative_scale")
-        r.prop(prefs, "add_object_pie_default_scale")
 
 
 KIND_NAMES = {O: "Button", M: "Menu", P: "Setting", SUB: "Opens a Menu", SCRIPT: "Python", MACRO: "Macro",
@@ -3891,9 +3884,11 @@ def _foldout(layout, data, prop, text):
     return on
 
 
-def draw_item_card(prefs, context, layout, pie):
-    """The selected item: the things you change most, then Advanced for the rest."""
+def draw_item_card(prefs, context, layout, pie, compact=False):
+    """The selected item: the things you change most, then Advanced for the rest.
+    compact: little room (a small Preferences window): icons and dropdowns instead of rows of buttons."""
     if not len(pie.items):
+        _note(layout.box(), "Empty: use Add under the preview to put in a button, label or group")
         return
     slot = max(0, min(prefs.pie_slot, len(pie.items) - 1))
     item = pie.items[slot]
@@ -3923,7 +3918,10 @@ def draw_item_card(prefs, context, layout, pie):
     elif k == BOX_END:
         _note(col, "Ends the group above: the items after this are outside it")
     elif k == BOX:
-        col.row(align=True).prop(item, "group_type", expand=True)
+        if compact:
+            col.prop(item, "group_type", text="")
+        else:
+            col.row(align=True).prop(item, "group_type", expand=True)
         r = col.row(align=True)
         r.prop(item, "label", text="", icon='FONT_DATA', placeholder="Heading") if bpy.app.version >= (4, 1, 0) \
             else r.prop(item, "label", text="Heading")
@@ -3935,7 +3933,10 @@ def draw_item_card(prefs, context, layout, pie):
             r.prop(item, "grid_columns")
         elif item.group_type == "PANEL":
             r.prop(item, "closed", toggle=True)
-        col.row(align=True).prop(item, "alignment", expand=True)
+        if compact:
+            col.prop(item, "alignment", text="")
+        else:
+            col.row(align=True).prop(item, "alignment", expand=True)
     elif _is_empty(item) and k == N and is_menu:
         r = col.row(align=True)
         r.prop(item, "sep_type", expand=True)
@@ -3955,7 +3956,9 @@ def draw_item_card(prefs, context, layout, pie):
             op = r.operator("keyops.pie_slot_search", text=("Operator" if _is_empty(item) else
                                                             action_name(item) or item.idname), icon='VIEWZOOM')
             op.slot, op.scope = slot, "ALL"
-        if not _is_empty(item):
+        # a setting drawn as a checkbox shows no icon in Blender: no icon button then
+        icon_ok = not (k == P and item.setting_style == "CHECKBOX")
+        if not _is_empty(item) and icon_ok:
             r.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
             r = col.row(align=True)
             if bpy.app.version >= (4, 1, 0):
@@ -3971,7 +3974,10 @@ def draw_item_card(prefs, context, layout, pie):
     if toggles:
         r = col.row(align=True)
         for name, icon in toggles:
-            r.prop(item, name, toggle=True, icon=icon)
+            if compact:  # just the icons (each has its name as a tooltip)
+                r.prop(item, name, toggle=True, icon=icon, text="")
+            else:
+                r.prop(item, name, toggle=True, icon=icon)
     if "width" in looks:
         r = col.row(align=True)
         r.prop(item, "width")
@@ -3982,6 +3988,19 @@ def draw_item_card(prefs, context, layout, pie):
     if _foldout(col, prefs, "pie_customize", "Advanced"):
         adv = col.box().column()
         draw_item_advanced(context, adv, pie, item, slot, looks)
+        draw_operator_settings(prefs, adv, item)
+
+
+def draw_operator_settings(prefs, layout, item):
+    """Settings Key Ops keeps for one of its own operators, shown only with that operator."""
+    if item.idname.strip() == "keyops.add_mesh":
+        col = layout.column()
+        col.label(text="Add Objects Settings", icon='MESH_CUBE')
+        col.prop(prefs, "add_object_pie_use_relative")
+        sub = col.column()
+        sub.active = prefs.add_object_pie_use_relative
+        sub.prop(prefs, "add_object_pie_relative_scale")
+        col.prop(prefs, "add_object_pie_default_scale")
 
 
 def _note(layout, text):
@@ -4060,8 +4079,9 @@ def draw_menu_settings(prefs, layout, pie):
         c.row().prop(pie, "dialog_mode", expand=True)
     if pie.menu_type == "STACK":
         c.prop(pie, "stack_reset")
-    c.prop(pie, "append_to", text="Add To", icon='ADD')
-    if pie.append_to.strip():
+    if pie.menu_type in ("PIE", "MENU", "DIALOG"):  # these can sit in Blender's own menus, headers and panels
+        c.prop(pie, "append_to", text="Add To", icon='ADD')
+    if pie.menu_type in ("PIE", "MENU", "DIALOG") and pie.append_to.strip():
         c.row().prop(pie, "append_as", expand=True)
         if not hasattr(bpy.types, pie.append_to.strip()):
             warn = c.row()
