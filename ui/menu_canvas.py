@@ -714,16 +714,54 @@ def build_blender_pie(pie, hover=None):
                          num="" if label else NUMPAD[d], key="" if dim or label else keys[i], sub=item.kind == PM.SUB,
                          style=style + ("_ALERT" if not empty and item.alert else ""),
                          icon_rect=None, dim=dim, segs=segs, **({} if empty else _look(item))))
+    _pie_extras(sc, pie, u, s, R)
     sc.dirmask = (aligned, diagonal)
     sc.title = pie.name
     tw = _text_w(pie.name)
     sc.title_rect = (-tw / 2, int(thr + 9 * s), tw, u)
     xs = [e.x for e in sc.els] + [e.x + e.w for e in sc.els] + [-tw / 2, tw / 2]
-    ys = [e.y for e in sc.els] + [e.y + e.h for e in sc.els] + [thr + 9 * s + u]
+    ys = [e.y for e in sc.els] + [e.y + e.h for e in sc.els] + [thr + 9 * s + u] + [b[1] + b[3] for b in sc.boxes]
     ext_x = max(abs(v) for v in xs)
     ext_y = max(abs(v) for v in ys)
     sc.w, sc.h = 2 * ext_x, 2 * ext_y
     return sc
+
+
+def _pie_extras(sc, pie, u, s, R):
+    """A Blender pie's extra items (after its 8 directions): a box of buttons on top of its top item, which
+    joins them in a column (pie_menus.draw_pie_items)."""
+    PM = _pm()
+    extras = list(range(PM.PIE_SLOTS, len(pie.items)))
+    if not extras:
+        return
+    rows = []
+    for i in extras:
+        it = pie.items[i]
+        empty = PM._is_empty(it)
+        text, icon, _d = _item_texts(it) if not empty else ("Empty", "", "")
+        w = _text_w(text) + math.ceil(u * (1.5 + (0.25 if icon else 0.0))) if text else u
+        rows.append((i, text, icon, w, empty, it))
+    top = next((e for e in sc.els if e.index == PM.ORDER.index("N")), None)
+    width = max([w for *_a, w, _e, _it in rows] + [top.w if top else 0])
+    width = int(width + 0.8 * u)  # the box's padding
+    y = R
+    if top is not None:  # the top item becomes a plain button at the bottom of the column
+        top.style = "BUTTON" + ("_ALERT" if top.style.endswith("_ALERT") else "")
+        top.num, top.w, top.h = "", width, u
+        top.x, top.y = -width // 2, R
+        y = R + u + int(0.2 * u)
+    pad = int(0.4 * u)
+    bh = len(rows) * u + 2 * pad
+    sc.boxes.append((-width // 2, y, width, bh))
+    for n, (i, text, icon, _w, empty, it) in enumerate(rows):
+        yy = y + bh - pad - (n + 1) * u
+        el = El(i, -width // 2 + pad, yy, width - 2 * pad, u, kind="empty" if empty else "item", text=text,
+                icon=icon, style="BUTTON" + ("_ALERT" if not empty and it.alert else ""), **({} if empty else _look(it)))
+        if n > 0:  # an aligned column: joined to its neighbours
+            el.join.add("T")
+        if n < len(rows) - 1:
+            el.join.add("B")
+        sc.els.append(el)
 
 
 def build_marking(pie):
@@ -735,6 +773,9 @@ def build_marking(pie):
     k = s * ((pie.radius / max(look.marking_top, 1)) if pie.radius else 1.0)
     slots = [(PM.ORDER[i], i) for i in range(min(8, len(pie.items)))]
     boxes = MM.marking_boxes(pie, slots, 0.0, 0.0, look, s, k, None, show_empty=True)
+    # the extra items after the 8 directions: Maya's list under the menu
+    boxes += MM.marking_list_boxes(pie, list(range(PM.PIE_SLOTS, len(pie.items))), 0.0, 0.0, look, s, k, None,
+                                   show_empty=True)
     bh = MM.marking_box_height(look, s)
     sc.marking = boxes
     for bx, by, bw, _w, _arrow, label, sub, _sel, index in boxes:
@@ -1372,7 +1413,7 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
             if alert:
                 inner = (0.47, 0.07, 0.07, alpha)
             widget_box(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), wcol=tool,
-                       emboss=True)
+                       emboss=True, join=el.join)
         else:  # Emboss off: flat, only the icon and text
             if hovered:
                 _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, _rgba(tool.inner, 0.5 * alpha))
@@ -1477,6 +1518,8 @@ def _selection(el, accent, s, u, r=None):
 
 def _draw_blender_pie(sc, st, th, s, u, hover, src, selected, accent):
     wcol = th.wcol_pie_menu
+    for bx, by, bw, bh in sc.boxes:  # the box of extra items on top
+        widget_box(bx, by, bw, bh, th.wcol_box.roundness * u * 0.5, _rgba(th.wcol_box.inner), _rgba(th.wcol_box.outline))
     for el in sc.els:
         alpha = 0.35 if el.index == src else 1.0
         _pie_item(el, wcol, u, s, el.index == hover and src is None, alpha)

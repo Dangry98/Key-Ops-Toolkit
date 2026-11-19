@@ -536,6 +536,27 @@ def run():
     w2 = MC.build_blender_pie(pie).els[1].w
     check("a wider pie button grows like Blender's (more than its scale)", w2 > 2 * (w1 - 1.5 * MC.unit()),
           f"{w1} -> {w2}")
+
+    # pies: extra items after the 8 directions
+    bpy.ops.keyops.menu_item_add()
+    ex = pie.items[-1]
+    ex.kind, ex.idname, ex.label = PM.O, "object.select_all", "Extra"
+    check("a pie takes extra items after its 8 directions", len(pie.items) == 9 and PM.slot_name(8) == "Extra 1")
+    sc = MC.build_blender_pie(pie)
+    check("Blender style: the extra items show on top of the pie", any(e.index == 8 for e in sc.els) and sc.boxes)
+    p.pie_style = "MARKING"
+    sc = MC.build(pie, p)
+    check("Marking style: the extra items show as a list under the menu", any(b[8] == 8 for b in sc.marking))
+    p.pie_style = "BLENDER"
+    p.pie_slot = 3
+    bpy.ops.keyops.menu_item_remove()
+    check("a pie's direction can't be removed", len(pie.items) == 9)
+    bpy.ops.keyops.menu_item_remove(slot=8)
+    check("an extra item can be removed", len(pie.items) == 8)
+    bpy.ops.keyops.pie_add(preset="marking_move")
+    check("a Maya preset switches pies to the Marking style", p.pie_style == "MARKING"
+          and PM.key_text(p.pies[p.active_pie]) == "W + Left Mouse", PM.key_text(p.pies[p.active_pie]))
+    p.pie_style = "BLENDER"
     addon_utils.disable(MOD, default_set=True)
 
 
