@@ -3584,10 +3584,7 @@ def apply_action(item, action):
         item.kind, item.idname, item.props, item.label, item.icon = O, idname, "", name, ""
 
 
-def _redraw_all(context):
-    for window in context.window_manager.windows:
-        for area in window.screen.areas:
-            area.tag_redraw()
+from .utils.utilities import redraw_all_areas as _redraw_all  # noqa: E402
 
 
 class KEYOPS_OT_pie_slot_select(Operator):

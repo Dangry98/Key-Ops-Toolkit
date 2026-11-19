@@ -283,6 +283,14 @@ def select_ring():
 
 _available_icons = None
 
+def redraw_all_areas(context=None):
+    """Redraw every editor in every window."""
+    context = context or bpy.context
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
 def safe_icon(name, fallback='NONE'):
     """Return `name` if this Blender has that icon, else `fallback`.
     An unknown icon raises a TypeError that aborts the whole panel/menu draw."""

@@ -36,12 +36,7 @@ MODE_LABELS = {
 _running_op = None  # the FastBevel instance whose keymap is drawn in the status bar
 
 
-def _valid_icon(name):
-    try:
-        items = bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"].enum_items
-        return name if name in items else 'NONE'
-    except Exception:
-        return 'NONE'
+from ..utils.utilities import safe_icon as _valid_icon  # noqa: E402
 
 
 def _enum_items(mod, prop):

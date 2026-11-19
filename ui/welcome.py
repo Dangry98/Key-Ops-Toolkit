@@ -93,10 +93,7 @@ def _key_group(context, items):
     return out
 
 
-def _redraw_all(context):
-    for window in context.window_manager.windows:
-        for area in window.screen.areas:
-            area.tag_redraw()
+from ..utils.utilities import redraw_all_areas as _redraw_all
 
 
 class KEYOPS_OT_shortcut_group_toggle(bpy.types.Operator):
