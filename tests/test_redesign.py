@@ -275,6 +275,24 @@ def run():
     check("old Icon Only / Text Only items keep their look without the Show setting",
           new[0]["label"] == "" and new[0]["icon"] == "MESH_CUBE" and new[1]["icon"] == "" and new[1]["label"] == "Sphere"
           and new[2]["label"] == "Cone" and new[2]["icon"] == "MESH_CONE" and all("display" not in d for d in new), str(new))
+    old = {"pies": [{"items": [{"kind": PM.BOX, "label": "A"}, {"kind": PM.O}, {"kind": PM.BOX, "label": "B"},
+                               {"kind": PM.O}, {"kind": PM.BREAK}, {"kind": PM.O}]}]}
+    kinds = [d["kind"] for d in PM._migrate_pies_6_to_7(old)["pies"][0]["items"]]
+    check("old boxes are closed where they used to end (next box, next column)",
+          kinds == [PM.BOX, PM.O, PM.BOX_END, PM.BOX, PM.O, PM.BOX_END, PM.BREAK, PM.O], str(kinds))
+    g = PM._new_pie(p)
+    g.name, g.menu_type = "Group Test", "DIALOG"
+    for kind, kw in ((PM.BOX, {"group_type": "BOX"}), (PM.BOX, {"group_type": "ROW", "align": True}),
+                     (PM.O, {"idname": "object.delete"}), (PM.O, {"idname": "object.delete"}), (PM.BOX_END, {}),
+                     (PM.O, {"idname": "object.delete"}), (PM.BOX_END, {})):
+        it = g.items.add()
+        it.kind = kind
+        for k, v in kw.items():
+            setattr(it, k, v)
+    tree = PM.layout_tree(list(g.items), list(enumerate(g.items)))
+    check("groups nest: a box holding an aligned row of two and one more item",
+          tree == [[["GROUP", 0, [["GROUP", 1, [["ITEM", 2], ["ITEM", 3]], 4], ["ITEM", 5]], 6]]], str(tree))
+    p.pies.remove(len(p.pies) - 1)
     cols = PM.layout_groups(list(enumerate(m.items)))
     check("layout: two columns, a box holding one row of two buttons",
           len(cols) == 2 and cols[0][0][0] == "BOX" and len(cols[0][0][2]) == 1 and len(cols[0][0][2][0][1]) == 2

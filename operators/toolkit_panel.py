@@ -19,7 +19,7 @@ from .subobject_modes import draw_mode_row
 
 BLENDER_VERSION = bpy.app.version
 
-EDIT_MESH_TYPES = {"change_hard_bevel_width", "un_subdivide_cylinder", "subdivide_cylinder", "change_cylinder_segments_modifier", "set_vertex_color"}
+EDIT_MESH_TYPES = {"un_subdivide_cylinder", "subdivide_cylinder", "change_cylinder_segments_modifier", "set_vertex_color"}
 OBJECT_MODE_TYPES = {"unique_collection_duplicat", "high", "low", "cleanup", "duplicate_linked_modifiers", "duplicate_linked_modifiers_and_move"}
 SWITCH_TO_OBJECT_MODE_TYPES = {"Smart_Join_Objects", "set_sphere_normal", "seprate_objects_by"}
 
@@ -88,6 +88,10 @@ def register_toolkit_panel_keymaps():
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('keyops.fast_mirror_options', 'D', 'PRESS')
+    registered_toolkit_panel_keymaps.append((km, kmi))
+
+    # Alt C cleans up the mesh in Edit Mode (in Object Mode it's Smart Combine)
+    kmi = km.keymap_items.new('keyops.mesh_cleanup', 'C', 'PRESS', alt=True)
     registered_toolkit_panel_keymaps.append((km, kmi))
 
 # fix attribute toggle in edit mode/objet mode
@@ -299,8 +303,6 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "duplicate_linked_modifiers":
             layout.label(text="Duplicate Linked Modifiers", icon="LINKED")
             layout.prop(self, "instance")
-        elif self.type == "change_hard_bevel_width":
-            layout.prop(self, "scale")
         elif self.type == "seprate_objects_by":
             layout.label(text="Seperate", icon_value=get_icon("slice"))
             layout.scale_x = 1.2
@@ -490,25 +492,6 @@ class ToolkitPanel(bpy.types.Operator):
                 for obj in bpy.context.selected_objects:
                     if obj.type == 'MESH':
                         set_offset_uv_true_false(obj, False)
-
-        elif self.type == "change_hard_bevel_width":
-            context = bpy.context
-            ob = context.edit_object
-            me = ob.data
-            bm = bmesh.from_edit_mesh(me)
-            selection = [f for f in bm.faces if f.select]
-
-            bpy.ops.transform.shrink_fatten(value=self.scale, use_even_offset=False, mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False)
-            bpy.ops.mesh.select_linked(delimit={'NORMAL'})
-            
-            for f in selection:
-                f.select = False
-
-            bpy.ops.transform.shrink_fatten(value=-self.scale, use_even_offset=True, mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False)
-            bpy.ops.mesh.select_all(action='DESELECT')
-
-            for f in selection:
-                f.select = True
 
         elif self.type == "set_sphere_normal":
             current_selectded_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
@@ -1140,18 +1123,18 @@ def draw_modifier_panel(self, context, draw_header=False):
         prefs = get_keyops_prefs()
 
         box = layout.box()
-        col = box.column(align=True)
+        col = box.column(align=False)
         if draw_header:
             col.label(text="Modifiers", icon_value=get_icon("modifier"))
         # Create: the Fast tools first, then lattices
-        col = box.column(align=True)
+        col = box.column(align=False)
         col.label(text="Create")
-        grid = col.column(align=True)
-        row = grid.row(align=True)
+        grid = col.column(align=False)
+        row = grid.row(align=False)
         row.operator("keyops.fast_bevel", text="Bevel", icon="MOD_BEVEL")
         row.operator("keyops.fast_array", text="Array", icon="MOD_ARRAY")
         row.operator("keyops.fast_solidify", text="Solidify", icon="MOD_SOLIDIFY")
-        row = grid.row(align=True)
+        row = grid.row(align=False)
         row.operator("keyops.add_modifier", text="Lattice", icon="MOD_LATTICE").type = "LATTICE"
         for n in (3, 4):
             op = row.operator("keyops.add_modifier", text=f"FFD {n}x")
@@ -1159,13 +1142,13 @@ def draw_modifier_panel(self, context, draw_header=False):
             op.type = "LATTICE"
 
         # UV
-        col = box.column(align=True)
+        col = box.column(align=False)
         col.label(text="UV")
-        column = col.column(align=True)
-        row = column.split(factor=0.57, align=True)
+        column = col.column(align=False)
+        row = column.split(factor=0.57, align=False)
         row.operator("keyops.toolkit_panel", text="Offset UV", icon="AREA_JOIN").type = "offset_uv"
         row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Offset_UV"
-        row = column.split(factor=0.57, align=True)
+        row = column.split(factor=0.57, align=False)
         row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
         row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
         if prefs.enable_uv_tools:
@@ -1196,7 +1179,7 @@ def draw_edge_flow(row):
     row.operator("mesh.set_mesh_edge_flow", text="Set Flow")
 
 
-# Edit Toolkit layout helpers: every section is a label plus an aligned column of buttons,
+# Edit Toolkit layout helpers: every section is a label plus a column of separate (spaced) buttons,
 # two per row. A button wrapped in _wide() (or an odd one at the end) spans the whole row.
 def _op(idname, text, **props):
     def draw(layout):
@@ -1225,15 +1208,15 @@ def _section(box, label, items, first=False):
         if not first:
             box.separator(factor=0.5)
         box.label(text=label)
-    col = box.column(align=True)
+    col = box.column(align=False)
     row = None
     for item in items:
         if getattr(item, "wide", False):
-            item(col.row(align=True))
+            item(col.row(align=False))
             row = None
             continue
         if row is None:
-            row = col.row(align=True)
+            row = col.row(align=False)
             item(row)
         else:
             item(row)
@@ -1384,11 +1367,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         _op("keyops.toolkit_panel", "Un-Subdivide", type="un_subdivide_cylinder"),
         _op("keyops.toolkit_panel", "Subdivide", type="subdivide_cylinder"),
     ])
-
-    if prefs.experimental:
-        _section(box, None, [
-            _op("keyops.toolkit_panel", "Change Hard Bevel Width", type="change_hard_bevel_width"),
-        ])
 
 
 class EditModePanel(bpy.types.Panel):
