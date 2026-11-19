@@ -446,6 +446,8 @@ class Scene:
         self.panels = []     # (x, y, w, h, closed) headers of panel groups
         self.groups = []     # (start index, x, y, w, h, layout) of every group
         self.show_markers = False  # group tags and End Group / Next Column markers: while the mouse is on the menu
+        self.centres = []    # marking chains: (x, y, is the edited menu) of every menu shown
+        self.links = []      # marking chains: lines from a sub-menu item to its menu
 
     def hit(self, mx, my):
         for el in reversed(self.els):
@@ -460,6 +462,8 @@ class Scene:
             el.moved(dx, dy)
         self.cx += dx
         self.cy += dy
+        self.centres = [(x + dx, y + dy, a) for x, y, a in self.centres]
+        self.links = [((a[0] + dx, a[1] + dy), (b[0] + dx, b[1] + dy)) for a, b in self.links]
         if self.frame:
             x, y, w, h = self.frame
             self.frame = (x + dx, y + dy, w, h)
@@ -1190,8 +1194,102 @@ def _panel_style(item):
 
 def build(pie, prefs, hover=None):
     if pie.menu_type == "PIE":
-        return build_marking(pie) if getattr(prefs, "pie_style", "BLENDER") == "MARKING" else build_blender_pie(pie, hover)
+        if getattr(prefs, "pie_style", "BLENDER") == "MARKING":
+            return build_marking_chain(pie, prefs)
+        return build_blender_pie(pie, hover)
     return build_menu(pie, hover)
+
+
+SUB_STRIDE = 1000  # items of the other menus shown beside the edited one: (position in the chain + 1) * this + index
+_chain = []        # the marking menu being edited and the sub-menus opened from it in the preview (uids)
+
+
+def _sub_target(pie, index):
+    PM = _pm()
+    if not 0 <= index < len(pie.items) or pie.items[index].kind != PM.SUB:
+        return None
+    t = PM.find_pie(pie.items[index].idname)
+    return t if t is not None and t.menu_type == "PIE" else None
+
+
+def marking_chain(pie, prefs):
+    """The menus the marking preview shows: the one picked in the list, then each sub-menu opened from it,
+    like Maya shows a sub-menu beside the item that opens it. Selecting a sub-menu item opens its menu."""
+    global _chain
+    PM = _pm()
+    if pie.uid not in _chain:
+        _chain = [pie.uid]
+    pos = _chain.index(pie.uid)
+    t = _sub_target(pie, prefs.pie_slot)
+    if t is not None and t.uid not in _chain[:pos + 1] and (len(_chain) <= pos + 1 or _chain[pos + 1] != t.uid):
+        _chain = _chain[:pos + 1] + [t.uid]
+    pies = []
+    for n, uid in enumerate(_chain):  # each one must still be opened by an item of the one before
+        p = PM.find_pie(uid)
+        if p is None or (n and not any(getattr(_sub_target(pies[-1], i), "uid", None) == uid
+                                       for i in range(len(pies[-1].items)))):
+            _chain = _chain[:n]
+            break
+        pies.append(p)
+    return pies
+
+
+def chain_item(index):
+    """(menu, item index) for an item index in the preview (see SUB_STRIDE)."""
+    PM = _pm()
+    if index is None or index < SUB_STRIDE:
+        return None
+    k, i = divmod(index, SUB_STRIDE)
+    if k - 1 >= len(_chain):
+        return None
+    p = PM.find_pie(_chain[k - 1])
+    return (p, i) if p is not None else None
+
+
+def build_marking_chain(pie, prefs):
+    pies = marking_chain(pie, prefs)
+    if len(pies) == 1:
+        return build_marking(pie)
+    u = unit()
+    active = pies.index(pie)
+    out = Scene("MARKING")
+    out.marking, out.centres, out.links = [], [], []
+    prev = None
+    for k, p in enumerate(pies):
+        sc = build_marking(p)
+        if prev is not None:  # beside the item that opens it, to the right of the menu before
+            opener = next((e for e in prev.els
+                           if getattr(_sub_target(pies[k - 1], e.index % SUB_STRIDE), "uid", None) == p.uid), None)
+            ax = max(e.x + e.w for e in prev.els) if prev.els else prev.cx
+            ay = opener.y + opener.h / 2 if opener is not None else prev.cy
+            left = min((e.x for e in sc.els), default=0.0)
+            sc.offset(ax + 2 * u - left, ay)
+            if opener is not None:
+                start = (opener.x + opener.w, opener.y + opener.h / 2)
+                # up to the sub-menu's first item in the way (its left one), else its centre
+                hits = [e.x for e in sc.els if e.y <= start[1] <= e.y + e.h and start[0] < e.x < sc.cx]
+                out.links.append((start, (min(hits), start[1]) if hits else (sc.cx, sc.cy)))
+        if k != active:  # the other menus' items get indices of their own
+            base = (k + 1) * SUB_STRIDE
+            for e in sc.els:
+                e.index += base
+            sc.marking = [tuple(b[:8]) + (b[8] + base,) for b in sc.marking]
+        out.els.extend(sc.els)
+        out.marking.extend(sc.marking)
+        out.centres.append((sc.cx, sc.cy, k == active))
+        prev = sc
+    xs = [v for e in out.els for v in (e.x, e.x + e.w)] or [0.0]
+    ys = [v for e in out.els for v in (e.y, e.y + e.h)] or [0.0]
+    mx, my = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    for e in out.els:
+        e.moved(-mx, -my)
+    out.marking = [(b[0] - mx, b[1] - my) + tuple(b[2:]) for b in out.marking]
+    out.centres = [(x - mx, y - my, a) for x, y, a in out.centres]
+    out.links = [((a[0] - mx, a[1] - my), (b[0] - mx, b[1] - my)) for a, b in out.links]
+    acx, acy, _a = out.centres[active]
+    out.cx, out.cy = acx, acy
+    out.w, out.h = max(xs) - min(xs) + 2 * u, max(ys) - min(ys) + 2 * u
+    return out
 
 
 def supported(pie):
@@ -1229,7 +1327,7 @@ def draw_scene(sc, st, prefs):
     th = _theme()
     s, u = ui_scale(), unit()
     hover = st.hover
-    drag = st.drag if st.drag and st.drag.get("active") else None
+    drag = st.drag if st.drag and st.drag.get("active") and not st.drag.get("pan") else None
     src = drag["src"] if drag else None
     selected = prefs.pie_slot
     accent = _rgba(th.wcol_menu_item.inner_sel)
@@ -1414,9 +1512,15 @@ def _draw_marking(sc, st, hover, src, selected, accent, s):
     boxes = [tuple(b[:7]) + (b[8] == hover and src is None, b[8]) for b in sc.marking]
     empties = {el.index for el in sc.els if el.kind == "empty"}
     faded = empties | ({src} if src is not None else set())
+    centres = sc.centres or [(sc.cx, sc.cy, True)]
+    for a, b in sc.links:  # a sub-menu item and the menu it opens
+        MM._poly([a, b], colours[5][:3] + (colours[5][3] * 0.6,), max(1.0, look.marking_line_width) * s)
     if st.mouse is not None and hover is not None and look.marking_line_width > 0 and src is None:
-        MM._poly([(sc.cx, sc.cy), st.mouse], colours[5], look.marking_line_width * s)
-    MM.draw_marking_centre(sc.cx, sc.cy, look, s, colours)
+        k = hover // SUB_STRIDE  # from the centre of the menu the mouse is on (0: the edited one)
+        hx, hy = centres[k - 1][:2] if 0 < k <= len(centres) else (sc.cx, sc.cy)
+        MM._poly([(hx, hy), st.mouse], colours[5], look.marking_line_width * s)
+    for x, y, _a in centres:
+        MM.draw_marking_centre(x, y, look, s, colours)
     MM.draw_marking_boxes(boxes, look, s, colours, dim=faded)
     if selected is not None:
         for el in sc.els:
@@ -1785,6 +1889,8 @@ class Canvas:
         self.last_w = None        # the area's width last time it was found
         self.k, self.kc = 1.0, (0, 0)  # the preview's scale (below 1 when it doesn't fit) and its centre
         self.base_w = None
+        self.pan = (0.0, 0.0)     # how far the preview was dragged (empty space or middle mouse)
+        self.pan_root = None      # the menu the pan belongs to: another one starts in the middle again
 
 
 _canvases = {}       # region pointer -> Canvas
@@ -1981,8 +2087,11 @@ def _draw():
         gpu.state.blend_set('NONE')
         return
     sc = build(pie, prefs, st.hover if not st.drag else None)
+    root = _chain[0] if sc.kind == "MARKING" and _chain else pie.uid
+    if st.pan_root != root:
+        st.pan, st.pan_root = (0.0, 0.0), root
     cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
-    sc.offset(cx, cy)
+    sc.offset(cx + st.pan[0], cy + st.pan[1])
     # too wide for the area (a small Preferences window): drawn smaller, clicks are mapped back
     st.last_w = x1 - x0
     st.k = min(1.0, max(0.4, (x1 - x0 - unit()) / max(st.base_w or sc.w, 1.0)))
@@ -2081,7 +2190,7 @@ def _drop_target(st, mx, my):
                 if d < bd:
                     best, bd = e, d
             el = best if bd < 3 * unit() else None
-        return el.index if el is not None and el.index != src else None
+        return el.index if el is not None and el.index != src and el.index < SUB_STRIDE else None
     # menus: the gap before or after the item nearest the mouse in the same column
     cands = [e for e in sc.els if e.kind in ("item", "empty", "sep", "label", "boxhead", "grouptag")
              and e.index != src]
@@ -2162,9 +2271,26 @@ def _do_drop(st, src):
     PM._changed()
 
 
+def _focus_chain_item(prefs, index):
+    """An item of a sub-menu shown beside the edited one: edit that menu now (the chain stays on screen).
+    Returns the item's index in its own menu, or the index unchanged."""
+    found = chain_item(index)
+    if found is None:
+        return index
+    pie, i = found
+    prefs.active_pie = list(prefs.pies).index(pie)
+    prefs.pie_slot = i
+    return i
+
+
 def _click(context, st, el, zone, win, area, region):
     PM = _pm()
     prefs = _prefs()
+    if el.index >= SUB_STRIDE:  # in a sub-menu beside it: select it there
+        i = _focus_chain_item(prefs, el.index)
+        st.picked = (_cur_pie().uid, i)
+        PM._redraw_all(context)
+        return
     with context.temp_override(window=win, area=area, region=region):
         # a second click on the same item (the first one only selects it) picks its action
         was_selected = prefs.pie_slot == el.index and st.picked == (st.pie.uid if st.pie else "", el.index)
@@ -2317,10 +2443,26 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
 
         if not inside:
             return {'PASS_THROUGH'}
+        if (event.type == 'MIDDLEMOUSE' and event.value == 'PRESS') or \
+                (event.type == 'LEFTMOUSE' and event.value == 'PRESS' and _item_under(st, mx, my) is None):
+            st.drag = {"pan": True, "start": (rmx, rmy), "from": st.pan, "active": True, "src": None}
+            try:
+                context.window.cursor_modal_set('SCROLL_XY')
+            except (AttributeError, ReferenceError, TypeError):
+                pass
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'DOUBLE_CLICK' and _item_under(st, mx, my) is None:
+            st.pan = (0.0, 0.0)  # double-click the empty space: back to the middle
+            reg.tag_redraw()
+            return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
+            if el.index >= SUB_STRIDE:  # another menu of the chain: a click selects it there
+                _click(context, st, el, "", context.window, area, reg)
+                reg.tag_redraw()
+                return {'RUNNING_MODAL'}
             zone = _zone(st, el, mx, my)
             st.drag = {"src": el.index, "start": (mx, my), "grab": (mx - el.x, my - el.y), "active": False,
                        "zone": zone, "el": el, "area": area.as_pointer()}
@@ -2329,11 +2471,13 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
+            slot = _focus_chain_item(_prefs(), el.index)
             with context.temp_override(window=context.window, area=area, region=reg):
-                bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=el.index)
+                bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=slot)
             reg.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type in {'DEL', 'X'} and event.value == 'PRESS' and st.hover is not None and st.show_remove \
+                and st.hover < SUB_STRIDE \
                 and not (event.ctrl or event.alt or event.shift):
             with context.temp_override(window=context.window, area=area, region=reg):
                 bpy.ops.keyops.menu_item_remove(slot=st.hover)
@@ -2344,6 +2488,19 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
 
     def _dragging(self, context, event, st, area, reg, mx, my):
         d = st.drag
+        if d.get("pan"):  # moving the view of the preview
+            if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+                rx, ry = event.mouse_region_x, event.mouse_region_y
+                k = st.k or 1.0
+                st.pan = (d["from"][0] + (rx - d["start"][0]) / k, d["from"][1] + (ry - d["start"][1]) / k)
+                reg.tag_redraw()
+            elif event.value == 'RELEASE' and event.type in {'LEFTMOUSE', 'MIDDLEMOUSE'}:
+                st.drag = None
+                try:
+                    context.window.cursor_modal_restore()
+                except (AttributeError, ReferenceError, TypeError):
+                    pass
+            return {'RUNNING_MODAL'}
         if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
             st.mouse = (mx, my)
             if not d["active"] and math.hypot(mx - d["start"][0], my - d["start"][1]) > DRAG_START * ui_scale():

@@ -228,6 +228,29 @@ def test_previews(PM, MC):
     check("a dialog with 64 items builds", ok, detail)
 
 
+def test_marking_chain(PM, MC):
+    p = prefs()
+    sub = new_menu("PIE", "Chain Sub")
+    sub.items[0].kind, sub.items[0].idname, sub.items[0].label = PM.O, "object.delete", "Deep"
+    top = new_menu("PIE", "Chain Top")
+    top.items[2].kind, top.items[2].idname, top.items[2].label = PM.SUB, sub.uid, "More"
+    p.pie_style = "MARKING"
+    p.active_pie, p.pie_slot = list(p.pies).index(top), 2
+    sc = MC.build(top, p)
+    names = [MC._pm().find_pie(u).name for u in MC._chain]
+    check("marking preview: selecting a sub-menu item shows its menu beside it", names == ["Chain Top", "Chain Sub"]
+          and any(e.index >= MC.SUB_STRIDE and e.text == "Deep" for e in sc.els) and len(sc.centres) == 2, str(names))
+    deep = next(e for e in sc.els if e.text == "Deep")
+    MC._focus_chain_item(p, deep.index)
+    check("marking preview: clicking an item of the sub-menu edits that menu, both stay shown",
+          p.pies[p.active_pie].uid == sub.uid and p.pie_slot == 0 and len(MC.build(sub, p).centres) == 2)
+    p.active_pie = list(p.pies).index(top)
+    top.items[2].kind = PM.O  # no longer opens it: the sub-menu goes away
+    MC.build(top, p)
+    check("marking preview: the sub-menu closes when nothing opens it", len(MC._chain) == 1)
+    p.pie_style = "BLENDER"
+
+
 def test_context_menu(PM):
     menu = PM._button_context_menu()
     funcs = getattr(menu.draw, "_draw_funcs", [])
@@ -241,7 +264,7 @@ def main():
     PM, MC = mods()
     for name, fn in (("saving", lambda: test_saving(PM)), ("groups", lambda: test_groups(PM)),
                      ("drag", lambda: test_drag(PM, MC)), ("panels", lambda: test_panels(PM)),
-                     ("previews", lambda: test_previews(PM, MC))):
+                     ("previews", lambda: test_previews(PM, MC)), ("chain", lambda: test_marking_chain(PM, MC))):
         try:
             fn()
         except Exception:  # noqa: BLE001
