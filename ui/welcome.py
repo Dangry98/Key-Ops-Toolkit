@@ -30,9 +30,16 @@ def _invoke_welcome(whats_new=False):
     window, area, region = _find_view3d(bpy.context)
     if window is None:
         return None
-    with bpy.context.temp_override(window=window, area=area, region=region):
-        bpy.ops.keyops.welcome('INVOKE_DEFAULT', whats_new=whats_new)
+    try:
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            bpy.ops.keyops.welcome('INVOKE_DEFAULT', whats_new=whats_new)
+    except (AttributeError, RuntimeError):
+        pass  # the add-on was switched off before the screen came up
     return None
+
+
+def _invoke_whats_new():
+    return _invoke_welcome(True)
 
 
 def first_screen(p):
@@ -57,7 +64,7 @@ def schedule_welcome():
     if kind == 'WELCOME':
         bpy.app.timers.register(_invoke_welcome, first_interval=1.0)
     elif kind == 'WHATS_NEW':
-        bpy.app.timers.register(lambda: _invoke_welcome(True), first_interval=1.0)
+        bpy.app.timers.register(_invoke_whats_new, first_interval=1.0)
 
 
 class KEYOPS_OT_toggle_feature_card(bpy.types.Operator):
@@ -242,6 +249,11 @@ def register():
 
 
 def unregister():
+    from .splash import close_overlays
+    close_overlays()
+    for fn in (_invoke_welcome, _invoke_whats_new):  # switched off before the screen came up
+        if bpy.app.timers.is_registered(fn):
+            bpy.app.timers.unregister(fn)
     branding.unregister()
     del bpy.types.WindowManager.keyops_open_feature
     for cls in reversed(classes):

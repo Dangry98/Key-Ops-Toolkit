@@ -205,7 +205,8 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
                     self.pictures[name] = (img, gpu.texture.from_image(img))
                 except Exception:
                     pass
-        self.handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_overlay, (), 'WINDOW', 'POST_PIXEL')
+        self.handle = bpy.types.SpaceView3D.draw_handler_add(_draw_overlay, (self,), 'WINDOW', 'POST_PIXEL')
+        _overlays.append(self.handle)
         context.window_manager.modal_handler_add(self)
         self.area.tag_redraw()
         return {'RUNNING_MODAL'}
@@ -229,8 +230,11 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
             return self.finish(context)
         return {'RUNNING_MODAL'}  # the welcome screen stays until Get Started
 
+    def cancel(self, context):
+        _remove_overlay(self.handle)  # Blender ended it (another file, the window closed)
+
     def finish(self, context):
-        bpy.types.SpaceView3D.draw_handler_remove(self.handle, 'WINDOW')
+        _remove_overlay(self.handle)
         if self.image is not None:
             bpy.data.images.remove(self.image)
         for img, _tex in self.pictures.values():
@@ -393,3 +397,31 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         _text(cx, by + bh / 2 - 6 * s, "Got It", 15 * s, (1, 1, 1, 1), center=True)
         self.hit = {"START": (bx, by, bw, bh)}
         gpu.state.blend_set('NONE')
+
+
+_overlays = []  # draw handlers of welcome screens that are open
+
+
+def _remove_overlay(handle):
+    if handle in _overlays:
+        _overlays.remove(handle)
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
+        except (ValueError, ReferenceError):
+            pass
+
+
+def _draw_overlay(op):
+    """Draws an open welcome screen; once its operator is gone (the add-on was switched off mid-way),
+    removes itself instead of erroring on every redraw."""
+    try:
+        op.draw_overlay()
+    except ReferenceError:
+        for handle in list(_overlays):
+            _remove_overlay(handle)
+
+
+def close_overlays():
+    """Switching the add-on off with a welcome screen open: take its drawing away."""
+    for handle in list(_overlays):
+        _remove_overlay(handle)

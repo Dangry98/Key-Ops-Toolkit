@@ -1591,6 +1591,7 @@ class Canvas:
         self.picked = None        # (menu, item) the last click in the preview was on
         self.last_w = None        # the area's width last time it was found
         self.k, self.kc = 1.0, (0, 0)  # the preview's scale (below 1 when it doesn't fit) and its centre
+        self.base_w = None
 
 
 _canvases = {}       # region pointer -> Canvas
@@ -1623,7 +1624,8 @@ def draw_layout(layout, context, pie, prefs):
     u = unit()
     try:
         sc = build(pie, prefs)
-        k = min(1.0, max(0.5, (st.last_w - u) / max(sc.w, 1.0))) if st.last_w else 1.0
+        st.base_w = sc.w  # its width without hover effects: the scale follows this, so hovering never resizes it
+        k = min(1.0, max(0.4, (st.last_w - u) / max(sc.w, 1.0))) if st.last_w else 1.0
         need = int(sc.h * k + 2.2 * u)
     except Exception:  # noqa: BLE001  never break the preferences over the preview
         need = 12 * u
@@ -1790,7 +1792,7 @@ def _draw():
     sc.offset(cx, cy)
     # too wide for the area (a small Preferences window): drawn smaller, clicks are mapped back
     st.last_w = x1 - x0
-    st.k = min(1.0, max(0.5, (x1 - x0 - unit()) / max(sc.w, 1.0)))
+    st.k = min(1.0, max(0.4, (x1 - x0 - unit()) / max(st.base_w or sc.w, 1.0)))
     st.kc = (cx, cy)
     if sc.frame and st.mouse is not None:
         fx, fy, fw, fh = sc.frame
