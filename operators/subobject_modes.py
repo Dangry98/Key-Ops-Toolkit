@@ -2,7 +2,7 @@
 
 They work as selection modes rather than one-off commands: while Border is on, picking an edge on an open
 border picks the whole border; while Element is on, picking any part of a mesh island picks the whole island
-(and deselecting a part deselects the island). Turning a mode on also converts what is selected already.
+(and deselecting a part, or Ctrl+clicking it, deselects the island). Turning a mode on also converts what is selected already.
 The mode ends when you pick Vertex, Edge or Face, change the select mode another way, or leave Edit Mode.
 """
 
@@ -245,9 +245,29 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
         if changed:
             bpy.ops.ed.undo_push(message="Select " + self.mode.title())
 
+    def _ctrl_deselect(self, context, event):
+        """Ctrl+click deselects what's under the mouse (Blender's own Ctrl+click picks a shortest path, which
+        would add to the selection); the mode then deselects its whole island or border."""
+        for area in context.window.screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            for region in area.regions:
+                if region.type != 'WINDOW':
+                    continue
+                x, y = event.mouse_x - region.x, event.mouse_y - region.y
+                if 0 <= x < region.width and 0 <= y < region.height:
+                    with context.temp_override(area=area, region=region):
+                        bpy.ops.view3d.select(deselect=True, location=(x, y))
+                    return True
+        return False
+
     def modal(self, context, event):
         if self.ended(context):
             return self._finish(context)
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and event.ctrl \
+                and not (event.shift or event.alt or event.oskey) and self._ctrl_deselect(context, event):
+            self.pending = True
+            return {'RUNNING_MODAL'}
         if event.type in {'LEFTMOUSE', 'RIGHTMOUSE'}:  # a pick happens on this event: look on the next one
             self.pending = True
             return {'PASS_THROUGH'}

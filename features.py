@@ -114,6 +114,7 @@ FEATURES = (
                   _k("Alt X", "Object Mode", "Fast mirror"),
                   _k("Ctrl Numpad - + * /", "Object Mode", "Boolean difference / union / intersect / slice"),
                   _k("Alt 3", "Object Mode", "Snap to floor"),
+                  _k("Alt C", "Mesh", "Clean up"),
                   _k("D", "Mesh", "Mirror options", "Annotate"),
                   _k("Alt M", "Object Mode", "Material menu"))),
     Feature("modi_key", "Modifier Keys", "OBJECT",

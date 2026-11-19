@@ -112,7 +112,27 @@ def _rect(x, y, w, h, color):
     _fill([(x, y), (x + w, y), (x + w, y + h), (x, y + h)], [(0, 1, 2), (0, 2, 3)], color)
 
 
+def _corner_radii(r, join):
+    """(bottom right, top right, top left, bottom left) radii: square where the side is joined to a neighbour."""
+    return (0 if {"R", "B"} & join else r, 0 if {"R", "T"} & join else r,
+            0 if {"L", "T"} & join else r, 0 if {"L", "B"} & join else r)
+
+
 def _outline_pts(x, y, w, h, r, seg=8):
+    if isinstance(r, tuple):
+        lim = min(w / 2, h / 2)
+        pts = []
+        for (cx, cy, a0), rr in zip(((x + w, y, -90), (x + w, y + h, 0), (x, y + h, 90), (x, y, 180)), r):
+            rr = max(0.0, min(rr, lim))
+            ox = -rr if cx > x else rr
+            oy = rr if cy == y else -rr
+            if rr <= 0.01:
+                pts.append((cx, cy))
+                continue
+            for k in range(seg + 1):
+                a = math.radians(a0 + 90 * k / seg)
+                pts.append((cx + ox + rr * math.cos(a), cy + oy + rr * math.sin(a)))
+        return pts
     r = max(0.0, min(r, w / 2, h / 2))
     if r <= 0.01:
         return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
@@ -144,17 +164,21 @@ def _round_fill(x, y, w, h, r, color):
     _fill([(x + w / 2, y + h / 2)] + pts, [(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)], color)
 
 
-def widget_box(x, y, w, h, r, inner, outline=None):
-    """A Blender widget backdrop: the fill inside a one pixel outline, with smooth corners."""
+def widget_box(x, y, w, h, r, inner, outline=None, join=()):
+    """A Blender widget backdrop: the fill inside a one pixel outline, with smooth corners (square where it
+    joins a neighbour in an aligned row or column)."""
+    if join:
+        r = _corner_radii(r, set(join))
+    shrink = (lambda rr, d: tuple(max(0.0, v - d) for v in rr)) if isinstance(r, tuple) else (lambda rr, d: max(0.0, rr - d))
     if outline is not None and outline[3] > 0:
         _round_fill(x, y, w, h, r, outline)
         px = pixel()
-        _round_fill(x + px, y + px, w - 2 * px, h - 2 * px, max(0.0, r - px), inner)
-        _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, r - 0.5), outline, 1.0, closed=True)
+        _round_fill(x + px, y + px, w - 2 * px, h - 2 * px, shrink(r, px), inner)
+        _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, shrink(r, 0.5)), outline, 1.0, closed=True)
     else:
         _round_fill(x, y, w, h, r, inner)
         if inner[3] > 0:
-            _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, r - 0.5), inner, 1.0, closed=True)
+            _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, shrink(r, 0.5)), inner, 1.0, closed=True)
 
 
 def _shadow(x, y, w, h, r, size, strength=0.35):
@@ -338,7 +362,7 @@ def flush_icons():
 class El:
     """One drawn thing: an item (index), its rectangle and how it's drawn."""
     __slots__ = ("index", "x", "y", "w", "h", "kind", "text", "icon", "num", "key", "sub", "style", "icon_rect", "col",
-                 "emboss", "active", "depress", "dim")
+                 "emboss", "active", "depress", "dim", "join", "show")
 
     def __init__(self, index, x, y, w, h, kind="item", text="", icon="", **kw):
         self.index, self.x, self.y, self.w, self.h = index, x, y, w, h
@@ -353,6 +377,8 @@ class El:
         self.active = kw.get("active", True)
         self.depress = kw.get("depress", False)
         self.dim = kw.get("dim", False)  # the text is the action's name, shown while hovered (an icon-only item)
+        self.join = set()  # sides joined to a neighbour in an aligned row or column: "L", "R", "T", "B"
+        self.show = True   # markers: drawn and clickable now
 
     def contains(self, mx, my, pad=0):
         return self.x - pad <= mx <= self.x + self.w + pad and self.y - pad <= my <= self.y + self.h + pad
@@ -378,10 +404,15 @@ class Scene:
         self.dirmask = (False, False)  # (has axis aligned, has diagonal) items
         self.marking = None  # marking menu boxes
         self.panel_header = None
+        self.boxes = []      # (x, y, w, h) frames of box groups, drawn behind their items
+        self.groups = []     # (start index, x, y, w, h, layout) of every group
+        self.show_markers = False  # group tags and End Group / Next Column markers: while the mouse is on the menu
 
     def hit(self, mx, my):
         for el in reversed(self.els):
-            if el.kind in ("item", "empty", "marker", "boxhead", "label", "sep") and el.contains(mx, my):
+            if el.kind in ("marker", "grouptag") and not (self.show_markers and el.show):
+                continue
+            if el.kind in ("item", "empty", "marker", "boxhead", "label", "sep", "group", "grouptag") and el.contains(mx, my):
                 return el
         return None
 
@@ -401,6 +432,8 @@ class Scene:
             self.panel_header = (x + dx, y + dy, w, h)
         if self.marking:
             self.marking = [(bx + dx, by + dy) + tuple(rest) for bx, by, *rest in self.marking]
+        self.boxes = [(x + dx, y + dy, w, h) for x, y, w, h in self.boxes]
+        self.groups = [(i, x + dx, y + dy, w, h, t) for i, x, y, w, h, t in self.groups]
 
 
 ADD_ICON = "+ADD"  # the icon spot a hovered item shows when it has no icon yet: click it to pick one
@@ -638,6 +671,9 @@ def build_menu(pie, hover=None):
         sc.panel_header = True
     header_h = int(u * 1.2) if pie.menu_type == "PANEL" else 0
 
+    if not as_menu:
+        return _finish_panel(sc, pie, items, texts, keys, hover, s, u, pad, colw, gap, title_h, header_h)
+
     heights = []
     for c, col in enumerate(columns):
         x0 = pad + c * (colw + gap)
@@ -713,6 +749,245 @@ def build_menu(pie, hover=None):
     # boxes: a frame from the box heading down to its last item
     sc.w, sc.h = w, content_h
     # centre on (0, 0) like the pies
+    sc.offset(-w / 2, content_h / 2)
+    return sc
+
+
+class _Panel:
+    """Lays out popup panels, dialogs and sidebar panels the way Blender's layouts do: columns, rows, boxes,
+    splits and grid flows, nested, with align, alignment and scale."""
+
+    def __init__(self, sc, items, texts, keys, hover, s, u):
+        self.sc, self.items, self.texts, self.keys, self.hover = sc, items, texts, keys, hover
+        self.s, self.u = s, u
+        self.gap_y = int(2 * s)
+        self.gap_x = int(4 * s)
+        self.box_pad = int(6 * s)
+        self.late = []  # group tags and markers: added last, so they're on top for clicks
+
+    # ---- sizes
+    def nat_w(self, node):
+        PM, u = _pm(), self.u
+        if node[0] == "ITEM":
+            it = self.items[node[1]]
+            text, icon, _d = self.texts[node[1]]
+            if PM._is_empty(it):
+                text = "Empty"
+            base = _text_w(text) + (u if icon else 0) + u
+            if _panel_style(it) in ("CHECK",):
+                base += u * 0.8
+            return base * it.width
+        if node[0] == "RUN":
+            return sum(self.nat_w(["ITEM", i]) for i in node[1])
+        head = self.items[node[1]]
+        kids = [self.nat_w(c) for c in node[2]] or [u]
+        t = head.group_type
+        if t in ("ROW", "SPLIT", "GRID"):
+            w = sum(kids) + (0 if head.align else self.gap_x * (len(kids) - 1))
+        else:
+            w = max(kids)
+        if t == "BOX":
+            w += 2 * self.box_pad
+        return w * head.width
+
+    def weight(self, node):
+        """How much of an expanding row an item takes: Blender gives each the same share, times its Scale X."""
+        if node[0] == "ITEM":
+            return self.items[node[1]].width
+        if node[0] == "RUN":
+            return sum(self.items[i].width for i in node[1])
+        return self.items[node[1]].width
+
+    def _join(self, start, sides):
+        """Mark the buttons made since `start` as joined on these sides (aligned rows and columns)."""
+        for el in self.sc.els[start:]:
+            if el.kind in ("item", "empty", "label"):
+                el.join |= sides
+
+    # ---- placing (y is the top edge; coordinates go down into negative y)
+    def item(self, i, x, y, w, sy):
+        PM, u = _pm(), self.u
+        it = self.items[i]
+        h = int(round(u * it.height * sy))
+        empty = PM._is_empty(it)
+        kind = "empty" if empty else ("label" if it.kind == PM.LABEL else "item")
+        text, icon, default = self.texts[i]
+        dim = False
+        if kind == "empty":
+            text = "Empty"
+        elif kind == "item":
+            text, icon, dim = _hovered(text, icon, default, i == self.hover)
+        el = El(i, int(x), int(y - h), int(w), h, kind=kind, text=text, icon=icon, key="" if dim else self.keys[i],
+                sub=it.kind == PM.SUB, style=_panel_style(it) + ("_ALERT" if it.alert else ""), dim=dim, **_look(it))
+        if icon and kind == "item":
+            el.icon_rect = (int(x), int(y - h), u + int(0.3 * u), h)
+        self.sc.els.append(el)
+        return h
+
+    def node(self, node, x, y, w, sy):
+        if node[0] == "ITEM":
+            return self.item(node[1], x, y, w, sy)
+        if node[0] == "RUN":
+            return self.row([["ITEM", i] for i in node[1]], x, y, w, sy, True, "EXPAND")
+        return self.group(node, x, y, w, sy)
+
+    def column(self, kids, x, y, w, sy, align, alignment):
+        yy = y
+        for n, c in enumerate(kids):
+            cw = w if alignment == "EXPAND" else min(w, self.nat_w(c))
+            cx = x if alignment in ("EXPAND", "LEFT") else (x + (w - cw) / 2 if alignment == "CENTER" else x + w - cw)
+            start = len(self.sc.els)
+            h = self.node(c, cx, yy, cw, sy)
+            if align and len(kids) > 1:
+                self._join(start, ({"B"} if n == 0 else {"T"} if n == len(kids) - 1 else {"T", "B"}))
+            yy -= h + (0 if align or n == len(kids) - 1 else self.gap_y)
+        return y - yy
+
+    def row(self, kids, x, y, w, sy, align, alignment, widths=None):
+        if not kids:
+            return 0
+        gap = 0 if align else self.gap_x
+        if widths is None:
+            avail = w - gap * (len(kids) - 1)
+            nats = [max(1.0, self.nat_w(c)) for c in kids]
+            if alignment == "EXPAND":
+                weights = [max(0.05, self.weight(c)) for c in kids]
+                widths = [avail * k / sum(weights) for k in weights]
+            elif sum(nats) > avail:
+                widths = [avail * n / sum(nats) for n in nats]
+            else:
+                widths = nats
+        total = sum(widths) + gap * (len(kids) - 1)
+        xx = x if alignment in ("EXPAND", "LEFT") else (x + (w - total) / 2 if alignment == "CENTER" else x + w - total)
+        h = 0
+        for n, (c, cw) in enumerate(zip(kids, widths)):
+            start = len(self.sc.els)
+            h = max(h, self.node(c, xx, y, cw, sy))
+            if align and len(kids) > 1:
+                self._join(start, ({"R"} if n == 0 else {"L"} if n == len(kids) - 1 else {"L", "R"}))
+            xx += cw + gap
+        return h
+
+    def group(self, node, x, y, w, sy):
+        PM, u, s = _pm(), self.u, self.s
+        i, kids, end = node[1], node[2], node[3]
+        head = self.items[i]
+        t = head.group_type
+        sy2 = sy * head.height
+        pos = len(self.sc.els)  # the group's own (click) area goes under its items
+        top = y
+        label = head.label.strip()
+        if t == "BOX":
+            y -= self.box_pad
+            x, w = x + self.box_pad, w - 2 * self.box_pad
+        if label:
+            lh = int(u * sy2)
+            self.sc.els.append(El(i, int(x), int(y - lh), int(w), lh, kind="boxhead", text=label,
+                                  icon=PM.item_icon(head) if PM.item_icon(head) != 'NONE' else ""))
+            y -= lh + (0 if head.align else self.gap_y)
+        if not kids:  # an empty group: a dashed spot to drop items into
+            h = int(u * sy2)
+            inner = h
+        elif t in ("BOX", "COLUMN"):
+            inner = self.column(kids, x, y, w, sy2, head.align, head.alignment)
+        elif t == "ROW":
+            inner = self.row(kids, x, y, w, sy2, head.align, head.alignment)
+        elif t == "SPLIT":
+            n = len(kids)
+            gap = 0 if head.align else self.gap_x
+            avail = w - gap * (n - 1)
+            if head.factor > 0 and n > 1:
+                widths = [avail * head.factor] + [avail * (1 - head.factor) / (n - 1)] * (n - 1)
+            else:
+                widths = [avail / n] * n
+            inner = self.row(kids, x, y, w, sy2, head.align, "EXPAND", widths)
+        else:  # GRID
+            cols = head.grid_columns or max(1, int(w // (5.5 * u)))
+            cols = max(1, min(cols, len(kids)))
+            gap = 0 if head.align else self.gap_x
+            cw = (w - gap * (cols - 1)) / cols
+            yy, inner = y, 0
+            for r in range(0, len(kids), cols):
+                h = self.row(kids[r:r + cols], x, yy, cw * len(kids[r:r + cols]) + gap * (len(kids[r:r + cols]) - 1),
+                             sy2, head.align, "EXPAND", [cw] * len(kids[r:r + cols]))
+                yy -= h + (0 if head.align else self.gap_y)
+            inner = y - yy - (0 if head.align else self.gap_y)
+        y -= inner
+        if t == "BOX":
+            y -= self.box_pad
+            x, w = x - self.box_pad, w + 2 * self.box_pad
+        h = top - y
+        gx, gy = int(x), int(top - h)
+        if t == "BOX":
+            self.sc.boxes.append((gx, gy, int(w), int(h)))
+        self.sc.groups.append((i, gx, gy, int(w), int(h), t))
+        self.sc.els.insert(pos, El(i, gx, gy, int(w), int(h), kind="group", text=GROUP_LABEL.get(t, t)))
+        # a small tag on the group's top left corner (while the mouse is on the menu): click or drag it
+        name = GROUP_LABEL.get(t, t) + (f" · {label}" if label else "")
+        _font(FONT_POINTS * 0.8)
+        tw = _text_w(name) + 10 * s
+        _font()
+        th = int(0.62 * u)
+        self.late.append(El(i, gx - int(2 * s), int(top - th / 2), int(tw), th, kind="grouptag", text=name))
+        if end is not None:  # its End Group: a marker on the bottom edge
+            _font(FONT_POINTS * 0.8)
+            ew = _text_w("End Group") + 10 * s
+            _font()
+            self.late.append(El(end, int(gx + w / 2 - ew / 2), int(gy - th / 2), int(ew), th, kind="marker",
+                                text="End Group", col=i))
+        return h
+
+
+GROUP_LABEL = {"BOX": "Box", "ROW": "Row", "COLUMN": "Column", "SPLIT": "Split", "GRID": "Grid"}
+
+
+def _finish_panel(sc, pie, items, texts, keys, hover, s, u, pad, colw, gap, title_h, header_h):
+    PM = _pm()
+    lay = _Panel(sc, items, texts, keys, hover, s, u)
+    shown = list(enumerate(items))
+    if pie.menu_type in ("DIALOG", "PANEL") and not PM._has_layout(items):
+        # no layout items: they fill the Columns row by row, like grid_flow
+        ncol = max(1, pie.columns)
+        columns = [[["ITEM", i] for i in range(len(items))]]
+        grid = True
+    else:
+        columns = PM.layout_tree(items, shown)
+        ncol, grid = len(columns), False
+    breaks = [i for i, it in shown if it.kind == PM.BREAK]
+    width = colw * (ncol if not grid else max(1, pie.columns)) + gap * ((ncol if not grid else 1) - 1)
+    heights = []
+    y0 = -(pad + title_h + header_h)
+    if grid:
+        nodes = columns[0]
+        cw = (width - lay.gap_x * (ncol - 1)) / ncol
+        yy = y0
+        for r in range(0, len(nodes), ncol):
+            chunk = nodes[r:r + ncol]
+            h = lay.row(chunk, pad, yy, cw * len(chunk) + lay.gap_x * (len(chunk) - 1), 1.0, False, "EXPAND",
+                        [cw] * len(chunk))
+            yy -= h + lay.gap_y
+        heights.append(-yy)
+    else:
+        for c, nodes in enumerate(columns):
+            x0 = pad + c * (colw + gap)
+            h = lay.column(nodes, x0, y0, colw, 1.0, False, "EXPAND") if nodes else u
+            heights.append(-y0 + h)
+            if c > 0 and c - 1 < len(breaks):  # Next Column: a marker on the column's top edge
+                _font(FONT_POINTS * 0.8)
+                bw = _text_w("Next Column") + 10 * s
+                _font()
+                th = int(0.62 * u)
+                lay.late.append(El(breaks[c - 1], int(x0 + colw / 2 - bw / 2), int(y0 + th / 2), int(bw), th,
+                                   kind="marker", text="Next Column"))
+    sc.els.extend(lay.late)
+    content_h = max(heights + [title_h + header_h + pad + u]) + pad
+    w = pad * 2 + width
+    sc.frame = (0, -content_h, w, content_h)
+    if sc.title:
+        sc.title_rect = (pad, -(pad + u), w - 2 * pad, u)
+    if sc.panel_header:
+        sc.panel_header = (0, -header_h, w, header_h)
+    sc.w, sc.h = w, content_h
     sc.offset(-w / 2, content_h / 2)
     return sc
 
@@ -804,18 +1079,18 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
         if el.emboss:
             inner = _rgba(tool.inner_sel if sel else tool.inner, alpha)
             if alert:
-                inner = (0.6, 0.15, 0.15, alpha)
-            widget_box(el.x, el.y, el.w, el.h, tool.roundness * u, inner, _rgba(tool.outline, alpha))
+                inner = (0.47, 0.07, 0.07, alpha)
+            widget_box(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha))
         else:  # Emboss off: flat, only the icon and text
             if hovered:
-                _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u, _rgba(tool.inner, 0.5 * alpha))
+                _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, _rgba(tool.inner, 0.5 * alpha))
             if alert:
                 tcol = (1.0, 0.35, 0.3, alpha)
         _button_content(el, _tcol(el, tcol), u, s, align="CENTER" if not el.icon else "LEFT")
         return
     inner = _rgba(wcol.inner_sel if el.depress else (wcol.item if hovered else wcol.inner), alpha)
     if alert:
-        inner = (0.6, 0.15, 0.15, inner[3])
+        inner = (0.47, 0.07, 0.07, inner[3])
     widget_box(el.x, el.y, el.w, el.h, r, inner, _rgba(wcol.outline, alpha))
     tcol = _tcol(el, _rgba(wcol.text_sel if (hovered or el.depress) else wcol.text, alpha))
     rx = el.x
@@ -926,7 +1201,7 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
         _tria_down(hx + 0.6 * u, hy + hh / 2, 0.35 * u, _rgba(th.wcol_regular.text, 0.8))
         _text_in(hx + 1.2 * u, hy, hw, hh, pie.name, _rgba(th.wcol_regular.text), "LEFT")
     else:
-        r = back.roundness * u
+        r = back.roundness * u * 0.5
         _shadow(x, y, w, h, r, 6 * s)
         widget_box(x, y, w, h, r, _rgba(back.inner), _rgba(back.outline))
         if sc.title_rect:
@@ -936,13 +1211,15 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
                 ly = ty - 0.15 * u
                 _rect(x + 0.25 * u, ly, w - 0.5 * u, 1 * pixel(), _rgba(back.text, 0.15))
     # boxes behind their items
-    if not menu:
-        _draw_boxes(sc, th, s, u)
+    for bx, by, bw, bh in sc.boxes:
+        widget_box(bx, by, bw, bh, th.wcol_box.roundness * u * 0.5, _rgba(th.wcol_box.inner), _rgba(th.wcol_box.outline))
     item_col = th.wcol_menu_item
     any_icon = any(el.icon and el.icon != ADD_ICON for el in sc.els if el.kind == "item")
     for el in sc.els:
         hovered = el.index == hover and src is None
         alpha = 0.35 if el.index == src else 1.0
+        if el.kind in ("group", "grouptag", "marker"):
+            continue  # drawn on top, below
         if el.kind == "sep":
             mid = el.y + el.h / 2
             if hovered:
@@ -954,13 +1231,6 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
                 _rect(el.x + (el.w + tw) / 2 + 0.35 * u, mid, (el.w - tw) / 2 - 0.6 * u, pixel(), _rgba(back.text, 0.4))
             else:
                 _rect(el.x + 0.25 * u, mid, el.w - 0.5 * u, pixel(), _rgba(back.text, 0.15 * alpha))
-        elif el.kind == "marker":
-            col = _rgba(back.text, (0.6 if hovered else 0.35) * alpha)
-            _text_in(el.x, el.y, el.w, el.h, el.text, col, "CENTER")
-            midy = el.y + el.h / 2
-            lw = 0.8 * u
-            _rect(el.x - lw - 2 * s, midy, lw, pixel(), col)
-            _rect(el.x + el.w + 2 * s, midy, lw, pixel(), col)
         elif el.kind == "boxhead":
             col = _rgba(th.wcol_box.text, alpha)
             if hovered:
@@ -978,43 +1248,38 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
             _selection(el, accent, s, u, 0.2 * u)
         if hovered and st.show_remove and el.kind in ("item", "empty", "sep", "label", "boxhead", "marker"):
             _draw_remove(el, th, u, s, st)
+    if sc.show_markers or selected is not None:
+        _draw_layout_marks(sc, th, s, u, hover, selected, accent)
+
+
+def _draw_layout_marks(sc, th, s, u, hover, selected, accent):
+    """While the mouse is on the menu: each group's outline and tag, and the End Group / Next Column markers,
+    so the layout items can be seen, clicked, dragged and right-clicked. (The real menu doesn't draw them.)"""
+    text = th.wcol_menu_back.text
+    for i, x, y, w, h, _t in sc.groups:
+        on = i == hover or i == selected
+        if not (sc.show_markers or on):
+            continue
+        col = accent[:3] + (0.9,) if on else _rgba(text, 0.22)
+        pts = _outline_pts(x - 1.5 * s, y - 1.5 * s, w + 3 * s, h + 3 * s, 3 * s)
+        for k in range(0, len(pts) - 1, 2):  # dashed
+            _line(pts[k:k + 2], col, 1.0)
+    if not sc.show_markers:
+        return
+    _font(FONT_POINTS * 0.8)
+    for el in sc.els:
+        if el.kind not in ("grouptag", "marker") or not el.show:
+            continue
+        on = el.index == hover or el.index == selected
+        fill = accent[:3] + (0.95,) if on else (0.12, 0.12, 0.13, 0.92)
+        _round_fill(el.x, el.y, el.w, el.h, el.h / 2, fill)
+        _line(_outline_pts(el.x + 0.5, el.y + 0.5, el.w - 1, el.h - 1, el.h / 2 - 0.5), _rgba(text, 0.35), 1.0, closed=True)
+        _text_in(el.x, el.y, el.w, el.h, el.text, (1, 1, 1, 0.95) if on else _rgba(text, 0.85), "CENTER")
+    _font()
 
 
 def _tria_down(x, y, size, color):
     _fill([(x - size * 0.5, y + size * 0.3), (x + size * 0.5, y + size * 0.3), (x, y - size * 0.4)], [(0, 1, 2)], color)
-
-
-def _draw_boxes(sc, th, s, u):
-    """Frames for boxes: from each heading to the last item before End Box / the next box / column end."""
-    PM = _pm()
-    pie = _cur_pie()
-    if pie is None:
-        return
-    items = list(pie.items)
-    by_index = {el.index: el for el in sc.els}
-    open_head = None
-    members = []
-
-    def close():
-        if open_head is None:
-            return
-        els = [open_head] + members
-        x0 = open_head.x
-        x1 = open_head.x + open_head.w
-        y1 = open_head.y + open_head.h
-        y0 = min(e.y for e in els) - int(u * 0.3)
-        widget_box(x0, y0, x1 - x0, y1 - y0, th.wcol_box.roundness * u, _rgba(th.wcol_box.inner), _rgba(th.wcol_box.outline))
-
-    for i, it in enumerate(items):
-        if it.kind == PM.BOX:
-            close()
-            open_head, members = by_index.get(i), []
-        elif it.kind in (PM.BOX_END, PM.BREAK):
-            close()
-            open_head, members = None, []
-        elif open_head is not None and i in by_index:
-            members.append(by_index[i])
-    close()
 
 
 def _menu_item(el, wcol, th, u, s, hovered, alpha, any_icon):
@@ -1023,7 +1288,7 @@ def _menu_item(el, wcol, th, u, s, hovered, alpha, any_icon):
         _text_in(el.x + 0.2 * u + (u if any_icon else 0) + 0.4 * u - u * 0.4, el.y, el.w, el.h, el.text, col, "LEFT")
         return
     if hovered or el.depress:
-        _round_fill(el.x + 0.15 * u, el.y, el.w - 0.3 * u, el.h, wcol.roundness * u,
+        _round_fill(el.x + 0.15 * u, el.y, el.w - 0.3 * u, el.h, wcol.roundness * u * 0.5,
                     _rgba(wcol.inner_sel, alpha * (1.0 if hovered else 0.6)))
     tcol = _rgba(wcol.text_sel if (hovered or el.depress) else wcol.text, alpha)
     if el.style.endswith("_ALERT"):
@@ -1068,7 +1333,11 @@ def _panel_item(el, th, u, s, hovered, alpha):
         col = _rgba(th.wcol_regular.text, alpha)
         _button_content(el, col, u, s, align="LEFT") if el.icon else _text_in(el.x + 0.2 * u, el.y, el.w, el.h, el.text, col, "LEFT")
         return
-    y, h = el.y + 1, el.h - 2
+    j = el.join
+    bx0 = el.x + (0 if "L" in j else 1)
+    bw = el.x + el.w - (0 if "R" in j else 1) - bx0
+    y = el.y + (0 if "B" in j else 1)
+    h = el.y + el.h - (0 if "T" in j else 1) - y
     if style == "CHECK":
         opt = th.wcol_option
         size = 14 * s
@@ -1078,24 +1347,24 @@ def _panel_item(el, th, u, s, hovered, alpha):
         return
     if style == "SLIDER":
         ns = th.wcol_numslider
-        widget_box(el.x + 1, y, el.w - 2, h, ns.roundness * u, _rgba(ns.inner, alpha), _rgba(ns.outline, alpha))
-        fill_w = (el.w - 2) * 0.5
-        _round_fill(el.x + 1, y, fill_w, h, ns.roundness * u, _rgba(ns.item, alpha))
+        widget_box(bx0, y, bw, h, ns.roundness * u * 0.5, _rgba(ns.inner, alpha), _rgba(ns.outline, alpha), join=j)
+        fill_w = bw * 0.5
+        _round_fill(bx0, y, fill_w, h, _corner_radii(ns.roundness * u * 0.5, j | {"R"}), _rgba(ns.item, alpha))
         tcol = _rgba(ns.text_sel if hovered else ns.text, alpha)
         _text_in(el.x + 0.4 * u, el.y, el.w - 0.8 * u, el.h, el.text, tcol, "LEFT")
         return
     tool = th.wcol_tool
     if style == "FLAT":
         if hovered or el.depress:
-            _round_fill(el.x + 1, y, el.w - 2, h, tool.roundness * u, _rgba(tool.inner_sel if el.depress else tool.inner,
+            _round_fill(bx0, y, bw, h, tool.roundness * u * 0.5, _rgba(tool.inner_sel if el.depress else tool.inner,
                                                                            0.6 * alpha))
         tcol = _rgba(tool.text_sel if hovered else tool.text, alpha)
         if alert:
             tcol = (1.0, 0.35, 0.3, alpha)
     else:
         base = tool.inner_sel if el.depress else (tool.item if hovered else tool.inner)
-        inner = _rgba(base, alpha) if not alert else (0.6, 0.15, 0.15, alpha)
-        widget_box(el.x + 1, y, el.w - 2, h, tool.roundness * u, inner, _rgba(tool.outline, alpha))
+        inner = _rgba(base, alpha) if not alert else (0.47, 0.07, 0.07, alpha)
+        widget_box(bx0, y, bw, h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), join=j)
         tcol = _rgba(tool.text_sel if (hovered or el.depress) else tool.text, alpha)
     _button_content(el, _tcol(el, tcol), u, s, align="CENTER")
 
@@ -1387,6 +1656,18 @@ def _draw():
     sc = build(pie, prefs, st.hover if not st.drag else None)
     cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
     sc.offset(cx, cy)
+    if sc.frame and st.mouse is not None:
+        fx, fy, fw, fh = sc.frame
+        pad = unit()
+        sc.show_markers = fx - pad <= st.mouse[0] <= fx + fw + pad and fy - pad <= st.mouse[1] <= fy + fh + pad
+    if st.drag and st.drag.get("active"):
+        sc.show_markers = True
+    # End Group markers only for the group the mouse is in (or the selected one), so they don't crowd the menu
+    sel = prefs.pie_slot if prefs.pie_customize else None
+    for el in sc.els:
+        if el.kind == "marker" and el.text == "End Group":
+            inside = lambda k: k is not None and el.col <= k <= el.index
+            el.show = inside(st.hover) or inside(sel) or bool(st.drag and st.drag.get("active"))
     st.scene = sc
     st.show_remove = not prefs.pie_customize and pie.menu_type != "PIE" and len(pie.items) > _pm().ITEM_MIN.get(pie.menu_type, 0)
     gpu.state.scissor_test_set(True)
@@ -1465,7 +1746,8 @@ def _drop_target(st, mx, my):
             el = best if bd < 3 * unit() else None
         return el.index if el is not None and el.index != src else None
     # menus: the gap before or after the item nearest the mouse in the same column
-    cands = [e for e in sc.els if e.kind in ("item", "empty", "sep", "label", "boxhead", "marker")]
+    cands = [e for e in sc.els if e.kind in ("item", "empty", "sep", "label", "boxhead", "grouptag")
+             and e.index != src]
     if not cands:
         return None
     best, bd = None, 1e9
@@ -1495,14 +1777,27 @@ def _do_drop(st, src):
         prefs.pie_slot = dst
     else:
         kind, el = st.drop
-        pos = el.index if kind == "before" else el.index + 1
-        if pos > src:
-            pos -= 1
-        pos = max(0, min(pos, len(pie.items) - 1))
-        if pos == src:
-            return
-        pie.items.move(src, pos)
-        prefs.pie_slot = pos
+        items = list(pie.items)
+        if kind == "before":
+            pos = el.index
+        elif items[el.index].kind == PM.BOX and el.kind in ("grouptag", "boxhead"):
+            pos = (PM.group_end(items, el.index) or el.index) + 1  # after the whole group
+        else:
+            pos = el.index + 1
+        # a group moves with everything in it, up to its End Group
+        end = PM.group_end(items, src) if items[src].kind == PM.BOX else src
+        end = src if end is None else end
+        n = end - src + 1
+        if src <= pos <= end + 1:
+            return  # dropped on itself
+        if pos > end:
+            for _k in range(n):
+                pie.items.move(src, pos - 1)
+            prefs.pie_slot = pos - n
+        else:
+            for k in range(n):
+                pie.items.move(src + k, pos + k)
+            prefs.pie_slot = pos
     PM._changed()
 
 
@@ -1514,9 +1809,9 @@ def _click(context, st, el, zone, win, area, region):
             bpy.ops.keyops.menu_item_remove(slot=el.index)
         elif prefs.pie_customize:
             prefs.pie_slot = el.index
-        elif el.kind in ("marker", "boxhead", "label"):
-            prefs.pie_customize = True  # layout items are edited in Customize
-            prefs.pie_slot = el.index
+        elif el.kind in ("marker", "boxhead", "label", "group", "grouptag"):
+            # layout items have no action: their settings, in the item menu
+            bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=el.index)
         elif zone == "icon" and el.kind == "item":
             bpy.ops.keyops.pie_icon_picker('INVOKE_DEFAULT', slot=el.index)
         else:
@@ -1644,6 +1939,11 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             if (st.mouse is None) != (mouse is None):
                 changed = True
             st.hover, st.hover_zone, st.mouse = new, zone, mouse
+            if st.scene is not None and st.scene.frame and mouse is not None:
+                fx, fy, fw, fh = st.scene.frame
+                pad = unit()
+                on_menu = fx - pad <= mx <= fx + fw + pad and fy - pad <= my <= fy + fh + pad
+                changed = changed or on_menu != st.scene.show_markers
             if changed:
                 reg.tag_redraw()
                 try:
