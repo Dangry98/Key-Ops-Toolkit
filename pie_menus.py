@@ -81,6 +81,8 @@ GROUP_TYPES = (
     ("COLUMN", "Column", "Items one under the other", 'ALIGN_JUSTIFY', 2),
     ("SPLIT", "Split", "Items in columns: Split sets the first one's width", 'SPLIT_HORIZONTAL', 3),
     ("GRID", "Grid Flow", "Items in a grid, row by row", 'MESH_GRID', 4),
+    ("PANEL", "Panel", "A panel that opens and closes, its label as the header (a box in Blender before 4.1)",
+     'DOWNARROW_HLT', 5),
 )
 GROUP_NAMES = {g[0]: g[1] for g in GROUP_TYPES}
 SETTING_STYLES = (
@@ -412,6 +414,13 @@ class KeyOpsPieItem(PropertyGroup):
                           description="Split: how much of the width the first column takes. 0: equal columns") # type: ignore
     grid_columns: IntProperty(name="Columns", default=0, min=0, max=16, update=_changed,
                               description="Grid Flow: how many columns. 0: as many as fit") # type: ignore
+    closed: BoolProperty(name="Start Closed", default=False, update=_changed,
+                         description="Panel: closed until you open it") # type: ignore
+    sep_type: EnumProperty(name="Separator", default="AUTO", update=_changed, items=(
+        ("AUTO", "Auto", "A line in menus, a gap elsewhere"), ("LINE", "Line", "A line"), ("SPACE", "Space", "A gap")),
+        description="How a separator is drawn (Line and Space need Blender 4.2)") # type: ignore
+    sep_factor: FloatProperty(name="Size", default=1.0, min=0.0, max=10.0, step=10, update=_changed,
+                              description="How much space the separator takes, 1 is normal") # type: ignore
     prop_split: BoolProperty(name="Property Split", default=False, update=_changed,
                              description="Settings with their name on the left and the field on the right, like Blender's "
                                          "Properties editor (use_property_split)") # type: ignore
@@ -551,7 +560,7 @@ PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", 
               "append_to", "append_as", "tags")
 ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
                "emboss", "active", "depress", "group_type", "align", "alignment", "factor", "grid_columns",
-               "prop_split", "height", "width", "same_row", "alert", "setting_style")
+               "prop_split", "closed", "sep_type", "sep_factor", "height", "width", "same_row", "alert", "setting_style")
 STEP_FIELDS = ("idname", "props", "interactive")
 PIE_SCHEMA = 7  # bump when the saved layout changes, and add a migration below
 
@@ -963,6 +972,14 @@ def item_icon(item, default='NONE'):
     return _icon(item.icon) if item.icon else default
 
 
+def draw_separator(layout, item):
+    """A separator with its style and size. The type argument (line/space) is new in Blender 4.2."""
+    try:
+        layout.separator(factor=item.sep_factor, type=item.sep_type)
+    except TypeError:
+        layout.separator(factor=item.sep_factor)
+
+
 def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
     if item.kind in (BREAK, BOX, BOX_END):  # columns and boxes are made by draw_columns; anywhere else a gap
         layout.separator()
@@ -1002,7 +1019,7 @@ def draw_item(layout, context, item, pie_uid="", index=-1, slider=False):
         op.pie, op.slot = pie_uid, index
         return
     if item.kind == N or not item.idname.strip():
-        layout.separator()
+        draw_separator(layout, item)
         return
     label = item.label or action_name(item)
     try:
@@ -1586,11 +1603,18 @@ def layout_tree(items, shown):
     return columns
 
 
-def make_group(parent, head):
-    """The Blender layout a group item makes: a box, row, column, split or grid flow with its look."""
+def make_group(parent, head, idname="keyops_group"):
+    """The Blender layout a group item makes: a box, row, column, split, grid flow or panel with its look.
+    Returns None for a closed panel (nothing to draw in it)."""
     t = getattr(head, "group_type", "BOX")
     label = head.label.strip()
-    if t == "BOX":
+    if t == "PANEL" and hasattr(parent, "panel"):  # Blender 4.1+
+        header, body = parent.panel(idname, default_closed=head.closed)
+        header.label(text=label or "Panel", icon=item_icon(head))
+        if body is None:
+            return None
+        g = body.column(align=head.align)
+    elif t in ("BOX", "PANEL"):
         box = parent.box()
         if label:
             box.label(text=label, icon=item_icon(head))
@@ -1626,7 +1650,9 @@ def draw_nodes(layout, context, items, nodes, uid, slider=True):
             for i in node[1]:
                 draw_item(row, context, items[i], uid, i, slider=slider)
         else:
-            draw_nodes(make_group(layout, items[node[1]]), context, items, node[2], uid, slider)
+            g = make_group(layout, items[node[1]], f"keyops_{uid}_{node[1]}")
+            if g is not None:
+                draw_nodes(g, context, items, node[2], uid, slider)
 
 
 def needs_panel_popup(items):
@@ -2050,7 +2076,7 @@ class KEYOPS_OT_slot_paste(Operator):
 
 
 INSERT_KINDS = (
-    (O, "Item", "A new item: pick its action", 'ADD'),
+    (O, "Button", "A button: pick what it does", 'RADIOBUT_OFF'),
     (N, "Separator", "A line between items (popup menus) or a gap", 'REMOVE'),
     (LABEL, "Label", "A heading", 'FONT_DATA'),
 ) + tuple((f"G:{g}", name, f"A new {name.lower()} group with one item in it. {desc}", icon)
@@ -2139,6 +2165,7 @@ class KEYOPS_OT_menu_item_insert(Operator):
     bl_options = {'INTERNAL'}
     slot: IntProperty(default=-1) # type: ignore
     kind: EnumProperty(items=[(k, n, d, i, x) for x, (k, n, d, i) in enumerate(INSERT_KINDS)]) # type: ignore
+    at_end: BoolProperty(default=False, options={'SKIP_SAVE'}) # type: ignore
 
     @classmethod
     def description(cls, context, props):
@@ -2149,8 +2176,8 @@ class KEYOPS_OT_menu_item_insert(Operator):
         pie = _active_pie(prefs)
         if pie is None or pie.menu_type == "PIE" or len(pie.items) >= ITEM_LIMIT.get(pie.menu_type, 64):
             return {'CANCELLED'}
-        base = self.slot if self.slot >= 0 else prefs.pie_slot
-        if 0 <= base < len(pie.items) and pie.items[base].kind == BOX:  # after a whole group, not inside it
+        base = len(pie.items) - 1 if self.at_end else (self.slot if self.slot >= 0 else prefs.pie_slot)
+        if 0 <= base < len(pie.items) and pie.items[base].kind == BOX and not self.at_end:  # after a whole group
             base = group_end(list(pie.items), base) or base
         pos = min(len(pie.items), base + 1)
         if self.kind.startswith("G:"):
@@ -2214,22 +2241,22 @@ def draw_item_options(layout, prefs):
             layout.prop(item, "factor")
         if item.group_type == "GRID":
             layout.prop(item, "grid_columns")
+        if item.group_type == "PANEL":
+            layout.prop(item, "closed")
         layout.prop(item, "prop_split")
         if not item.label.strip():
             layout.operator("keyops.pie_icon_picker", text="Pick Icon...", icon='IMAGE_DATA').slot = slot
-    if (not layouty and not empty and item.kind != LABEL) or item.kind == BOX:
+    looks = look_options(pie, item)
+    if looks:  # only what Blender can do for this kind of item
         layout.separator()
-        layout.prop(item, "width")
-        layout.prop(item, "height")
-        layout.prop(item, "emboss")
-        layout.prop(item, "alert")
-        layout.prop(item, "active")
-        if item.kind != BOX:
-            layout.prop(item, "depress")
-            if pie.menu_type in {"MENU", "DIALOG", "PANEL"}:
-                layout.prop(item, "same_row")
-        if item.kind == P:
-            layout.prop_menu_enum(item, "setting_style", text="Draw As")
+        for name in ("width", "height", "emboss", "alert", "active", "depress", "same_row"):
+            if name in looks:
+                layout.prop(item, name)
+    if item.kind == P:
+        layout.prop_menu_enum(item, "setting_style", text="Draw As")
+    if empty and item.kind == N and pie.menu_type != "PIE":  # a separator
+        layout.prop_menu_enum(item, "sep_type", text=f"Separator: {item.sep_type.title()}")
+        layout.prop(item, "sep_factor")
     layout.separator()
     if pie.menu_type != "PIE":
         layout.menu("KEYOPS_MT_item_insert", text="New Below", icon='ADD')
@@ -2247,7 +2274,22 @@ def draw_item_options(layout, prefs):
     if pie.menu_type != "PIE" and len(pie.items) > ITEM_MIN.get(pie.menu_type, 0):
         layout.operator("keyops.menu_item_remove", text="Remove", icon='X').slot = slot
     layout.separator()
-    layout.prop(prefs, "pie_customize", text="More in Customize")
+    layout.prop(prefs, "pie_customize", text="Advanced Options")
+
+
+class KEYOPS_MT_item_add(bpy.types.Menu):
+    """Add to the end of the menu: a button, label, separator, or a group to lay items out in."""
+    bl_label = "Add"
+    bl_idname = "KEYOPS_MT_item_add"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator_context = 'EXEC_DEFAULT'
+        for n, (kind, name, _desc, icon) in enumerate(INSERT_KINDS):
+            if (kind.startswith("G:") and not INSERT_KINDS[n - 1][0].startswith("G:")) or kind == BREAK:
+                layout.separator()
+            op = layout.operator("keyops.menu_item_insert", text=name, icon=icon)
+            op.kind, op.at_end = kind, True
 
 
 class KEYOPS_OT_item_options(Operator):
@@ -3270,7 +3312,7 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
     item = pie.items[index]
     empty = _is_empty(item)
     text = ("Separator" if pie.menu_type == "MENU" else "Empty") if empty else (item.label or item.idname or "Macro")
-    selected = prefs.pie_customize and prefs.pie_slot == index
+    selected = prefs.pie_slot == index
     styled = not selected and not empty  # the preview shows each button the way the menu draws it
     if styled:
         cell.scale_y = 1.25 * item.height
@@ -3282,7 +3324,7 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
         r = cell.row(align=True)
         r.alignment = 'CENTER'
         icon = item_icon(item)
-        if prefs.pie_customize:
+        if True:
             r.operator("keyops.pie_slot_select", text=item_text(item, text), emboss=False, icon=icon).slot = index
         else:
             r.label(text=item_text(item, text), icon=icon)
@@ -3295,7 +3337,7 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
     r.scale_y = 0.85 if not selected else 1.0
     emboss = selected
     if icon_only:  # one click zone: the icon picks the action (its icon is changed with the item selected)
-        if prefs.pie_customize:
+        if True:
             r.operator("keyops.pie_slot_select", text="", icon=_icon(item.icon), emboss=False).slot = index
         else:
             op = r.operator("keyops.pie_slot_search", text="", icon=_icon(item.icon), emboss=False)
@@ -3304,13 +3346,8 @@ def _slot_button(row, pie, index, prefs, width=SLOT_W):
     if not no_icon:
         r.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'BLANK1',
                    emboss=emboss, depress=selected).slot = index
-    if prefs.pie_customize:
-        op = r.operator("keyops.pie_slot_select", text=text, emboss=emboss, depress=selected)
-        op.slot = index
-    else:
-        op = r.operator("keyops.pie_slot_search", text=text, emboss=emboss)
-        op.slot = index
-        op.scope = "ALL"  # Key Ops actions first, then any operator or menu in Blender
+    op = r.operator("keyops.pie_slot_select", text=text, emboss=emboss, depress=selected)  # edited in the card below
+    op.slot = index
 
 
 def _is_empty(item):
@@ -3327,7 +3364,7 @@ def _is_empty(item):
 
 def _remove_button(row, pie, index, prefs):
     """A small remove button beside a list item (Customize has its own in the slot editor)."""
-    if prefs.pie_customize or len(pie.items) <= ITEM_MIN.get(pie.menu_type, 0):
+    if len(pie.items) <= ITEM_MIN.get(pie.menu_type, 0):
         return
     row.operator("keyops.menu_item_remove", text="", icon='X', emboss=False).slot = index
 
@@ -3336,12 +3373,9 @@ def _layout_marker(layout, pie, index, prefs, text, icon):
     """Next Column and End Box in the preview: small, dim, still selectable and removable."""
     r = layout.row(align=True)
     r.alignment = 'CENTER'
-    selected = prefs.pie_customize and prefs.pie_slot == index
+    selected = prefs.pie_slot == index
     r.active = selected
-    if prefs.pie_customize:
-        r.operator("keyops.pie_slot_select", text=text, icon=icon, emboss=selected, depress=selected).slot = index
-    else:
-        r.label(text=text, icon=icon)
+    r.operator("keyops.pie_slot_select", text=text, icon=icon, emboss=selected, depress=selected).slot = index
     _remove_button(r, pie, index, prefs)
 
 
@@ -3488,7 +3522,7 @@ def draw_canvas_overview(layout, context, pie, prefs):
         row.alignment = 'CENTER'
         add = row.row()
         add.ui_units_x = 11.0
-        add.operator("keyops.menu_item_add", text="Add Item", icon='ADD')
+        add.menu("KEYOPS_MT_item_add", text="Add", icon='ADD')
 
 
 class KEYOPS_MT_menu_list_specials(bpy.types.Menu):
@@ -3575,35 +3609,26 @@ def draw_pies_tab(prefs, context, layout):
 
     pie = prefs.pies[active]
     box = layout.box()
+    # header: where it works and Try It (its name and key are in the list on the left)
     head = box.row(align=True)
-    tryit = head.operator("wm.keyops_call_pie", text="Try It")
+    names = editor_names(pie)
+    head.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
+                        icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
+    tryit = head.operator("wm.keyops_call_pie", text="Try It", icon='PLAY')
     tryit.pie, tryit.direct = pie.uid, True
-    head.separator()
-    head.prop(prefs, "pie_customize", text="Customize", toggle=True)
-    if not prefs.pie_customize:  # the basics; Customize adds the advanced settings
-        basics = box.row(align=True)
-        basics.prop(pie, "name", text="", icon=TYPE_ICON.get(pie.menu_type, 'NONE'))
-        names = editor_names(pie)
-        basics.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
-                              icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
 
     box.separator(factor=0.4)
-    split = box.split(factor=0.58) if prefs.pie_customize else box.column()
-    target = split.column() if prefs.pie_customize else split
-    gpu_drawn = menu_canvas.supported(pie)
-    if gpu_drawn:  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
-        draw_canvas_overview(target, context, pie, prefs)
-    else:
-        draw_pie_overview(target, pie, prefs)
-    if prefs.pie_customize:
-        draw_slot_editor(prefs, split.column(), pie)
-    else:
+    if menu_canvas.supported(pie):  # drawn as the real menu looks, with drag and drop (ui/menu_canvas.py)
+        draw_canvas_overview(box, context, pie, prefs)
         tip = box.row()
         tip.alignment = 'CENTER'
         tip.active = False
-        tip.label(text=("Click an item's name to pick its action, its icon spot to pick an icon. "
-                        "Drag to move. Right-click for its look and more.") if gpu_drawn else
-                  "Click a slot to search for a different action, or its icon to change the icon. Customize for more.")
+        tip.label(text="Click an item to edit it below, again to pick its action. Drag to move. "
+                       "Right-click for more.")
+    else:
+        draw_pie_overview(box, pie, prefs)
+    draw_item_card(prefs, context, layout, pie)
+    draw_menu_settings(prefs, layout, pie)
 
     if any(it.idname == "keyops.add_mesh" for it in pie.items):
         sbox = layout.box()
@@ -3616,18 +3641,64 @@ def draw_pies_tab(prefs, context, layout):
         r.prop(prefs, "add_object_pie_default_scale")
 
 
-def draw_slot_editor(prefs, layout, pie):
-    """Customize: edit the selected slot. Advanced fields fold away."""
+KIND_NAMES = {O: "Button", M: "Menu", P: "Setting", SUB: "Opens a Menu", SCRIPT: "Python", MACRO: "Macro",
+              PANEL_ITEM: "Blender Panel", LABEL: "Label", BREAK: "Next Column", BOX: "Group", BOX_END: "End Group"}
+KIND_ICONS = {O: 'RADIOBUT_OFF', M: 'MENU_PANEL', P: 'PROPERTIES', SUB: 'COLLAPSEMENU', SCRIPT: 'SCRIPT',
+              MACRO: 'SEQUENCE', PANEL_ITEM: 'MENU_PANEL', LABEL: 'FONT_DATA', BREAK: 'CENTER_ONLY',
+              BOX: 'META_PLANE', BOX_END: 'REMOVE'}
+
+
+def item_title(pie, item):
+    if item.kind == BOX:
+        return GROUP_NAMES.get(item.group_type, "Group") + (f": {item.label}" if item.label.strip() else "")
+    if _is_empty(item):
+        return "Separator" if pie.menu_type != "PIE" else "Empty slot"
+    if item.kind in (BREAK, BOX_END):
+        return KIND_NAMES[item.kind]
+    return item.label or action_name(item) or KIND_NAMES.get(item.kind, "Item")
+
+
+def look_options(pie, item):
+    """The look settings Blender can apply to this item, so only those are offered."""
+    k = item.kind
+    if k in (BREAK, BOX_END) or (_is_empty(item) and k == N):
+        return set()
+    if k == BOX:
+        return {"width", "height", "emboss", "alert", "active"}
+    if k == LABEL:
+        return {"width", "height", "alert", "active"}
+    opts = {"width", "height", "emboss", "alert", "active"}
+    if k in (O, M, SUB, SCRIPT, MACRO):
+        opts.add("depress")
+    if pie.menu_type != "PIE":
+        parent = parent_group(list(pie.items), list(pie.items).index(item)) if len(pie.items) else None
+        if parent is None or pie.items[parent].group_type in ("BOX", "COLUMN", "PANEL"):
+            opts.add("same_row")
+    return opts
+
+
+def _foldout(layout, data, prop, text):
+    row = layout.row()
+    row.alignment = 'LEFT'
+    on = getattr(data, prop)
+    row.prop(data, prop, text=text, icon='DOWNARROW_HLT' if on else 'RIGHTARROW', emboss=False)
+    return on
+
+
+def draw_item_card(prefs, context, layout, pie):
+    """The selected item: the things you change most, then Advanced for the rest."""
     if not len(pie.items):
-        layout.box().label(text="Add an item to start.")
         return
     slot = max(0, min(prefs.pie_slot, len(pie.items) - 1))
     item = pie.items[slot]
-    box = layout.box()
-    head = box.row()
     is_menu = pie.menu_type != "PIE"
+    box = layout.box()
+    col = box.column()
+    head = col.row(align=True)
     labels = LIST_LABELS.get(pie.menu_type)
-    head.label(text=(labels(slot) if labels else f"Item {slot + 1}") if is_menu else f"{POSITION_NAMES[ORDER[slot]]} slot")
+    where = labels(slot) if labels else (POSITION_NAMES[ORDER[slot]] if not is_menu else "")
+    head.label(text=item_title(pie, item) + (f"  ·  {where}" if where else ""),
+               icon=KIND_ICONS.get(item.kind, 'DOT') if not _is_empty(item) else 'DOT')
     tools = head.row(align=True)
     tools.alignment = 'RIGHT'
     if is_menu:
@@ -3637,176 +3708,168 @@ def draw_slot_editor(prefs, layout, pie):
         tools.operator_menu_enum("keyops.slot_swap", "target", text="", icon='ARROW_LEFTRIGHT')
     tools.operator("keyops.slot_copy", text="", icon='COPYDOWN')
     tools.operator("keyops.slot_paste", text="", icon='PASTEDOWN')
-    if is_menu:
-        tools.operator("keyops.menu_item_remove", text="", icon='X')
+    if is_menu and len(pie.items) > ITEM_MIN.get(pie.menu_type, 0):
+        tools.operator("keyops.menu_item_remove", text="", icon='X').slot = slot
 
-    col = box.column()
-    empty = _is_empty(item)
-    row = col.row(align=True)
-    row.scale_y = 1.3
-    if item.kind == MACRO:
-        row.label(text=item.label or "Macro", icon='SEQUENCE')
-    else:
-        op = row.operator("keyops.pie_slot_search", text="Empty" if empty else (item.label or item.idname),
-                          icon='VIEWZOOM')
-        op.slot, op.scope = slot, "KEYOPS"
-        op = row.operator("keyops.pie_slot_search", text="Any Operator")
+    k = item.kind
+    if k == BREAK:
+        _note(col, "The items after this go in the next column")
+    elif k == BOX_END:
+        _note(col, "Ends the group above: the items after this are outside it")
+    elif k == BOX:
+        col.row(align=True).prop(item, "group_type", expand=True)
+        r = col.row(align=True)
+        r.prop(item, "label", text="", icon='FONT_DATA', placeholder="Heading") if bpy.app.version >= (4, 1, 0) \
+            else r.prop(item, "label", text="Heading")
+        r = col.row(align=True)
+        r.prop(item, "align", toggle=True, icon='SNAP_EDGE')
+        if item.group_type == "SPLIT":
+            r.prop(item, "factor", slider=True)
+        elif item.group_type == "GRID":
+            r.prop(item, "grid_columns")
+        elif item.group_type == "PANEL":
+            r.prop(item, "closed", toggle=True)
+        col.row(align=True).prop(item, "alignment", expand=True)
+    elif _is_empty(item) and k == N and is_menu:
+        r = col.row(align=True)
+        r.prop(item, "sep_type", expand=True)
+        r.prop(item, "sep_factor")
+        op = col.operator("keyops.pie_slot_search", text="Make It a Button...", icon='VIEWZOOM')
         op.slot, op.scope = slot, "ALL"
-    mk = row.row(align=True)
-    mk.ui_units_x = 6
-    mk.operator("keyops.slot_make_macro", text="Make Macro" if item.kind != MACRO else "Single Action",
-                icon='SEQUENCE' if item.kind != MACRO else 'BACK', depress=False)
-    if item.kind == MACRO:
+    elif k == LABEL:
+        r = col.row(align=True)
+        r.prop(item, "label", text="")
+        r.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
+    else:
+        r = col.row(align=True)
+        r.scale_y = 1.2
+        if k == MACRO:
+            r.label(text=item.label or "Macro", icon='SEQUENCE')
+        else:
+            op = r.operator("keyops.pie_slot_search", text=("Pick an action..." if _is_empty(item) else
+                                                            action_name(item) or item.idname), icon='VIEWZOOM')
+            op.slot, op.scope = slot, "ALL"
+        if not _is_empty(item):
+            r.operator("keyops.pie_icon_picker", text="", icon=_icon(item.icon) if item.icon else 'IMAGE_DATA').slot = slot
+            r = col.row(align=True)
+            if bpy.app.version >= (4, 1, 0):
+                r.prop(item, "label", text="", icon='FONT_DATA', placeholder="No label: icon only")
+            else:
+                r.prop(item, "label", text="Label")
+            if k == P:
+                col.prop(item, "setting_style", text="Draw As")
+
+    looks = look_options(pie, item)
+    toggles = [(n, i) for n, i in (("emboss", 'MESH_PLANE'), ("alert", 'ERROR'), ("active", 'HIDE_OFF'),
+                                   ("depress", 'CHECKBOX_HLT')) if n in looks]
+    if toggles:
+        r = col.row(align=True)
+        for name, icon in toggles:
+            r.prop(item, name, toggle=True, icon=icon)
+    if "width" in looks:
+        r = col.row(align=True)
+        r.prop(item, "width")
+        r.prop(item, "height")
+
+    if k in (BREAK, BOX_END):
+        return
+    if _foldout(col, prefs, "pie_customize", "Advanced"):
+        adv = col.box().column()
+        draw_item_advanced(context, adv, pie, item, slot, looks)
+
+
+def _note(layout, text):
+    r = layout.row()
+    r.active = False
+    r.label(text=text)
+
+
+def draw_item_advanced(context, col, pie, item, slot, looks):
+    """Less used: what kind of item it is, its command, Python and macros, when it shows."""
+    k = item.kind
+    if k == BOX:
+        col.prop(item, "prop_split")
+        return
+    kinds = col.row(align=True)
+    for kind, text, icon in ((O, "Action", 'RADIOBUT_OFF'), (SCRIPT, "Python", 'SCRIPT'), (MACRO, "Macro", 'SEQUENCE'),
+                             (LABEL, "Label", 'FONT_DATA')):
+        if kind == MACRO:
+            kinds.operator("keyops.slot_make_macro", text=text, icon=icon, depress=k == MACRO)
+        elif kind == O:
+            op = kinds.operator("keyops.pie_slot_search", text=text, icon=icon, depress=k in (O, M, P, SUB))
+            op.slot, op.scope = slot, "ALL"
+        else:
+            kinds.operator("keyops.slot_set_kind", text=text, icon=icon, depress=k == kind).kind = kind
+    op = kinds.operator("keyops.pie_slot_search", text="Panel", icon='MENU_PANEL', depress=k == PANEL_ITEM)
+    op.slot, op.scope = slot, "PANELS"
+    if k == MACRO:
         draw_macro_steps(col, item, slot)
-    if item.kind == SCRIPT:
-        sbox = col.box()
+    elif k == SCRIPT:
         lines = item.script.rstrip("\n").split("\n")
         if len(lines) > 1:  # longer scripts: a read-only preview, edited in the Text Editor
-            pre = sbox.column(align=True)
+            pre = col.box().column(align=True)
             pre.scale_y = 0.8
             for line in lines[:8]:
                 pre.label(text=line.replace("\t", "    ") or " ")
             if len(lines) > 8:
-                more = pre.row()
-                more.active = False
-                more.label(text=f"... {len(lines) - 8} more lines")
+                _note(pre, f"... {len(lines) - 8} more lines")
         else:
-            sbox.prop(item, "script", text="", icon='SCRIPT')
-        r = sbox.row(align=True)
+            col.prop(item, "script", text="", icon='SCRIPT')
+        r = col.row(align=True)
         r.operator("keyops.script_edit", text="Edit in Text Editor", icon='TEXT')
         r.operator("keyops.script_save", text="Save to Item", icon='FILE_TICK')
-        note = sbox.row()
-        note.active = False
-        note.label(text="Runs like Text Editor > Run Script")
-    more_kinds = col.row(align=True)
-    kinds = ((SCRIPT, "Python", 'SCRIPT'), (PANEL_ITEM, "Blender Panel", 'MENU_PANEL'), (LABEL, "Label", 'SYNTAX_OFF'))
-    layout_kinds = ((BREAK, "Next Column", 'CENTER_ONLY'), (BOX, "Group", 'META_PLANE'), (BOX_END, "End Group", 'REMOVE'))
-    if pie.menu_type in {"MENU", "DIALOG", "PANEL"}:  # layout items get their own row
-        lay = col.row(align=True)
-        for kind, text, icon in layout_kinds:
-            lay.operator("keyops.slot_set_kind", text=text, icon=icon, depress=item.kind == kind).kind = kind
-    for kind, text, icon in kinds:
-        if kind == PANEL_ITEM:
-            op = more_kinds.operator("keyops.pie_slot_search", text=text, icon=icon, depress=item.kind == kind)
-            op.slot, op.scope = slot, "PANELS"
+    elif k != LABEL:
+        col.prop(item, "idname", text={O: "Operator", M: "Menu", P: "Setting"}.get(k, "Command"))
+        if k in (O, P):
+            col.prop(item, "props", text="Options")
+            _note(col, "Like type='WELD', segments=4" if k != P else "view='ICONS', scale=3.5: a big icon picker")
+        paste = col.row(align=True)
+        if bpy.app.version >= (4, 1, 0):
+            paste.prop(context_wm(), "keyops_paste_command", text="", icon='PASTEDOWN',
+                       placeholder="Paste a command from Blender's Info editor")
         else:
-            more_kinds.operator("keyops.slot_set_kind", text=text, icon=icon, depress=item.kind == kind).kind = kind
-    paste = col.row(align=True)
-    paste.prop(context_wm(), "keyops_paste_command", text="", icon='PASTEDOWN',
-               placeholder="Paste a command from Blender's Info editor") if bpy.app.version >= (4, 1, 0) else \
-        paste.prop(context_wm(), "keyops_paste_command", text="", icon='PASTEDOWN')
-    if not empty:
-        row = col.row(align=True)
-        row.prop(item, "label", text="Heading" if item.kind == BOX else "Label")
-        if item.kind not in (BREAK, BOX_END):
-            draw_item_look(col, pie, item)
+            paste.prop(context_wm(), "keyops_paste_command", text="", icon='PASTEDOWN')
+    if "same_row" in looks:
+        col.prop(item, "same_row")
+    col.prop(item, "show_if", text="Show If", icon='HIDE_OFF')
 
-        more = col.row()
-        more.alignment = 'LEFT'
-        more.prop(prefs, "pie_show_more", text="More Options", icon='DOWNARROW_HLT' if prefs.pie_show_more else 'RIGHTARROW',
-                  emboss=False)
-        if prefs.pie_show_more:
-            adv = col.box().column()
-            kinds_row = adv.row(align=True)  # every type but Empty: removing an item is the X
-            for k in item.bl_rna.properties["kind"].enum_items:
-                if k.identifier != N:
-                    kinds_row.prop_enum(item, "kind", k.identifier)
-            adv.prop(item, "idname", text={O: "Operator", M: "Menu", P: "Setting"}.get(item.kind, "Command"))
-            if item.kind in (O, P):
-                adv.prop(item, "props", text="Options")
-            note = adv.row()
-            note.active = False
-            note.label(text="Options look like type='WELD', segments=4" if item.kind != P else
-                       "view='ICONS', scale=3.5 shows a setting as a big icon picker")
-            adv.prop(item, "show_if", text="Show If", icon='HIDE_OFF')
 
+def draw_menu_settings(prefs, layout, pie):
+    """The menu's own settings, folded away."""
     pbox = layout.box()
-    prow = pbox.row()
-    prow.alignment = 'LEFT'
-    prow.prop(prefs, "pie_show_settings", text="Menu Settings", icon='DOWNARROW_HLT' if prefs.pie_show_settings else 'RIGHTARROW',
-              emboss=False)
-    if prefs.pie_show_settings:
-        c = pbox.column()
-        c.prop(pie, "name", text="Name")
-        c.prop(pie, "tags", text="Tags", icon='BOOKMARKS')
-        c.prop(pie, "menu_type", text="Type")
-        we = c.split(factor=0.25)
-        we.label(text="Works In:")
-        names = editor_names(pie)
-        we.prop_menu_enum(pie, "editor_set", text=editor_text(pie),
-                          icon=_EDITOR_ICONS[names[0]] if len(names) == 1 else 'WORKSPACE')
-        c.prop(pie, "only_mode", text="Only In")
-        c.prop(pie, "condition", text="Show When", icon='SCRIPT')
-        if pie.menu_type not in {"PANEL", "STICKY", "MODAL"}:
-            c.prop(pie, "key_event", text="Opens On")
-        if pie.menu_type != "PANEL":
-            c.prop(pie, "key_mod", text="While Holding")
-        if pie.menu_type in {"DIALOG", "PANEL"}:
-            c.prop(pie, "columns")
-        if pie.menu_type == "DIALOG":
-            c.row().prop(pie, "dialog_mode", expand=True)
-        if pie.menu_type == "STACK":
-            c.prop(pie, "stack_reset")
-        c.prop(pie, "append_to", text="Add To", icon='ADD')
-        if pie.append_to.strip():
-            c.row().prop(pie, "append_as", expand=True)
-            if not hasattr(bpy.types, pie.append_to.strip()):
-                warn = c.row()
-                warn.alert = True
-                warn.label(text="Blender has no menu, header or panel with that name", icon='ERROR')
-        if pie.menu_type == "PIE":
-            feel = c.row(align=True)
-            feel.prop(pie, "radius")
-            feel.prop(pie, "threshold")
-        r = c.row(align=True)
-        if pie.preset in PRESET_BY_ID:
-            r.operator("keyops.pie_reset", text="Reset to Preset")
-        r.operator("keyops.pie_duplicate", text="Duplicate")
-        r.operator("keyops.pie_remove", text="Delete")
-
-
-def draw_item_look(layout, pie, item):
-    """How the button is drawn, and where it sits in the layout. The preview above follows it."""
-    if item.kind == BOX:
-        box = layout.box()
-        col = box.column()
-        col.label(text="Group", icon='META_PLANE')
-        col.row(align=True).prop(item, "group_type", expand=True)
-        row = col.row(align=True)
-        row.prop(item, "align", toggle=True)
-        row.prop(item, "prop_split", toggle=True)
-        col.row(align=True).prop(item, "alignment", expand=True)
-        if item.group_type == "SPLIT":
-            col.prop(item, "factor")
-        if item.group_type == "GRID":
-            col.prop(item, "grid_columns")
-        row = col.row(align=True)
-        row.prop(item, "width")
-        row.prop(item, "height")
-        row = col.row(align=True)
-        row.prop(item, "emboss", toggle=True)
-        row.prop(item, "alert", toggle=True)
-        row.prop(item, "active", toggle=True)
+    if not _foldout(pbox, prefs, "pie_show_settings", "Menu Settings"):
         return
-    if item.kind == LABEL:
-        return  # icon and text are set in the icon picker, opened from the item's icon in the preview
-    box = layout.box()
-    col = box.column()
-    col.label(text="Look", icon='RESTRICT_VIEW_OFF')
-    row = col.row(align=True)
-    row.prop(item, "emboss", toggle=True, icon='MESH_PLANE' if item.emboss else 'MATPLANE')
-    row.prop(item, "alert", toggle=True, icon='ERROR')
-    row = col.row(align=True)
-    row.prop(item, "active", toggle=True, icon='HIDE_OFF' if item.active else 'HIDE_ON')
-    row.prop(item, "depress", toggle=True, icon='CHECKBOX_HLT' if item.depress else 'CHECKBOX_DEHLT')
-    row = col.row(align=True)
-    row.prop(item, "width")
-    row.prop(item, "height")
-    if pie.menu_type in {"MENU", "DIALOG", "PANEL"}:
-        lay = col.row(align=True)
-        lay.prop(item, "same_row", toggle=True, icon='ALIGN_JUSTIFY')
-    if item.kind == P:
-        col.prop(item, "setting_style", text="Draw As")
+    c = pbox.column()
+    c.prop(pie, "menu_type", text="Type")
+    c.prop(pie, "tags", text="Tags", icon='BOOKMARKS')
+    c.prop(pie, "only_mode", text="Only In")
+    c.prop(pie, "condition", text="Show When", icon='SCRIPT')
+    if pie.menu_type not in {"PANEL", "STICKY", "MODAL"}:
+        c.prop(pie, "key_event", text="Opens On")
+    if pie.menu_type != "PANEL":
+        c.prop(pie, "key_mod", text="While Holding")
+    if pie.menu_type in {"DIALOG", "PANEL"}:
+        c.prop(pie, "columns")
+    if pie.menu_type == "DIALOG":
+        c.row().prop(pie, "dialog_mode", expand=True)
+    if pie.menu_type == "STACK":
+        c.prop(pie, "stack_reset")
+    c.prop(pie, "append_to", text="Add To", icon='ADD')
+    if pie.append_to.strip():
+        c.row().prop(pie, "append_as", expand=True)
+        if not hasattr(bpy.types, pie.append_to.strip()):
+            warn = c.row()
+            warn.alert = True
+            warn.label(text="Blender has no menu, header or panel with that name", icon='ERROR')
+    if pie.menu_type == "PIE":
+        feel = c.row(align=True)
+        feel.prop(pie, "radius")
+        feel.prop(pie, "threshold")
+    r = c.row(align=True)
+    if pie.preset in PRESET_BY_ID:
+        r.operator("keyops.pie_reset", text="Reset to Preset")
+    r.operator("keyops.pie_duplicate", text="Duplicate")
+    r.operator("keyops.pie_remove", text="Delete")
 
 
 def draw_values(context, layout):
@@ -3959,7 +4022,7 @@ property_classes = (KeyOpsValue, KeyOpsMacroStep, KeyOpsPieItem, KeyOpsPie, KeyO
 classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save, KEYOPS_OT_slot_set_kind,
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
            WM_OT_keyops_call_pie, WM_OT_keyops_run_macro, KEYOPS_OT_menu_item_add, KEYOPS_OT_menu_item_remove,
-           KEYOPS_OT_menu_item_insert, KEYOPS_MT_item_insert, KEYOPS_OT_item_options, KEYOPS_OT_item_wrap,
+           KEYOPS_OT_menu_item_insert, KEYOPS_MT_item_insert, KEYOPS_OT_item_options, KEYOPS_OT_item_wrap, KEYOPS_MT_item_add,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
            KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
