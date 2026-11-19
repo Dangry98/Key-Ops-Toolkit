@@ -60,4 +60,5 @@ def finish():
     bpy.ops.wm.quit_blender()
 
 
-bpy.app.timers.register(run, first_interval=2.0)
+# before the What's New screen opens (1 s after start), which marks itself seen as it opens
+bpy.app.timers.register(run, first_interval=0.5)

@@ -50,8 +50,7 @@ def register_toolkit_panel_keymaps():
     kmi.properties.type = 'Instant_Apply_Modifiers'
     registered_toolkit_panel_keymaps.append((km, kmi))
 
-    kmi = km.keymap_items.new('keyops.snap_to_floor', 'THREE', 'PRESS', alt=True)
-    registered_toolkit_panel_keymaps.append((km, kmi))
+    # Alt+3 Snap to Floor: added by snap_to_floor.register_snap_to_floor
 
     kmi = km.keymap_items.new('keyops.toolkit_panel', 'D', 'PRESS', alt=True, shift=True)
     kmi.properties.type = 'duplicate_linked_modifiers_and_move'
