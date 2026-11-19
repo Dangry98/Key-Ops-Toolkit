@@ -1821,12 +1821,6 @@ def _draw():
         gpu.matrix.translate((-cx, -cy))
     draw_scene(sc, st, prefs)
     gpu.matrix.pop()
-    # the key and what the menu does, small in the corner
-    _font(FONT_POINTS * 0.9)
-    th = _theme()
-    from ..pie_menus import key_text
-    info = "Sidebar" if pie.menu_type == "PANEL" else (key_text(pie) if pie.enabled else "Off")
-    _text(x0 + 0.4 * u, y1 - 0.9 * u, info, _rgba(th.wcol_regular.text, 0.45))
     gpu.state.scissor_test_set(False)
     gpu.state.blend_set('NONE')
     # make sure the modal that handles clicks and drags is running for this window
