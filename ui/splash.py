@@ -63,8 +63,11 @@ def read_seen():
     """Which welcome and What's New screens were shown. Kept in the add-on's own user folder, so it holds
     even when Blender's preferences aren't saved."""
     import json
+    path = _seen_path()
+    if not os.path.isfile(path):  # first run; checked up front so a debugger doesn't stop on the error
+        return {}
     try:
-        with open(_seen_path(), encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
