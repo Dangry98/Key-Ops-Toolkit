@@ -1883,12 +1883,16 @@ class KEYOPS_OT_script_edit(Operator):
         name = f"Key Ops - {_active_pie(prefs).name} - {item.label or 'Python'}"
         text = bpy.data.texts.get(name) or bpy.data.texts.new(name)
         text.from_string(item.script or "import bpy\n\n")
-        bpy.ops.wm.window_new()
+        context.window_manager.keyops_script_text = name
+        try:
+            bpy.ops.wm.window_new()
+        except RuntimeError:  # no window to open one from: the text is ready in any Text Editor
+            self.report({'INFO'}, f"Edit \"{name}\" in a Text Editor")
+            return {'FINISHED'}
         win = context.window_manager.windows[-1]
         area = win.screen.areas[0]
         area.type = 'TEXT_EDITOR'
         area.spaces.active.text = text
-        context.window_manager.keyops_script_text = name
         return {'FINISHED'}
 
 
@@ -2587,7 +2591,7 @@ class KEYOPS_OT_slot_set_kind(Operator):
     def execute(self, context):
         prefs = get_keyops_prefs()
         item = _active_item(prefs, prefs.pie_slot)
-        if item is None:
+        if item is None or not self.kind:
             return {'CANCELLED'}
         item.kind = self.kind
         if self.kind == SCRIPT and not item.script:
@@ -2895,6 +2899,9 @@ class KEYOPS_OT_settings_export(Operator, ExportHelper):
             options["pie_menus"] = lambda d: dict(d, pies=[p for p in d["pies"] if p["uid"] in chosen])
         if not names:
             self.report({'WARNING'}, "Pick something to export")
+            return {'CANCELLED'}
+        if not self.filepath.strip():
+            self.report({'ERROR'}, "Pick a file to export to")
             return {'CANCELLED'}
         settings_store.export_file(self.filepath, names, options)
         self.report({'INFO'}, f"Exported to {self.filepath}")

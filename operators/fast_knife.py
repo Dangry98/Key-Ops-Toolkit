@@ -34,7 +34,7 @@ class FastKnife(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.space_data.type == 'VIEW_3D'
+        return (context.space_data is not None and context.space_data.type == 'VIEW_3D'
             and context.mode == 'EDIT_MESH')
 
 
