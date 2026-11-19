@@ -164,16 +164,51 @@ def _round_fill(x, y, w, h, r, color):
     _fill([(x + w / 2, y + h / 2)] + pts, [(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)], color)
 
 
-def widget_box(x, y, w, h, r, inner, outline=None, join=()):
+def _round_fill_grad(x, y, w, h, r, top, bottom):
+    """A rounded box filled with a top-to-bottom gradient (Blender's shaded widgets)."""
+    pts = _outline_pts(x, y, w, h, r)
+    mix = lambda f: tuple(bottom[k] + (top[k] - bottom[k]) * f for k in range(4))
+    verts = [(x + w / 2, y + h / 2)] + pts
+    cols = [mix(0.5)] + [mix(min(1.0, max(0.0, (py - y) / max(h, 1)))) for _px, py in pts]
+    gpu.state.blend_set('ALPHA')
+    sh = gpu.shader.from_builtin('SMOOTH_COLOR')
+    batch = batch_for_shader(sh, 'TRIS', {"pos": verts, "color": cols},
+                             indices=[(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)])
+    sh.bind()
+    batch.draw(sh)
+
+
+def _shade(c, amount):
+    """Blender's shadecolors4: a theme shade offset (-100..100, in 0..255 steps) added to a colour."""
+    return tuple(min(1.0, max(0.0, c[k] + amount / 255.0)) for k in range(3)) + (c[3],)
+
+
+def widget_box(x, y, w, h, r, inner, outline=None, join=(), wcol=None, emboss=False):
     """A Blender widget backdrop: the fill inside a one pixel outline, with smooth corners (square where it
-    joins a neighbour in an aligned row or column)."""
+    joins a neighbour in an aligned row or column). With the theme's widget colours (wcol): its shading
+    gradient when the theme has Shaded on; emboss: the theme's emboss line under the widget."""
     if join:
         r = _corner_radii(r, set(join))
     shrink = (lambda rr, d: tuple(max(0.0, v - d) for v in rr)) if isinstance(r, tuple) else (lambda rr, d: max(0.0, rr - d))
+    if emboss and h > 4:
+        try:
+            emb = _rgba(_theme().widget_emboss)
+        except AttributeError:
+            emb = (1, 1, 1, 0.05)
+        if emb[3] > 0 and "B" not in set(join):
+            pts = [p for p in _outline_pts(x + 0.5, y - 0.5, w - 1, h - 1, shrink(r, 0.5)) if p[1] < y + h * 0.35]
+            if len(pts) > 1:
+                pts.sort(key=lambda p: p[0])
+                _line(pts, emb, 1.0)
+    shaded = wcol is not None and getattr(wcol, "show_shaded", False)
     if outline is not None and outline[3] > 0:
         _round_fill(x, y, w, h, r, outline)
         px = pixel()
-        _round_fill(x + px, y + px, w - 2 * px, h - 2 * px, shrink(r, px), inner)
+        if shaded:
+            _round_fill_grad(x + px, y + px, w - 2 * px, h - 2 * px, shrink(r, px),
+                             _shade(inner, wcol.shadetop), _shade(inner, wcol.shadedown))
+        else:
+            _round_fill(x + px, y + px, w - 2 * px, h - 2 * px, shrink(r, px), inner)
         _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, shrink(r, 0.5)), outline, 1.0, closed=True)
     else:
         _round_fill(x, y, w, h, r, inner)
@@ -405,6 +440,7 @@ class Scene:
         self.marking = None  # marking menu boxes
         self.panel_header = None
         self.boxes = []      # (x, y, w, h) frames of box groups, drawn behind their items
+        self.panels = []     # (x, y, w, h, closed) headers of panel groups
         self.groups = []     # (start index, x, y, w, h, layout) of every group
         self.show_markers = False  # group tags and End Group / Next Column markers: while the mouse is on the menu
 
@@ -433,6 +469,7 @@ class Scene:
         if self.marking:
             self.marking = [(bx + dx, by + dy) + tuple(rest) for bx, by, *rest in self.marking]
         self.boxes = [(x + dx, y + dy, w, h) for x, y, w, h in self.boxes]
+        self.panels = [(x + dx, y + dy, w, h, c) for x, y, w, h, c in self.panels]
         self.groups = [(i, x + dx, y + dy, w, h, t) for i, x, y, w, h, t in self.groups]
 
 
@@ -713,8 +750,10 @@ def build_menu(pie, hover=None):
                 else:
                     row_items.append((i, "empty" if empty else ("label" if it.kind == PM.LABEL else "item")))
             if as_menu and len(row_items) == 1 and row_items[0][1] == "sep":
-                h = int(u * 0.5)
-                sc.els.append(El(idxs[0], x0, y - h, colw, h, kind="sep", text="Separator", col=c))
+                sp = items[idxs[0]]
+                h = max(int(4 * s), int(u * 0.5 * sp.sep_factor))
+                sc.els.append(El(idxs[0], x0, y - h, colw, h, kind="sep", text="Separator", col=c,
+                                 style="SEP_SPACE" if sp.sep_type == "SPACE" else "SEP_LINE"))
                 y -= h
                 continue
             total_w = sum(items[i].width for i in idxs) or 1
@@ -757,8 +796,9 @@ class _Panel:
     """Lays out popup panels, dialogs and sidebar panels the way Blender's layouts do: columns, rows, boxes,
     splits and grid flows, nested, with align, alignment and scale."""
 
-    def __init__(self, sc, items, texts, keys, hover, s, u):
+    def __init__(self, sc, items, texts, keys, hover, s, u, menu_look=False):
         self.sc, self.items, self.texts, self.keys, self.hover = sc, items, texts, keys, hover
+        self.menu_look = menu_look  # a popup menu: its buttons are drawn as menu items (the real one does too)
         self.s, self.u = s, u
         self.gap_y = int(2 * s)
         self.gap_x = int(4 * s)
@@ -808,8 +848,14 @@ class _Panel:
     def item(self, i, x, y, w, sy):
         PM, u = _pm(), self.u
         it = self.items[i]
-        h = int(round(u * it.height * sy))
         empty = PM._is_empty(it)
+        if empty and it.kind == PM.N:  # a separator (the real layout draws layout.separator() here)
+            h = max(int(4 * self.s), int(u * 0.5 * it.sep_factor))
+            line = it.sep_type == "LINE" or (it.sep_type == "AUTO" and self.menu_look)
+            self.sc.els.append(El(i, int(x), int(y - h), int(w), h, kind="sep", text="Separator",
+                                  style="SEP_LINE" if line else "SEP_SPACE"))
+            return h
+        h = int(round(u * it.height * sy))
         kind = "empty" if empty else ("label" if it.kind == PM.LABEL else "item")
         text, icon, default = self.texts[i]
         dim = False
@@ -817,8 +863,9 @@ class _Panel:
             text = "Empty"
         elif kind == "item":
             text, icon, dim = _hovered(text, icon, default, i == self.hover)
+        style = "MENU" if self.menu_look and it.kind != PM.LABEL else _panel_style(it)
         el = El(i, int(x), int(y - h), int(w), h, kind=kind, text=text, icon=icon, key="" if dim else self.keys[i],
-                sub=it.kind == PM.SUB, style=_panel_style(it) + ("_ALERT" if it.alert else ""), dim=dim, **_look(it))
+                sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), dim=dim, **_look(it))
         if icon and kind == "item":
             el.icon_rect = (int(x), int(y - h), u + int(0.3 * u), h)
         self.sc.els.append(el)
@@ -877,6 +924,15 @@ class _Panel:
         pos = len(self.sc.els)  # the group's own (click) area goes under its items
         top = y
         label = head.label.strip()
+        if t == "PANEL":  # a sub-panel: its header, then (when open) its items
+            hh = int(u * 1.1)
+            self.sc.els.append(El(i, int(x), int(y - hh), int(w), hh, kind="boxhead", text=label or "Panel",
+                                  style="PANEL_CLOSED" if head.closed else "PANEL"))
+            self.sc.panels.append((int(x), int(y - hh), int(w), hh, head.closed))
+            y -= hh
+            label = ""
+            if head.closed:
+                kids = []
         if t == "BOX":
             y -= self.box_pad
             x, w = x + self.box_pad, w - 2 * self.box_pad
@@ -885,10 +941,12 @@ class _Panel:
             self.sc.els.append(El(i, int(x), int(y - lh), int(w), lh, kind="boxhead", text=label,
                                   icon=PM.item_icon(head) if PM.item_icon(head) != 'NONE' else ""))
             y -= lh + (0 if head.align else self.gap_y)
-        if not kids:  # an empty group: a dashed spot to drop items into
+        if t == "PANEL" and head.closed:
+            inner = 0
+        elif not kids:  # an empty group: a dashed spot to drop items into
             h = int(u * sy2)
             inner = h
-        elif t in ("BOX", "COLUMN"):
+        elif t in ("BOX", "COLUMN", "PANEL"):
             inner = self.column(kids, x, y, w, sy2, head.align, head.alignment)
         elif t == "ROW":
             inner = self.row(kids, x, y, w, sy2, head.align, head.alignment)
@@ -938,11 +996,12 @@ class _Panel:
         return h
 
 
-GROUP_LABEL = {"BOX": "Box", "ROW": "Row", "COLUMN": "Column", "SPLIT": "Split", "GRID": "Grid"}
+GROUP_LABEL = {"BOX": "Box", "ROW": "Row", "COLUMN": "Column", "SPLIT": "Split", "GRID": "Grid", "PANEL": "Panel"}
 
 
 def _finish_panel(sc, pie, items, texts, keys, hover, s, u, pad, colw, gap, title_h, header_h):
     PM = _pm()
+    # a popup menu with rows, boxes or sizes opens as a popup panel: regular (grey) buttons, as drawn here
     lay = _Panel(sc, items, texts, keys, hover, s, u)
     shown = list(enumerate(items))
     if pie.menu_type in ("DIALOG", "PANEL") and not PM._has_layout(items):
@@ -1046,7 +1105,7 @@ def draw_scene(sc, st, prefs):
     hover = st.hover
     drag = st.drag if st.drag and st.drag.get("active") else None
     src = drag["src"] if drag else None
-    selected = prefs.pie_slot if prefs.pie_customize else None
+    selected = prefs.pie_slot
     accent = _rgba(th.wcol_menu_item.inner_sel)
     _font()
     if sc.kind == "BLENDER_PIE":
@@ -1080,7 +1139,8 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
             inner = _rgba(tool.inner_sel if sel else tool.inner, alpha)
             if alert:
                 inner = (0.47, 0.07, 0.07, alpha)
-            widget_box(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha))
+            widget_box(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), wcol=tool,
+                       emboss=True)
         else:  # Emboss off: flat, only the icon and text
             if hovered:
                 _round_fill(el.x, el.y, el.w, el.h, tool.roundness * u * 0.5, _rgba(tool.inner, 0.5 * alpha))
@@ -1091,7 +1151,7 @@ def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
     inner = _rgba(wcol.inner_sel if el.depress else (wcol.item if hovered else wcol.inner), alpha)
     if alert:
         inner = (0.47, 0.07, 0.07, inner[3])
-    widget_box(el.x, el.y, el.w, el.h, r, inner, _rgba(wcol.outline, alpha))
+    widget_box(el.x, el.y, el.w, el.h, r, inner, _rgba(wcol.outline, alpha), wcol=wcol)
     tcol = _tcol(el, _rgba(wcol.text_sel if (hovered or el.depress) else wcol.text, alpha))
     rx = el.x
     if el.icon and not el.text:  # icon only: centred, like Blender's icon-only pie buttons
@@ -1232,8 +1292,10 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
                 _text_in(el.x + (el.w - tw) / 2 - 0.3 * u, el.y, tw + 0.6 * u, el.h, "Empty", _rgba(back.text, 0.6), "CENTER")
                 _rect(el.x + 0.25 * u, mid, (el.w - tw) / 2 - 0.6 * u, pixel(), _rgba(back.text, 0.4))
                 _rect(el.x + (el.w + tw) / 2 + 0.35 * u, mid, (el.w - tw) / 2 - 0.6 * u, pixel(), _rgba(back.text, 0.4))
-            else:
+            elif el.style != "SEP_SPACE":
                 _rect(el.x + 0.25 * u, mid, el.w - 0.5 * u, pixel(), _rgba(back.text, 0.15 * alpha))
+        elif el.kind == "boxhead" and el.style.startswith("PANEL"):
+            _panel_header(el, th, u, s, hovered, alpha)
         elif el.kind == "boxhead":
             col = _rgba(th.wcol_box.text, alpha)
             if hovered:
@@ -1243,7 +1305,7 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
                 _text_in(el.x + 0.4 * u + 16 * s + 0.4 * u, el.y, el.w, el.h, el.text, col, "LEFT")
             else:
                 _text_in(el.x + 0.4 * u, el.y, el.w, el.h, el.text, col, "LEFT")
-        elif menu:
+        elif menu or el.style.startswith("MENU"):
             _menu_item(el, item_col, th, u, s, hovered, alpha, any_icon)
         else:
             _panel_item(el, th, u, s, hovered, alpha)
@@ -1253,6 +1315,21 @@ def _draw_menu(sc, st, th, s, u, hover, src, selected, accent):
             _draw_remove(el, th, u, s, st)
     if sc.show_markers or selected is not None:
         _draw_layout_marks(sc, th, s, u, hover, selected, accent)
+
+
+def _panel_header(el, th, u, s, hovered, alpha):
+    """A sub-panel's header (layout.panel): Blender's panel header colour, an open/closed triangle and its label."""
+    # like Blender's layout.panel header in popups: a thin line above, a chevron, the label; no band
+    _rect(el.x, el.y + el.h - pixel(), el.w, pixel(), _rgba(th.wcol_menu_back.text, 0.12 * alpha))
+    if hovered:
+        _round_fill(el.x, el.y, el.w, el.h, th.wcol_box.roundness * u * 0.5, (1, 1, 1, 0.04))
+    col = _rgba(th.wcol_menu_back.text, alpha)
+    cx, cy, c = el.x + 0.5 * u, el.y + el.h / 2, 0.18 * u
+    if el.style == "PANEL_CLOSED":  # >
+        _line([(cx - c * 0.5, cy + c), (cx + c * 0.5, cy), (cx - c * 0.5, cy - c)], col, 1.2 * s)
+    else:  # v
+        _line([(cx - c, cy + c * 0.5), (cx, cy - c * 0.5), (cx + c, cy + c * 0.5)], col, 1.2 * s)
+    _text_in(el.x + 1.0 * u, el.y, el.w, el.h, el.text, col, "LEFT")
 
 
 def _draw_layout_marks(sc, th, s, u, hover, selected, accent):
@@ -1345,12 +1422,14 @@ def _panel_item(el, th, u, s, hovered, alpha):
         opt = th.wcol_option
         size = 14 * s
         bx, by = el.x + 0.2 * u, el.y + (el.h - size) / 2
-        widget_box(bx, by, size, size, opt.roundness * size, _rgba(opt.item if hovered else opt.inner, alpha), _rgba(opt.outline, alpha))
+        widget_box(bx, by, size, size, opt.roundness * size * 0.5, _rgba(opt.inner_sel if el.depress else opt.inner, alpha),
+                   _rgba(opt.outline, alpha), wcol=opt, emboss=True)
         _text_in(bx + size + 0.3 * u, el.y, el.w, el.h, el.text, _tcol(el, _rgba(opt.text, alpha)), "LEFT")
         return
     if style == "SLIDER":
         ns = th.wcol_numslider
-        widget_box(bx0, y, bw, h, ns.roundness * u * 0.5, _rgba(ns.inner, alpha), _rgba(ns.outline, alpha), join=j)
+        widget_box(bx0, y, bw, h, ns.roundness * u * 0.5, _rgba(ns.inner, alpha), _rgba(ns.outline, alpha), join=j,
+                   wcol=ns, emboss=True)
         fill_w = bw * 0.5
         _round_fill(bx0, y, fill_w, h, _corner_radii(ns.roundness * u * 0.5, j | {"R"}), _rgba(ns.item, alpha))
         tcol = _rgba(ns.text_sel if hovered else ns.text, alpha)
@@ -1367,7 +1446,8 @@ def _panel_item(el, th, u, s, hovered, alpha):
     else:
         base = tool.inner_sel if el.depress else (tool.item if hovered else tool.inner)
         inner = _rgba(base, alpha) if not alert else (0.47, 0.07, 0.07, alpha)
-        widget_box(bx0, y, bw, h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), join=j)
+        widget_box(bx0, y, bw, h, tool.roundness * u * 0.5, inner, _rgba(tool.outline, alpha), join=j, wcol=tool,
+                   emboss=True)
         tcol = _rgba(tool.text_sel if (hovered or el.depress) else tool.text, alpha)
     _button_content(el, _tcol(el, tcol), u, s, align="CENTER")
 
@@ -1671,13 +1751,13 @@ def _draw():
     if st.drag and st.drag.get("active"):
         sc.show_markers = True
     # End Group markers only for the group the mouse is in (or the selected one), so they don't crowd the menu
-    sel = prefs.pie_slot if prefs.pie_customize else None
+    sel = prefs.pie_slot
     for el in sc.els:
         if el.kind == "marker" and el.text == "End Group":
             inside = lambda k: k is not None and el.col <= k <= el.index
             el.show = inside(st.hover) or inside(sel) or bool(st.drag and st.drag.get("active"))
     st.scene = sc
-    st.show_remove = not prefs.pie_customize and pie.menu_type != "PIE" and len(pie.items) > _pm().ITEM_MIN.get(pie.menu_type, 0)
+    st.show_remove = pie.menu_type != "PIE" and len(pie.items) > _pm().ITEM_MIN.get(pie.menu_type, 0)
     gpu.state.scissor_test_set(True)
     gpu.state.scissor_set(int(vp[0] + x0), int(vp[1] + y0 - pad), int(x1 - x0), int(y1 - y0 + 2 * pad))
     draw_scene(sc, st, prefs)
@@ -1818,16 +1898,15 @@ def _click(context, st, el, zone, win, area, region):
     PM = _pm()
     prefs = _prefs()
     with context.temp_override(window=win, area=area, region=region):
+        was_selected = prefs.pie_slot == el.index
         if zone == "remove":
             bpy.ops.keyops.menu_item_remove(slot=el.index)
-        elif prefs.pie_customize:
+        elif zone == "icon" and el.kind == "item":  # the icon spot: straight to the icons
             prefs.pie_slot = el.index
-        elif el.kind in ("marker", "boxhead", "label", "group", "grouptag"):
-            # layout items have no action: their settings, in the item menu
-            bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=el.index)
-        elif zone == "icon" and el.kind == "item":
             bpy.ops.keyops.pie_icon_picker('INVOKE_DEFAULT', slot=el.index)
-        else:
+        elif not was_selected or el.kind in ("marker", "boxhead", "label", "group", "grouptag"):
+            prefs.pie_slot = el.index  # first click: select it, its settings show below the preview
+        else:  # a selected button clicked again: pick what it does
             bpy.ops.keyops.pie_slot_search('INVOKE_DEFAULT', slot=el.index, scope="ALL")
     PM._redraw_all(context)
 

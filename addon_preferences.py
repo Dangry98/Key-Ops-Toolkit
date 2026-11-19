@@ -208,8 +208,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                  unit='TIME_ABSOLUTE', description="How long to hold still before the menu shows. "
                                  "A faster flick picks without showing it") # type: ignore
     pie_show_marking: BoolProperty(name="Marking Menu Look", default=False) # type: ignore
-    pie_customize: BoolProperty(name="Customize", default=False,
-                                description="Edit labels and commands, add your own pies, change where a pie works") # type: ignore
+    pie_customize: BoolProperty(name="Advanced", default=False,
+                                description="The selected item's less used settings: its command, Python, macro steps and when it shows") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
                                   description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
     prefs_version: IntProperty(default=0) # type: ignore
