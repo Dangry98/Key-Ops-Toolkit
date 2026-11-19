@@ -951,6 +951,13 @@ def action_name(item):
     """A readable name for what an item does (for an item without a label): the Key Ops action's name,
     the operator's or menu's name in Blender, else its id."""
     idname, props = item.idname.strip(), item.props.strip()
+    if item.kind == SUB:
+        target = find_pie(idname)
+        return target.name if target else idname
+    if item.kind == SCRIPT:
+        return "Python"
+    if item.kind == MACRO:
+        return "Macro"
     for entry in _CATALOG:
         if entry[4] == idname and entry[5].strip() == props and entry[2]:
             return entry[2]
@@ -960,6 +967,12 @@ def action_name(item):
     if item.kind == M or item.kind == PANEL_ITEM:
         cls = getattr(bpy.types, idname, None)
         return getattr(cls, "bl_label", "") or idname
+    if item.kind == P:  # Blender's own name for the setting
+        try:
+            data, prop = _resolve(bpy.context, idname)
+            return data.bl_rna.properties[prop].name or prop
+        except Exception:  # noqa: BLE001
+            return idname.rsplit(".", 1)[-1].replace("_", " ").title()
     if "." in idname and item.kind == O:
         mod, op = idname.split(".", 1)
         try:
@@ -1075,7 +1088,10 @@ def pie_slots(context, items):
 def draw_pie_items(layout, context, items, pie_uid):
     """The eight slots of a pie, drawn by Blender."""
     for _direction, i in pie_slots(context, items):
-        draw_item(layout, context, items[i], pie_uid, i)
+        item = items[i]
+        # Blender gives a pie's labels no direction (the items after them would move up a slot): in a
+        # sub-layout of its own a label keeps the slot the editor shows it in
+        draw_item(layout.column() if item.kind == LABEL else layout, context, item, pie_uid, i)
 
 
 _stack_state = {}  # menu id -> (next index, time of last press)
