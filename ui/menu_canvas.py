@@ -1589,6 +1589,8 @@ class Canvas:
         self.window_ptr = 0
         self.press = None
         self.picked = None        # (menu, item) the last click in the preview was on
+        self.last_w = None        # the area's width last time it was found
+        self.k, self.kc = 1.0, (0, 0)  # the preview's scale (below 1 when it doesn't fit) and its centre
 
 
 _canvases = {}       # region pointer -> Canvas
@@ -1621,7 +1623,8 @@ def draw_layout(layout, context, pie, prefs):
     u = unit()
     try:
         sc = build(pie, prefs)
-        need = int(sc.h + 2.2 * u)
+        k = min(1.0, max(0.5, (st.last_w - u) / max(sc.w, 1.0))) if st.last_w else 1.0
+        need = int(sc.h * k + 2.2 * u)
     except Exception:  # noqa: BLE001  never break the preferences over the preview
         need = 12 * u
     wm = context.window_manager
@@ -1785,10 +1788,14 @@ def _draw():
     sc = build(pie, prefs, st.hover if not st.drag else None)
     cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
     sc.offset(cx, cy)
+    # too wide for the area (a small Preferences window): drawn smaller, clicks are mapped back
+    st.last_w = x1 - x0
+    st.k = min(1.0, max(0.5, (x1 - x0 - unit()) / max(sc.w, 1.0)))
+    st.kc = (cx, cy)
     if sc.frame and st.mouse is not None:
         fx, fy, fw, fh = sc.frame
-        pad = unit()
-        sc.show_markers = fx - pad <= st.mouse[0] <= fx + fw + pad and fy - pad <= st.mouse[1] <= fy + fh + pad
+        mpad = unit()
+        sc.show_markers = fx - mpad <= st.mouse[0] <= fx + fw + mpad and fy - mpad <= st.mouse[1] <= fy + fh + mpad
     if st.drag and st.drag.get("active"):
         sc.show_markers = True
     # End Group markers only for the group the mouse is in (or the selected one), so they don't crowd the menu
@@ -1807,7 +1814,13 @@ def _draw():
     st.show_remove = pie.menu_type != "PIE" and len(pie.items) > _pm().ITEM_MIN.get(pie.menu_type, 0)
     gpu.state.scissor_test_set(True)
     gpu.state.scissor_set(int(vp[0] + x0), int(vp[1] + y0 - pad), int(x1 - x0), int(y1 - y0 + 2 * pad))
+    gpu.matrix.push()
+    if st.k < 1.0:
+        gpu.matrix.translate((cx, cy))
+        gpu.matrix.scale((st.k, st.k))
+        gpu.matrix.translate((-cx, -cy))
     draw_scene(sc, st, prefs)
+    gpu.matrix.pop()
     # the key and what the menu does, small in the corner
     _font(FONT_POINTS * 0.9)
     th = _theme()
@@ -2062,6 +2075,10 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
         st, area, reg, mx, my = at
         x0, y0, x1, y1 = st.rect
         inside = x0 <= mx <= x1 and y0 <= my <= y1
+        rmx, rmy = mx, my  # region pixels
+        if st.k < 1.0:  # the preview is drawn smaller: the mouse in its own (unscaled) coordinates
+            mx = st.kc[0] + (mx - st.kc[0]) / st.k
+            my = st.kc[1] + (my - st.kc[1]) / st.k
 
         if st.drag is not None:
             return self._dragging(context, event, st, area, reg, mx, my)
@@ -2070,7 +2087,7 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             # over a marker row (hidden under the preview): keep the mouse from Blender, so its colour swatch
             # never shows a tooltip
             band = st.pad
-            if x0 <= mx <= x1 and (y0 - band <= my < y0 or y1 < my <= y1 + band):
+            if x0 <= rmx <= x1 and (y0 - band <= rmy < y0 or y1 < rmy <= y1 + band):
                 return {'RUNNING_MODAL'}
             el = _item_under(st, mx, my) if inside else None
             new = el.index if el is not None else None
