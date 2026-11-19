@@ -506,6 +506,20 @@ NOT_IN_SHORTCUTS = {"double_click_select_island", "maya_navigation", "auto_delet
 key_capture = {"items": ""}  # the shortcut row waiting for a key press
 
 
+def shortcut_name(kmi):
+    """A shortcut's name as a person reads it: the operator's name without the "KeyOps:" prefix, plus
+    what this key does when one operator does several things ("Modi Key · Apply")."""
+    name = (kmi.name or kmi.idname).strip()
+    for prefix in ("KeyOps: ", "KeyOps:", "Key Ops: "):
+        if name.startswith(prefix):
+            name = name[len(prefix):].strip()
+    props = kmi.properties
+    kind = getattr(props, "type", None) if props is not None else None
+    if isinstance(kind, str) and kind and kind.upper() != kind.lower():
+        name += "  \u00b7  " + kind.replace("_", " ").strip().title()
+    return name
+
+
 def _key_signature(kmi):
     # by name, not operator: "Pan View" is view3d.move in the 3D View and view2d.pan in 2D editors
     return (kmi.name or kmi.idname, kmi.type, kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey, kmi.any, kmi.key_modifier)
@@ -545,7 +559,7 @@ def _draw_key_row(layout, group):
                  icon='CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT').items = ids
     name = row.row()
     name.active = on
-    name.label(text=kmi.name or kmi.idname)
+    name.label(text=shortcut_name(kmi))
     key = row.row(align=True)
     key.ui_units_x = 7
     waiting = key_capture.get("items") == ids
