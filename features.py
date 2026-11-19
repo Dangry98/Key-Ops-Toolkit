@@ -499,7 +499,10 @@ def live_shortcut_count():
 
 def _saved_value(p, name):
     """A raw saved preference value, or None. Blender 5.4 dropped IDProperty access on add-on
-    preferences (p.get raises TypeError), and there is nothing saved to carry over then."""
+    preferences (p.get raises TypeError), and there is nothing saved to carry over then.
+    Checked by version first so a debugger that stops on caught exceptions doesn't pause here."""
+    if bpy.app.version >= (5, 4, 0):
+        return None
     try:
         return p.get(name)
     except TypeError:
