@@ -1118,6 +1118,9 @@ def _button_content(el, tcol, u, s, align="CENTER"):
     if el.icon and el.text:
         draw_icon(el.icon, el.x + 0.2 * u + 8 * s + 2 * s, el.y + el.h / 2, tcol)
         tx0 = el.x + 0.2 * u + 16 * s + 2 * s + 0.4 * u
+        if align == "CENTER":  # Blender centres a button's text on the button, the icon stays on the left
+            tw = _text_w(el.text)
+            tx0 = max(tx0, el.x + (el.w - tw) / 2)
         tx, ty = _text_in(tx0, el.y, el.x + el.w - tx0, el.h, el.text, tcol, "LEFT")
     elif el.icon:
         draw_icon(el.icon, el.x + el.w / 2, el.y + el.h / 2, tcol)
@@ -1395,8 +1398,13 @@ def _draw_drop(sc, st, accent, s, u):
         if el is not None:
             _selection(el, accent, s, u, 0.3 * u)
         return
-    kind, el = tgt
+    kind, el, axis = tgt
     if el is None:
+        return
+    if axis == "x":  # a line on the item's left or right edge
+        x = el.x if kind == "before" else el.x + el.w
+        _rect(x - 1 * s, el.y, 2 * s, el.h, accent)
+        _round_fill(x - 3 * s, el.y + el.h - 3 * s, 6 * s, 6 * s, 3 * s, accent)
         return
     y = el.y + el.h if kind == "before" else el.y
     _rect(el.x, y - 1 * s, el.w, 2 * s, accent)
@@ -1759,8 +1767,13 @@ def _drop_target(st, mx, my):
             best, bd = e, d
     if best is None:
         return None
+    # side by side (a row, split or grid): before or after by the mouse's x; stacked: by its y
+    beside = any(e is not best and abs(e.y - best.y) < 2 and abs(e.h - best.h) < 2 and e.kind == best.kind
+                 and (abs(e.x + e.w - best.x) < 8 or abs(best.x + best.w - e.x) < 8) for e in cands)
+    if beside:
+        return ("before" if mx < best.x + best.w / 2 else "after", best, "x")
     before = my > best.y + best.h / 2
-    return ("before" if before else "after", best)
+    return ("before" if before else "after", best, "y")
 
 
 def _do_drop(st, src):
@@ -1776,7 +1789,7 @@ def _do_drop(st, src):
         PM._item_from_data(pie.items[dst], a)
         prefs.pie_slot = dst
     else:
-        kind, el = st.drop
+        kind, el, _axis = st.drop
         items = list(pie.items)
         if kind == "before":
             pos = el.index

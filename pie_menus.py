@@ -2785,16 +2785,14 @@ class KEYOPS_OT_pie_new_popup(Operator):
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_popup(self, width=200)
+        def draw(menu, ctx):  # a real menu: dark items, left aligned, like Blender's Add menus
+            for tid, name, _desc, icon, _n in MENU_TYPES:
+                menu.layout.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
+        context.window_manager.popup_menu(draw, title="New")
+        return {'FINISHED'}
 
     def execute(self, context):
         return {'FINISHED'}
-
-    def draw(self, context):
-        col = self.layout.column(align=True)
-        col.emboss = 'PULLDOWN_MENU'  # dark menu items, like Blender's Add menus
-        for tid, name, _desc, icon, _n in MENU_TYPES:
-            col.operator("keyops.pie_add", text=name, icon=icon).menu_type = tid
 
 
 def _preset_key_text(preset):
