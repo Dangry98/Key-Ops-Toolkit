@@ -890,7 +890,9 @@ class SelectSimilarUVIsland(bpy.types.Operator):
     def poll(cls, context):
         """ Validate context """
         active_object = context.active_object
-        return active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH' and not context.tool_settings.use_uv_select_sync
+        space = context.space_data  # Blender's Select Similar for UVs only runs in the UV editor
+        return (active_object is not None and active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
+                and not context.tool_settings.use_uv_select_sync and space is not None and space.type == 'IMAGE_EDITOR')
     
     def execute(self, context):
         has_synced = False

@@ -250,8 +250,8 @@ def run():
     m = PM._new_pie(p)
     m.name, m.menu_type = "Look Test", "MENU"
     for kind, kw in ((PM.BOX, {"label": "Add"}),
-                     (PM.O, {"idname": "mesh.primitive_cube_add", "icon": "MESH_CUBE", "display": "ICON"}),
-                     (PM.O, {"idname": "mesh.primitive_uv_sphere_add", "icon": "MESH_UVSPHERE", "display": "ICON",
+                     (PM.O, {"idname": "mesh.primitive_cube_add", "icon": "MESH_CUBE", "label": ""}),
+                     (PM.O, {"idname": "mesh.primitive_uv_sphere_add", "icon": "MESH_UVSPHERE", "label": "",
                              "same_row": True}),
                      (PM.BOX_END, {}),
                      (PM.BREAK, {}),
@@ -265,9 +265,34 @@ def run():
     entry = next(e for e in saved["pies"] if e["name"] == "Look Test")
     PM.pies_from_data(p, saved, merge=False)
     m = next(x for x in p.pies if x.name == "Look Test")
-    check("button looks are saved and loaded", [it.display for it in m.items][:3] == ["AUTO", "ICON", "ICON"]
+    check("button looks are saved and loaded", [PM.item_text(it, "x") for it in m.items][1:3] == ["", ""]
           and m.items[2].same_row and m.items[5].alert and not m.items[5].emboss and m.items[5].height == 1.5
           and m.items[6].setting_style == "CHECKBOX", str(entry["items"][5]))
+    old = {"pies": [{"items": [{"kind": PM.O, "label": "Cube", "icon": "MESH_CUBE", "display": "ICON"},
+                               {"kind": PM.O, "label": "Sphere", "icon": "MESH_UVSPHERE", "display": "TEXT"},
+                               {"kind": PM.O, "label": "Cone", "icon": "MESH_CONE", "display": "AUTO"}]}]}
+    new = PM._migrate_pies_6_to_7(old)["pies"][0]["items"]
+    check("old Icon Only / Text Only items keep their look without the Show setting",
+          new[0]["label"] == "" and new[0]["icon"] == "MESH_CUBE" and new[1]["icon"] == "" and new[1]["label"] == "Sphere"
+          and new[2]["label"] == "Cone" and new[2]["icon"] == "MESH_CONE" and all("display" not in d for d in new), str(new))
+    old = {"pies": [{"items": [{"kind": PM.BOX, "label": "A"}, {"kind": PM.O}, {"kind": PM.BOX, "label": "B"},
+                               {"kind": PM.O}, {"kind": PM.BREAK}, {"kind": PM.O}]}]}
+    kinds = [d["kind"] for d in PM._migrate_pies_6_to_7(old)["pies"][0]["items"]]
+    check("old boxes are closed where they used to end (next box, next column)",
+          kinds == [PM.BOX, PM.O, PM.BOX_END, PM.BOX, PM.O, PM.BOX_END, PM.BREAK, PM.O], str(kinds))
+    g = PM._new_pie(p)
+    g.name, g.menu_type = "Group Test", "DIALOG"
+    for kind, kw in ((PM.BOX, {"group_type": "BOX"}), (PM.BOX, {"group_type": "ROW", "align": True}),
+                     (PM.O, {"idname": "object.delete"}), (PM.O, {"idname": "object.delete"}), (PM.BOX_END, {}),
+                     (PM.O, {"idname": "object.delete"}), (PM.BOX_END, {})):
+        it = g.items.add()
+        it.kind = kind
+        for k, v in kw.items():
+            setattr(it, k, v)
+    tree = PM.layout_tree(list(g.items), list(enumerate(g.items)))
+    check("groups nest: a box holding an aligned row of two and one more item",
+          tree == [[["GROUP", 0, [["GROUP", 1, [["ITEM", 2], ["ITEM", 3]], 4], ["ITEM", 5]], 6]]], str(tree))
+    p.pies.remove(len(p.pies) - 1)
     cols = PM.layout_groups(list(enumerate(m.items)))
     check("layout: two columns, a box holding one row of two buttons",
           len(cols) == 2 and cols[0][0][0] == "BOX" and len(cols[0][0][2]) == 1 and len(cols[0][0][2][0][1]) == 2
@@ -385,7 +410,11 @@ def run():
     bpy.ops.keyops.pie_add(menu_type="PANEL")
     panel = p.pies[-1]
     panel.items[0].kind, panel.items[0].idname = "PROPERTY", "scene.render.resolution_percentage"
-    check("sidebar panels appear in the 3D View sidebar", bpy.types.KEYOPS_PT_user_panels_3d.poll(bpy.context))
+    panel.enabled = True
+    PM.sync_user_panels()
+    cls = next((c for c in PM._user_panels if c.bl_space_type == 'VIEW_3D' and c.bl_label == panel.name), None)
+    check("sidebar panels are panels of their own in the 3D View sidebar, in their tab",
+          cls is not None and cls.bl_category == panel.tab and cls.poll(bpy.context), str(PM._user_panels))
     bpy.ops.keyops.pie_add(menu_type="DIALOG")
     dialog = p.pies[-1]
     PM.apply_action(dialog.items[0], "O:mesh.primitive_cube_add")
@@ -514,6 +543,51 @@ def run():
         check("upgrade keeps a pie the user switched on in 0.2 (Workspace)", states["workspace"] is True)
     check("upgrade keeps 0.2 shortcuts on", any(kmi.type == "DEL" and kmi.active for _k, kmi in addon_items()))
     check("upgrade shows What's new", p.show_whats_new)
+
+    # previews draw what the real menus draw
+    MC = sys.modules[MOD + ".ui.menu_canvas"]
+    bpy.ops.keyops.pie_add(menu_type="PIE")
+    pie = p.pies[p.active_pie]
+    it = pie.items[0]
+    it.kind, it.idname, it.label = PM.P, "tool_settings.use_snap", ""
+    check("a setting with no label is named the way Blender names it", PM.action_name(it) == "Snap",
+          PM.action_name(it))
+    it.idname, it.setting_style = "tool_settings.transform_pivot_point", "EXPAND"
+    segs = MC._segments(it)
+    check("an expanded setting previews as its row of choices",
+          segs is not None and len(segs) > 2 and sum(c for _t, _i, c in segs) == 1, str(segs))
+    lab = pie.items[3]
+    lab.kind, lab.label = PM.LABEL, "Heading"
+    sc = MC.build_blender_pie(pie)
+    check("a pie's label keeps its slot", sc.els[3].style.startswith("LABEL") and len(sc.els) == len(pie.items))
+    op = pie.items[1]
+    op.kind, op.idname, op.label = PM.O, "object.delete", "Delete"
+    w1 = MC.build_blender_pie(pie).els[1].w
+    op.width = 2.0
+    w2 = MC.build_blender_pie(pie).els[1].w
+    check("a wider pie button grows like Blender's (more than its scale)", w2 > 2 * (w1 - 1.5 * MC.unit()),
+          f"{w1} -> {w2}")
+
+    # pies: extra items after the 8 directions
+    bpy.ops.keyops.menu_item_add()
+    ex = pie.items[-1]
+    ex.kind, ex.idname, ex.label = PM.O, "object.select_all", "Extra"
+    check("a pie takes extra items after its 8 directions", len(pie.items) == 9 and PM.slot_name(8) == "Extra 1")
+    sc = MC.build_blender_pie(pie)
+    check("Blender style: the extra items show on top of the pie", any(e.index == 8 for e in sc.els) and sc.boxes)
+    p.pie_style = "MARKING"
+    sc = MC.build(pie, p)
+    check("Marking style: the extra items show as a list under the menu", any(b[8] == 8 for b in sc.marking))
+    p.pie_style = "BLENDER"
+    p.pie_slot = 3
+    bpy.ops.keyops.menu_item_remove()
+    check("a pie's direction can't be removed", len(pie.items) == 9)
+    bpy.ops.keyops.menu_item_remove(slot=8)
+    check("an extra item can be removed", len(pie.items) == 8)
+    bpy.ops.keyops.pie_add(preset="marking_move")
+    check("a Maya preset switches pies to the Marking style", p.pie_style == "MARKING"
+          and PM.key_text(p.pies[p.active_pie]) == "W + Left Mouse", PM.key_text(p.pies[p.active_pie]))
+    p.pie_style = "BLENDER"
     addon_utils.disable(MOD, default_set=True)
 
 

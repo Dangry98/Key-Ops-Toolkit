@@ -29,9 +29,13 @@ def _find_view3d(context):
 def _invoke(operator, **props):
     window, area, region = _find_view3d(bpy.context)
     if window is None:
-        return
-    with bpy.context.temp_override(window=window, area=area, region=region):
-        operator('INVOKE_DEFAULT', **props)
+        return None
+    try:
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            operator('INVOKE_DEFAULT', **props)
+    except (AttributeError, RuntimeError):
+        pass  # the add-on was switched off before the screen came up
+    return None
 
 
 def _invoke_welcome(whats_new=False):
@@ -55,6 +59,14 @@ def _show_first_screen(whats_new):
     return None
 
 
+def _show_welcome():
+    return _show_first_screen(False)
+
+
+def _show_whats_new():
+    return _show_first_screen(True)
+
+
 def first_screen(p):
     """'WELCOME' for a new install, 'WHATS_NEW' once after each update, otherwise None."""
     from .branding import version_text
@@ -75,9 +87,9 @@ def schedule_welcome():
         return
     kind = first_screen(get_keyops_prefs())
     if kind == 'WELCOME':
-        bpy.app.timers.register(lambda: _show_first_screen(False), first_interval=1.0)
+        bpy.app.timers.register(_show_welcome, first_interval=1.0)
     elif kind == 'WHATS_NEW':
-        bpy.app.timers.register(lambda: _show_first_screen(True), first_interval=1.0)
+        bpy.app.timers.register(_show_whats_new, first_interval=1.0)
 
 
 class KEYOPS_OT_welcome_wait_for_splash(bpy.types.Operator):
@@ -129,10 +141,7 @@ def _key_group(context, items):
     return out
 
 
-def _redraw_all(context):
-    for window in context.window_manager.windows:
-        for area in window.screen.areas:
-            area.tag_redraw()
+from ..utils.utilities import redraw_all_areas as _redraw_all
 
 
 class KEYOPS_OT_shortcut_group_toggle(bpy.types.Operator):
@@ -240,7 +249,8 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
                 sp = col.split(factor=0.3)
                 sp.label(text=key)
                 sp2 = sp.split(factor=0.62)
-                sp2.label(text=kmi.name or kmi.idname)
+                from ..addon_preferences import shortcut_name
+                sp2.label(text=shortcut_name(kmi))
                 sub = sp2.row()
                 sub.active = False
                 sub.label(text=f.name)
@@ -286,8 +296,11 @@ def register():
 
 
 def unregister():
-    from .splash import remove_overlay
-    remove_overlay()
+    from .splash import close_overlays
+    close_overlays()
+    for fn in (_show_welcome, _show_whats_new):  # switched off before the screen came up
+        if bpy.app.timers.is_registered(fn):
+            bpy.app.timers.unregister(fn)
     branding.unregister()
     del bpy.types.WindowManager.keyops_open_feature
     for cls in reversed(classes):

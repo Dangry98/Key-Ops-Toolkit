@@ -168,7 +168,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                             default=MM.MARK_LINE) # type: ignore
     marking_center_color: FloatVectorProperty(name="Centre", subtype='COLOR_GAMMA', size=4, min=0.0, max=1.0,
                                               default=MM.MARK_RING) # type: ignore
-    marking_use_theme: BoolProperty(name="Use Theme Colours", default=True,
+    marking_use_theme: BoolProperty(name="Use Blender Theme Colors", default=True,
                                     description="Take colours and corner rounding from your Blender theme's pie menus") # type: ignore
     marking_antialias: BoolProperty(name="Anti-aliasing", default=True,
                                     description="Smooth lines and box edges. Off draws them crisp, pixel by pixel") # type: ignore
@@ -199,8 +199,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                  unit='TIME_ABSOLUTE', description="How long to hold still before the menu shows. "
                                  "A faster flick picks without showing it") # type: ignore
     pie_show_marking: BoolProperty(name="Marking Menu Look", default=False) # type: ignore
-    pie_customize: BoolProperty(name="Customize", default=False,
-                                description="Edit labels and commands, add your own pies, change where a pie works") # type: ignore
+    pie_customize: BoolProperty(name="Advanced", default=False,
+                                description="The selected item's less used settings: its command, Python, macro steps and when it shows") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
                                   description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
     prefs_version: IntProperty(default=0) # type: ignore
@@ -254,7 +254,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         default="HOLD") # type: ignore
     maya_pivot_show_gizmo: BoolProperty(name="Show Gizmo", default=True) # type: ignore
     maya_pivot_in_edit_mode: BoolProperty(name="In Edit Mode", default=True) # type: ignore
-    maya_pivot_experimental: BoolProperty(name="Experimental", default=False) # type: ignore
+    maya_pivot_experimental: BoolProperty(name="Edit Mode Pivot", default=False, description="Also edit the pivot with D in Edit Mode") # type: ignore
     fast_merge_merge_options: EnumProperty( 
         name="Options",
         items=[
@@ -335,24 +335,28 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         picked = set(self.ui_category)
         return picked or {c[0] for c in F.CATEGORIES}
 
-    def _feature_matches(self, f):
+    def _feature_matches(self, f, every_category=False):
         q = self.ui_search.strip().lower()
         if q and q not in f"{f.name} {f.description}".lower():
             return False
-        if not q and f.category not in self._categories():
+        if not q and not every_category and f.category not in self._categories():
             return False
         return True
 
     def draw_features(self, context, layout):
-        split = layout.split(factor=0.22)
-        left = split.column()
-        col = left.column(align=True)
-        col.scale_y = 1.35
-        col.prop(self, "ui_category_view", expand=True)  # All and the categories, text on the left
-        left.separator()
-        left.prop(self, "experimental", text="Show Experimental")
-
-        right = split.column()
+        # a small Preferences window: no category list beside the features (it would cut their
+        # descriptions short), every feature under its category heading instead
+        width = (context.region.width if context.region else 1600) / max(0.5, context.preferences.system.ui_scale)
+        narrow = width < 820
+        if narrow:
+            right = layout.column()
+        else:
+            split = layout.split(factor=0.22)
+            left = split.column()
+            col = left.column(align=True)
+            col.scale_y = 1.35
+            col.prop(self, "ui_category_view", expand=True)  # All and the categories, text on the left
+            right = split.column()
         row = right.row(align=True)
         if bpy.app.version >= (4, 1, 0):
             row.prop(self, "ui_search", text="", icon='VIEWZOOM', placeholder="Search all features")
@@ -361,7 +365,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         right.separator(factor=0.5)
 
         order = {c[0]: i for i, c in enumerate(F.CATEGORIES)}
-        shown = sorted((f for f in F.visible_features(self) if self._feature_matches(f)),
+        shown = sorted((f for f in F.visible_features(self) if self._feature_matches(f, narrow)),
                        key=lambda f: order.get(f.category, 99))  # stable: keeps the order within a category
         if not shown:
             right.box().label(text="No features match your search.")
@@ -497,6 +501,20 @@ NOT_IN_SHORTCUTS = {"double_click_select_island", "maya_navigation", "auto_delet
 key_capture = {"items": ""}  # the shortcut row waiting for a key press
 
 
+def shortcut_name(kmi):
+    """A shortcut's name as a person reads it: the operator's name without the "KeyOps:" prefix, plus
+    what this key does when one operator does several things ("Modi Key · Apply")."""
+    name = (kmi.name or kmi.idname).strip()
+    for prefix in ("KeyOps: ", "KeyOps:", "Key Ops: "):
+        if name.startswith(prefix):
+            name = name[len(prefix):].strip()
+    props = kmi.properties
+    kind = getattr(props, "type", None) if props is not None else None
+    if isinstance(kind, str) and kind and kind.upper() != kind.lower():
+        name += "  \u00b7  " + kind.replace("_", " ").strip().title()
+    return name
+
+
 def _key_signature(kmi):
     # by name, not operator: "Pan View" is view3d.move in the 3D View and view2d.pan in 2D editors
     return (kmi.name or kmi.idname, kmi.type, kmi.ctrl, kmi.shift, kmi.alt, kmi.oskey, kmi.any, kmi.key_modifier)
@@ -536,7 +554,7 @@ def _draw_key_row(layout, group):
                  icon='CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT').items = ids
     name = row.row()
     name.active = on
-    name.label(text=kmi.name or kmi.idname)
+    name.label(text=shortcut_name(kmi))
     key = row.row(align=True)
     key.ui_units_x = 7
     waiting = key_capture.get("items") == ids

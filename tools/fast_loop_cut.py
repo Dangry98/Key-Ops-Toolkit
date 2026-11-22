@@ -602,15 +602,9 @@ class FastLoopCutAdjust(bpy.types.Operator):
         return {'FINISHED'}
 
 
-_icon_names = None
 
 
-def _icon(name):
-    """name if Blender has that icon, else 'NONE' (event icons vary between versions)."""
-    global _icon_names
-    if _icon_names is None:
-        _icon_names = set(bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"].enum_items.keys())
-    return name if name in _icon_names else 'NONE'
+from ..utils.utilities import safe_icon as _icon  # noqa: E402  (event icons vary between versions)
 
 
 # Modifier key icons are drawn wider than a normal square icon and clip without extra room.

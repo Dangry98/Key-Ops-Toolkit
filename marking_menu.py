@@ -16,7 +16,7 @@ import gpu
 from bpy.props import StringProperty
 from gpu_extras.batch import batch_for_shader
 
-SHOW_DELAY = 0.12  # seconds before the menu is drawn; a faster flick picks without showing it
+SHOW_DELAY = 0.0  # drawn as soon as the key goes down, like Maya (a flick picks without waiting for it)
 TAP_TIME = 0.25    # a press shorter than this, without moving, leaves the menu open to click
 # compass direction of each 45 degree sector, counter-clockwise from the right
 SECTORS = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")
@@ -81,6 +81,7 @@ def _poly(points, color, width=1.0, closed=False):
     pts = list(points) + ([points[0]] if closed else [])
     if len(pts) < 2:
         return
+    gpu.state.blend_set('ALPHA')
     if _smooth:
         region = bpy.context.region
         sh = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
@@ -105,6 +106,7 @@ def _poly(points, color, width=1.0, closed=False):
 
 
 def _fill(verts, indices, color):
+    gpu.state.blend_set('ALPHA')  # blf.draw turns blending off when it's done
     sh = _shader()
     batch = batch_for_shader(sh, 'TRIS', {"pos": verts}, indices=indices)
     sh.bind()
@@ -207,12 +209,22 @@ class MenuState:
     def _slots(self, context, pie):
         return dict(_pm().pie_slots(context, list(pie.items)))
 
+    def _list(self, context, pie, cx, cy, active=None):
+        extras = _pm().pie_extras(context, list(pie.items))
+        if not extras:
+            return []
+        return marking_list_boxes(pie, extras, cx, cy, _look(), self._scale(), self._layout_scale(pie), active)
+
     def _active(self, context):
         """(pie, item index, distance) under the current direction of the top level, item None at the centre."""
         level = self.levels[-1]
         pie = _pm().find_pie(level.uid)
         dx, dy = self.mx - level.x, self.my - level.y
         dist = math.hypot(dx, dy)
+        if pie is not None:  # over one of the extra items listed under the menu
+            for bx, by, bw, *_r, index in self._list(context, pie, level.x, level.y):
+                if bx <= self.mx <= bx + bw and by <= self.my <= by + marking_box_height(_look(), self._scale()):
+                    return pie, index, dist
         if pie is None or dist < self._threshold(pie):
             return pie, None, dist
         sector = SECTORS[int(round(math.atan2(dy, dx) / (math.pi / 4))) % 8]
@@ -222,16 +234,6 @@ class MenuState:
         return pie, index, dist
 
     # ---- drawing (called by Blender's draw callback, with only this object)
-    def _colours(self, look):
-        """(item, highlight, text, highlight text, border, line, centre): the theme's pie menu colours, or the look's own."""
-        if look.marking_use_theme:
-            w = bpy.context.preferences.themes[0].user_interface.wcol_pie_menu
-            rgba = lambda c: tuple(c) if len(c) == 4 else tuple(c) + (1.0,)
-            sel = rgba(w.inner_sel)
-            return (rgba(w.inner), sel, rgba(w.text), rgba(w.text_sel), rgba(w.outline), sel[:3] + (0.9,), rgba(w.text))
-        return tuple(tuple(getattr(look, f"marking_{n}_color")) for n in
-                     ("item", "highlight", "text", "highlight_text", "border", "line", "center"))
-
     def _draw(self):
         global _smooth
         context = bpy.context
@@ -240,10 +242,11 @@ class MenuState:
             return
         look = _look()
         _smooth = look.marking_antialias
-        item_c, high_c, text_c, high_text_c, border, line_c, centre_c = self._colours(look)
+        colours = marking_colours(look)
+        _item_c, _high_c, _text_c, _high_text_c, border, line_c, centre_c = colours
         rx, ry = region.x, region.y
         s = self._scale()
-        shown = self.click_mode or time.time() - self.start >= look.marking_delay
+        shown = True  # drawn at once; picking never waits for the drawing
         gpu.state.blend_set('ALPHA')
 
         # the mark: a line from the first press through every opened submenu to the mouse
@@ -253,61 +256,135 @@ class MenuState:
         level = self.levels[-1]
         pie, active, _dist = self._active(context)
         for lv in self.levels:  # a ring or a dot at every centre
-            if look.marking_center == "DOT":
-                _disc(lv.x - rx, lv.y - ry, 6 * s, centre_c, border)
-            else:
-                _circle(lv.x - rx, lv.y - ry, 5 * s, centre_c, 1.5 * s)
+            draw_marking_centre(lv.x - rx, lv.y - ry, look, s, colours)
         if not shown or pie is None:
             gpu.state.blend_set('NONE')
             return
-
-        PM = _pm()
-        cx, cy = level.x - rx, level.y - ry
-        k = self._layout_scale(pie)
-        size = look.marking_font_size * s
-        blf.size(0, size)
-        bh = look.marking_box_height * s
-        pad = look.marking_padding * s
-        r = (bpy.context.preferences.themes[0].user_interface.wcol_pie_menu.roundness * bh / 2
-             if look.marking_use_theme else look.marking_corner * s)
-        layout = {"E": (1, look.marking_side, 0), "W": (-1, look.marking_side, 0),
-                  "NE": (1, look.marking_diag_x, look.marking_diag_y), "NW": (-1, look.marking_diag_x, look.marking_diag_y),
-                  "SE": (1, look.marking_diag_x, -look.marking_diag_y), "SW": (-1, look.marking_diag_x, -look.marking_diag_y),
-                  "N": (0, 0, look.marking_top), "S": (0, 0, -look.marking_top)}
-        boxes = []
-        for direction, index in self._slots(context, pie).items():
-            item = pie.items[index]
-            if PM._is_empty(item):
-                continue
-            label = item.label or item.idname
-            sub = item.kind == PM.SUB
-            w, _h = blf.dimensions(0, label)
-            arrow = 12 * s if sub else 0
-            bw = w + 2 * pad + arrow
-            side, inner, mid = layout[direction]
-            bx = cx + inner * k if side > 0 else (cx - inner * k - bw if side < 0 else cx - bw / 2)
-            by = cy + mid * k - bh / 2
-            boxes.append((bx, by, bw, w, arrow, label, sub, index == active))
-        if look.marking_shadow:  # shadows first, so no box's shadow falls on another box
-            for bx, by, bw, *_rest in boxes:
-                _shadow(bx, by, bw, bh, r, size=5 * s)
-        for bx, by, bw, w, arrow, label, sub, selected in boxes:
-            if _smooth:  # fill, then the border as one smooth line along the same edge
-                _rounded(bx, by, bw, bh, r, high_c if selected else item_c, edge=border)
-            else:  # crisp: a border box behind the item, pixel exact
-                _rounded(bx - 1, by - 1, bw + 2, bh + 2, r + 1 if r else 0, border)
-                _rounded(bx, by, bw, bh, r, high_c if selected else item_c)
-            colour = high_text_c if selected else text_c
-            blf.color(0, *colour)
-            tx = bx + (bw - arrow - w) / 2 if look.marking_text_align == "CENTER" else bx + pad
-            blf.position(0, tx, by + (bh - size * 0.72) / 2, 0)
-            blf.draw(0, label)
-            if sub:  # a small triangle for items that open another marking menu
-                ax, ay, t = bx + bw - 10 * s, by + bh / 2, 3.5 * s
-                _tri(((ax - t * 0.7, ay - t), (ax - t * 0.7, ay + t), (ax + t * 0.7, ay)), colour)
+        boxes = marking_boxes(pie, self._slots(context, pie).items(), level.x - rx, level.y - ry,
+                              look, s, self._layout_scale(pie), active)
+        boxes += self._list(context, pie, level.x - rx, level.y - ry, active)
+        draw_marking_boxes(boxes, look, s, colours)
         gpu.state.blend_set('NONE')
 
 
+def marking_colours(look):
+    """(item, highlight, text, highlight text, border, line, centre): the theme's pie menu colours, or the look's own."""
+    if look.marking_use_theme:
+        w = bpy.context.preferences.themes[0].user_interface.wcol_pie_menu
+        rgba = lambda c: tuple(c) if len(c) == 4 else tuple(c) + (1.0,)
+        sel = rgba(w.inner_sel)
+        return (rgba(w.inner), sel, rgba(w.text), rgba(w.text_sel), rgba(w.outline), sel[:3] + (0.9,), rgba(w.text))
+    return tuple(tuple(getattr(look, f"marking_{n}_color")) for n in
+                 ("item", "highlight", "text", "highlight_text", "border", "line", "center"))
+
+
+def marking_box_height(look, s):
+    return look.marking_box_height * s
+
+
+def marking_boxes(pie, slots, cx, cy, look, s, k, active=None, show_empty=False):
+    """Where each item's box goes: (x, y, width, text width, arrow width, label, opens a submenu, highlighted, index).
+    slots: (direction, item index) pairs. Also used by the preview in the preferences (show_empty: empty slots too)."""
+    PM = _pm()
+    size = look.marking_font_size * s
+    blf.size(0, size)
+    bh = look.marking_box_height * s
+    pad = look.marking_padding * s
+    layout = {"E": (1, look.marking_side, 0), "W": (-1, look.marking_side, 0),
+              "NE": (1, look.marking_diag_x, look.marking_diag_y), "NW": (-1, look.marking_diag_x, look.marking_diag_y),
+              "SE": (1, look.marking_diag_x, -look.marking_diag_y), "SW": (-1, look.marking_diag_x, -look.marking_diag_y),
+              "N": (0, 0, look.marking_top), "S": (0, 0, -look.marking_top)}
+    boxes = []
+    for direction, index in slots:
+        item = pie.items[index]
+        empty = PM._is_empty(item)
+        if empty and not show_empty:
+            continue
+        label = "Empty" if empty else (item.label or PM.action_name(item))
+        sub = item.kind == PM.SUB and not empty
+        w, _h = blf.dimensions(0, label)
+        arrow = 12 * s if sub else 0
+        bw = w + 2 * pad + arrow
+        side, inner, mid = layout[direction]
+        bx = cx + inner * k if side > 0 else (cx - inner * k - bw if side < 0 else cx - bw / 2)
+        by = cy + mid * k - bh / 2
+        boxes.append((bx, by, bw, w, arrow, label, sub, index == active, index))
+    return boxes
+
+
+def marking_list_boxes(pie, indices, cx, cy, look, s, k, active=None, show_empty=False):
+    """A pie's extra items (after its 8 directions): a list under the menu, like Maya's marking menus.
+    Same box format as marking_boxes, every box as wide as the widest."""
+    PM = _pm()
+    blf.size(0, look.marking_font_size * s)
+    bh = look.marking_box_height * s
+    pad = look.marking_padding * s
+    rows = []
+    for index in indices:
+        item = pie.items[index]
+        empty = PM._is_empty(item)
+        if empty and not show_empty:
+            continue
+        label = "Empty" if empty else (item.label or PM.action_name(item))
+        sub = item.kind == PM.SUB and not empty
+        rows.append((label, sub, index, blf.dimensions(0, label)[0]))
+    if not rows:
+        return []
+    bw = max(w for _l, _s, _i, w in rows) + 2 * pad + (12 * s if any(r[1] for r in rows) else 0)
+    top = cy - look.marking_top * k - bh / 2 - bh * 0.9  # under the bottom item
+    boxes = []
+    for n, (label, sub, index, w) in enumerate(rows):
+        by = top - (n + 1) * (bh + 2 * s)
+        boxes.append((cx - bw / 2, by, bw, w, 12 * s if sub else 0, label, sub, index == active, index))
+    return boxes
+
+
+def marking_corner(look, bh, s):
+    return (bpy.context.preferences.themes[0].user_interface.wcol_pie_menu.roundness * bh / 2
+            if look.marking_use_theme else look.marking_corner * s)
+
+
+def draw_marking_centre(x, y, look, s, colours):
+    border, centre_c = colours[4], colours[6]
+    if look.marking_center == "DOT":
+        _disc(x, y, 6 * s, centre_c, border)
+    else:
+        _circle(x, y, 5 * s, centre_c, 1.5 * s)
+
+
+def draw_marking_boxes(boxes, look, s, colours, dim=()):
+    """Draw boxes from marking_boxes. dim: item indices drawn faded (empty slots in the preview)."""
+    global _smooth
+    _smooth = look.marking_antialias
+    item_c, high_c, text_c, high_text_c, border, _line_c, _centre_c = colours
+    size = look.marking_font_size * s
+    blf.size(0, size)
+    bh = look.marking_box_height * s
+    pad = look.marking_padding * s
+    r = marking_corner(look, bh, s)
+    if look.marking_shadow:  # shadows first, so no box's shadow falls on another box
+        for bx, by, bw, *_rest in boxes:
+            if _rest[-1] not in dim:
+                _shadow(bx, by, bw, bh, r, size=5 * s)
+    for bx, by, bw, w, arrow, label, sub, selected, index in boxes:
+        fade = 0.35 if index in dim else 1.0
+        fill = high_c if selected else item_c
+        fill = fill[:3] + (fill[3] * fade,)
+        edge = border[:3] + (border[3] * fade,)
+        if _smooth:  # fill, then the border as one smooth line along the same edge
+            _rounded(bx, by, bw, bh, r, fill, edge=edge)
+        else:  # crisp: a border box behind the item, pixel exact
+            _rounded(bx - 1, by - 1, bw + 2, bh + 2, r + 1 if r else 0, edge)
+            _rounded(bx, by, bw, bh, r, fill)
+        colour = high_text_c if selected else text_c
+        colour = colour[:3] + (colour[3] * fade,)
+        blf.color(0, *colour)
+        tx = bx + (bw - arrow - w) / 2 if look.marking_text_align == "CENTER" else bx + pad
+        blf.position(0, tx, by + (bh - size * 0.72) / 2, 0)
+        blf.draw(0, label)
+        if sub:  # a small triangle for items that open another marking menu
+            ax, ay, t = bx + bw - 10 * s, by + bh / 2, 3.5 * s
+            _tri(((ax - t * 0.7, ay - t), (ax - t * 0.7, ay + t), (ax + t * 0.7, ay)), colour)
 
 
 _open = []  # the open marking menu's state (at most one), so it can be cleaned up from anywhere
@@ -371,6 +448,7 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
         _open.append(st)
         self.st = st
         context.window_manager.modal_handler_add(self)
+        context.area.tag_redraw()  # on screen right away, not at the next mouse move
         return {'RUNNING_MODAL'}
 
     def cancel(self, context):
@@ -493,19 +571,17 @@ def draw_look_settings(prefs, layout):
     flags.prop(prefs, "marking_use_theme")
     flags.prop(prefs, "marking_antialias")
     flags.prop(prefs, "marking_shadow")
-    col = layout.column(align=True)
-    col.active = not prefs.marking_use_theme  # the theme decides these while it's used
-    grid = col.grid_flow(columns=2, even_columns=True, align=True)
-    for name in ("item", "highlight", "text", "highlight_text", "border", "line", "center"):
-        grid.prop(prefs, f"marking_{name}_color")
+    if not prefs.marking_use_theme:  # the theme decides the colours while it's used
+        grid = layout.column(align=True).grid_flow(columns=2, even_columns=True, align=True)
+        for name in ("item", "highlight", "text", "highlight_text", "border", "line", "center"):
+            grid.prop(prefs, f"marking_{name}_color")
     layout.separator(factor=0.5)
     col = layout.column(align=True)
     col.prop(prefs, "marking_font_size")
     col.prop(prefs, "marking_box_height")
     col.prop(prefs, "marking_padding")
-    corner = col.row(align=True)
-    corner.active = not prefs.marking_use_theme
-    corner.prop(prefs, "marking_corner")
+    if not prefs.marking_use_theme:
+        col.prop(prefs, "marking_corner")
     col.prop(prefs, "marking_line_width")
     layout.separator(factor=0.5)
     col = layout.column(align=True)
@@ -518,7 +594,6 @@ def draw_look_settings(prefs, layout):
         row = layout.split(factor=0.3, align=True)
         row.label(text=text)
         row.row(align=True).prop(prefs, name, expand=True)
-    layout.prop(prefs, "marking_delay")
     layout.operator("keyops.marking_look_reset", icon='LOOP_BACK')
 
 
