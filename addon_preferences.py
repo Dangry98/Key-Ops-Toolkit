@@ -2,8 +2,7 @@ import bpy
 from . import marking_menu as MM
 from bpy.props import CollectionProperty, IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
 from .utils.pref_utils import get_addon_name, _keymap_item_to_display_item
-from .operators.maya_navigation import update_tablet_navigation as _update_tablet_navigation
-from .operators.maya_navigation import update_sculpt_navigation as _update_sculpt_navigation
+from .operators import maya_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
 from . import features as F
 from . import pie_menus
@@ -14,29 +13,21 @@ DOCS_URL = F.DOCS_URL
 
 # ---------------------------------------------------------------- update callbacks
 
-def update_tablet_navigation(self, context):
-    with F.capture("maya_navigation"):
-        _update_tablet_navigation(self, context)
-
-
-def update_sculpt_navigation(self, context):
-    with F.capture("maya_navigation"):
-        _update_sculpt_navigation(self, context)
+def update_maya_navigation_extras(self, context):
+    """Tablet and sculpt navigation keys, while Alt Navigation is on."""
+    maya_navigation.set_enabled(F.is_enabled("maya_navigation", self))
 
 
 def update_legacy_collection_shortcuts(self, context):
     if F.is_suspended():
         return
-    if bpy.app.version < (5, 0, 0) or not self.enable_legacy_shortcuts:
+    if bpy.app.version < (5, 0, 0):
         if self.enable_legacy_collection_shortcuts:
             self.enable_legacy_collection_shortcuts = False
         return
-    from .operators.legacy_shortcuts import register_legacy_collection_shortcuts, unregister_legacy_collection_shortcuts
-    if self.enable_legacy_collection_shortcuts:
-        with F.capture("legacy_shortcuts"):
-            register_legacy_collection_shortcuts()
-    else:
-        unregister_legacy_collection_shortcuts()
+    from .operators import legacy_shortcuts
+    legacy_shortcuts.set_enabled(F.is_enabled("legacy_shortcuts", self))
+    F.apply_key_state("legacy_shortcuts", self)
 
 
 def _enable_update(feature_id):
@@ -232,8 +223,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
 
 
     #prefs settings variables
-    maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update= update_tablet_navigation) # type: ignore 
-    maya_navigation_sculpt_navigation: BoolProperty(name="Sculpt", description="Use both Mask and Alt navigation in Sculpt mode, mask is used if mouse is over model, otherwise alt navigation is used.", default=True, update= update_sculpt_navigation) # type: ignore 
+    maya_navigation_tablet_navigation: BoolProperty(name="Tablet", description="Makes it easier to use tablet by adding zoom and pan to ctrl alt lmb and shift alt lmb", default=False, update=update_maya_navigation_extras) # type: ignore 
+    maya_navigation_sculpt_navigation: BoolProperty(name="Sculpt", description="Use both Mask and Alt navigation in Sculpt mode, mask is used if mouse is over model, otherwise alt navigation is used.", default=True, update=update_maya_navigation_extras) # type: ignore 
     auto_delete_dissolv_edge: BoolProperty(name="Dissolve Edge", default=False, description="Dissolve Edge in Edge Mode ") # type: ignore
     auto_delete_confirm_object_mode: BoolProperty(name="Confirm on X in Object Mode", description="Confirm Delete in Object Mode on the X key", default=False, update= update_auto_delete_confirm_delete) # type: ignore
     toggle_retopology_custom_tool: StringProperty(name="Tool", default=default_retopology_custom_tool) # type: ignore

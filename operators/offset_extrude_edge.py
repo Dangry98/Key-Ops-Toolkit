@@ -4,6 +4,7 @@ import bmesh
 import bpy
 from bpy_extras import view3d_utils
 from mathutils import Vector
+from ..utils.pref_utils import get_keyops_prefs
 
 ZERO_VEC = Vector((0.0, 0.0, 0.0))
 Z_UP = Vector((0.0, 0.0, 1.0))
@@ -270,17 +271,19 @@ class OffsetExtrudeEdge(bpy.types.Operator):
 
 
 def draw_menu(self, context):
+    if not get_keyops_prefs().enable_toolkit_panel:
+        return
     if context.mode == "EDIT_MESH":
         self.layout.operator_context = "INVOKE_DEFAULT"
         self.layout.operator(OffsetExtrudeEdge.bl_idname, text="Offset Extrude Edge")
 
 
-def register_offset_extrude_edge():
+def register():
     bpy.utils.register_class(OffsetExtrudeEdge)
     bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(draw_menu)
 
 
-def unregister_offset_extrude_edge():
+def unregister():
     bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_menu)
     bpy.utils.unregister_class(OffsetExtrudeEdge)
 

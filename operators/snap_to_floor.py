@@ -100,11 +100,11 @@ class SnapToFloor(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_snap_to_floor():
+def register():
     bpy.utils.register_class(SnapToFloor)
     register_snap_to_floor_keymaps()
 
 
-def unregister_snap_to_floor():
+def unregister():
     clear_registered_keymaps(registered_snap_to_floor_keymaps)
     bpy.utils.unregister_class(SnapToFloor)

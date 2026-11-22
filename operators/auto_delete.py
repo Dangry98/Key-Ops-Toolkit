@@ -80,13 +80,20 @@ class AutoDelete(bpy.types.Operator):
 
         return {'FINISHED'}
     
-def register_auto_delete():
+def register():
     bpy.utils.register_class(AutoDelete)
     register_auto_delete_keymaps()
-    remove_confirm_delete()
 
-def unregister_auto_delete():
+
+def unregister():
     clear_registered_keymaps(registered_auto_delete_keymaps)
     bpy.utils.unregister_class(AutoDelete)
-    default_confirm_delete()
+
+
+def set_enabled(on):
+    """Auto Delete also skips the confirm popup of Blender's own X delete in Object Mode."""
+    if on:
+        remove_confirm_delete()
+    else:
+        default_confirm_delete()
     

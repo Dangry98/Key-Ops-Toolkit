@@ -3,6 +3,7 @@
 
 import bpy
 from mathutils import Vector
+from ..utils.pref_utils import get_keyops_prefs
 BLENDER_VERSION = bpy.app.version
 
 MODS = {
@@ -353,16 +354,10 @@ class SmartApplyScale(bpy.types.Operator):
             objectsSelectSet(clones + notEven + warningObjects, False)
 
         return { 'FINISHED' }
-    
-    def register():
-        bpy.types.VIEW3D_MT_object_apply.prepend(menu_apply)
-        # bpy.types.VIEW3D_MT_make_links.append(menu_make_links)
-
-    def unregister():
-        bpy.types.VIEW3D_MT_object_apply.remove(menu_apply)
-        # bpy.types.VIEW3D_MT_object_apply.remove(menu_make_links)
 
 def menu_apply(self, context):
+    if not get_keyops_prefs().enable_toolkit_panel:
+        return
     layout = self.layout
     layout.separator()
 
@@ -377,3 +372,11 @@ def menu_apply(self, context):
 #     # layout.operator(UnifyModifiersSizeOperator.bl_idname, text=UnifyModifiersSizeOperator.bl_label)
 
 
+def register():
+    bpy.utils.register_class(SmartApplyScale)
+    bpy.types.VIEW3D_MT_object_apply.prepend(menu_apply)
+
+
+def unregister():
+    bpy.types.VIEW3D_MT_object_apply.remove(menu_apply)
+    bpy.utils.unregister_class(SmartApplyScale)

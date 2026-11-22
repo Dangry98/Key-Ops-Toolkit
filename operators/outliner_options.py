@@ -1,3 +1,4 @@
+from ..utils.pref_utils import get_keyops_prefs
 import bpy
 from bpy.app.handlers import persistent
 from ..utils.utilities import BLENDER_VERSION
@@ -100,6 +101,8 @@ def selection_option_handler():
     return 0.1
 
 def draw_options_in_outliner(self, context):
+    if not get_keyops_prefs().enable_outliner_options:
+        return
     layout = self.layout
     layout.label(text="Selection")
     if BLENDER_VERSION < (5, 2, 0):
@@ -138,25 +141,29 @@ class OutlinerClick(bpy.types.Operator):
         return {'PASS_THROUGH'}
 
 
-def register_outliner_options():
+def register():
     if BLENDER_VERSION < (5, 2, 0):
         bpy.utils.register_class(OutlinerClick)
         bpy.types.OUTLINER_PT_filter.prepend(draw_options_in_outliner)
-    
-        bpy.app.timers.register(register_handler)
-        bpy.app.handlers.load_post.append(register_handler)
 
-def unregister_outliner_options():
+
+def unregister():
     if BLENDER_VERSION < (5, 2, 0):
+        bpy.types.OUTLINER_PT_filter.remove(draw_options_in_outliner)
         bpy.utils.unregister_class(OutlinerClick)
-        if bpy.app.timers.is_registered(selection_option_handler):
-            bpy.app.timers.unregister(selection_option_handler)
-        handlers = [h.__name__ for h in bpy.app.handlers.load_post]
-        if 'register_handler' in handlers:
-            bpy.app.handlers.load_post.remove(register_handler)
-    
 
-        if bpy.types.OUTLINER_PT_filter:
-            bpy.types.OUTLINER_PT_filter.remove(draw_options_in_outliner)
-        
-        unregister_outliner_click_keymap()
+
+def set_enabled(on):
+    """The selection options run from a timer, started again after each file load, while the feature is on."""
+    if BLENDER_VERSION >= (5, 2, 0):
+        return
+    if on:
+        bpy.app.timers.register(register_handler)
+        if register_handler not in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.append(register_handler)
+        return
+    if bpy.app.timers.is_registered(selection_option_handler):
+        bpy.app.timers.unregister(selection_option_handler)
+    if register_handler in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(register_handler)
+    unregister_outliner_click_keymap()

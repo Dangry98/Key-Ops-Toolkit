@@ -1,6 +1,8 @@
+import itertools
 import math
 import os
 
+import bmesh
 import bpy
 import gpu
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, StringProperty
@@ -28,9 +30,9 @@ from ..operators.add_modifier import (
     resolve_boolean_solver,
 )
 
-# Cutter: draw a box / circle / ngon on a surface (or the view plane) and boolean it
-# into the targets. The preview is a cheap GPU overlay; nothing is evaluated until
-# the cut is confirmed, unless "Live" is enabled on the tool.
+# Cutter: draw a box / circle / ngon on a surface (or the grid floor) and boolean it
+# into the targets. The preview is a GPU overlay; with "Live" on (the default) the
+# boolean is also shown while drawing. In Edit Mode the cut is applied to the mesh.
 #
 # The boolean setup itself (modifiers, solver, Cutters collection, slice) lives in
 # operators/add_modifier.py and is shared with the Add Boolean operator.
@@ -38,6 +40,7 @@ from ..operators.add_modifier import (
 ICON_DIR = os.path.join(os.path.dirname(__file__), "icons")
 OP_IDNAME = "keyops.cutter"
 TOOL_IDNAME = "object.keyops_cutter_tool"
+EDIT_TOOL_IDNAME = "mesh.keyops_cutter_tool"
 
 OPERATION_COLORS = {
     'DIFFERENCE': (1.0, 0.32, 0.30),
@@ -49,11 +52,15 @@ OPERATION_COLORS = {
 # The booleans plus Add, which makes a new object from the shape instead of cutting
 OPERATION_ITEMS = BOOLEAN_OPERATION_ITEMS + (('ADD', 'Add', 'Add a new mesh object from the shape, no boolean'),)
 OPERATION_NAMES = {i[0]: i[1] for i in OPERATION_ITEMS}
-OPERATION_KEYS = {'ONE': 'DIFFERENCE', 'TWO': 'UNION', 'THREE': 'INTERSECT', 'FOUR': 'SLICE', 'FIVE': 'ADD'}
+OPERATION_ORDER = [i[0] for i in OPERATION_ITEMS]  # X cycles through these
 ADD_OBJECT_NAMES = {'BOX': "Box", 'CIRCLE': "Cylinder", 'NGON': "Prism"}
-SHAPE_KEYS = {'B': 'BOX', 'C': 'CIRCLE', 'N': 'NGON'}
+SHAPE_KEYS = {'B': 'BOX', 'C': 'CIRCLE', 'N': 'NGON'}  # B on a box toggles the bevel instead
+MIRROR_KEYS = {'ONE': "mirror_x", 'TWO': "mirror_y", 'THREE': "mirror_z"}
+PLUS_KEYS = {'WHEELUPMOUSE', 'NUMPAD_PLUS', 'PLUS', 'EQUAL'}
+MINUS_KEYS = {'WHEELDOWNMOUSE', 'NUMPAD_MINUS', 'MINUS'}
 # Operator settings mirrored from the tool, so the D popup and shortcuts edit one place
-SETTINGS = ("operation", "shape", "align", "solver", "segments", "snap_increment", "live", "apply")
+SETTINGS = ("operation", "shape", "align", "solver", "segments", "snap_increment", "live", "apply",
+            "bevel", "bevel_width", "bevel_segments", "bevel_profile", "mirror_x", "mirror_y", "mirror_z")
 
 SHAPE_ITEMS = (
     ('BOX', "Box", "Drag a rectangle", 'MESH_PLANE', 0),
@@ -61,9 +68,12 @@ SHAPE_ITEMS = (
     ('NGON', "Ngon", "Click points, Enter / Space or click the first point to close", 'MESH_DATA', 2),
 )
 ALIGN_ITEMS = (
-    ('EDGE', "Edge", "Align the shape to the closest edge of the face under the cursor"),
     ('VIEW', "View", "Align the shape to the view"),
+    ('EDGE', "Edge", "Align the shape to the closest edge of the face under the cursor"),
 )
+# Settings the mouse drags with B (bevel width) and P (bevel profile): (min, max)
+MOUSE_ADJUST_RANGES = {"bevel_width": (0.01, 0.5), "bevel_profile": (0.0, 1.0)}
+MOUSE_ADJUST_PIXELS = 600.0  # mouse pixels for a change of 1.0
 SOLVER_ITEMS = (
     ('FAST', "Fast", ""),
     ('EXACT', "Exact", ""),
@@ -79,9 +89,11 @@ NGON_CLOSE_RADIUS = 12.0  # px, clicking this close to the first point closes th
 # --- Small helpers ----------------------------------------------------------
 
 def _tool_props(context):
+    """Settings of the active Cutter tool (Object Mode and Edit Mode each have their own)."""
+    mode = 'EDIT_MESH' if context.mode == 'EDIT_MESH' else 'OBJECT'
     try:
-        tool = context.workspace.tools.from_space_view3d_mode('OBJECT', create=False)
-        if tool is not None and tool.idname == TOOL_IDNAME:
+        tool = context.workspace.tools.from_space_view3d_mode(mode, create=False)
+        if tool is not None and tool.idname in {TOOL_IDNAME, EDIT_TOOL_IDNAME}:
             return tool.operator_properties(OP_IDNAME)
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
@@ -100,6 +112,48 @@ def _is_cut_target(obj, cutter_collection):
         and obj.display_type not in {'WIRE', 'BOUNDS'}
         and (cutter_collection is None or cutter_collection not in obj.users_collection)
     )
+
+
+def box_points(center, hx, hy, bevel=0.0, segments=1, profile=0.5):
+    """CCW rectangle around center. With a bevel (a share of the shorter side, up to 0.5 for
+    fully round ends) each corner is replaced by segments + 1 points.
+
+    profile works like the Bevel modifier's Shape: 0.5 is round, 0.25 a straight chamfer,
+    lower curves inward, higher bulges out toward the corner."""
+    radius = bevel * 2.0 * min(hx, hy)
+    exponent = 2.0 / (2.0 ** ((profile - 0.25) / 0.25))  # superellipse: 2 / 1 / 0.5 for round / flat / concave
+    points = []
+    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        corner = center + Vector((sx * hx, sy * hy))
+        if radius < 1e-9:
+            points.append(corner)
+            continue
+        # Quarter superellipse around the pivot, from the edge coming in to the edge going out
+        pivot = corner - Vector((sx, sy)) * radius
+        for i in range(segments + 1):
+            t = i / segments * math.pi / 2
+            if sx * sy < 0:
+                t = math.pi / 2 - t  # these corners are reached along the horizontal edge first
+            offset = Vector((sx * math.cos(t) ** exponent, sy * math.sin(t) ** exponent)) * radius
+            points.append(pivot + offset)
+    # A full bevel makes neighbouring arcs meet, drop the doubled points
+    cleaned = [p for i, p in enumerate(points) if (p - points[i - 1]).length > 1e-9]
+    return cleaned or points
+
+
+def _world_bounds(points):
+    """(min, max) corners of the axis aligned box around world points."""
+    lo = Vector(tuple(min(p[i] for p in points) for i in range(3)))
+    hi = Vector(tuple(max(p[i] for p in points) for i in range(3)))
+    return lo, hi
+
+
+def _bounds_overlap(a, b):
+    return all(a[0][i] <= b[1][i] and b[0][i] <= a[1][i] for i in range(3))
+
+
+def _object_bounds(obj):
+    return _world_bounds([obj.matrix_world @ Vector(corner) for corner in obj.bound_box])
 
 
 def _signed_area(points):
@@ -135,6 +189,24 @@ def _ray_cast(context, depsgraph, origin, direction, cutter_collection):
             return loc, normal, index, original, matrix
         origin = loc + direction * 1e-4
     return None
+
+
+def _closest_axis(matrix, normal, direction):
+    """The object axis (from matrix) lying in the plane of normal that best matches direction.
+    Falls back to direction when every axis points along the normal."""
+    flat_direction = direction - normal * direction.dot(normal)
+    best, best_dot = direction, 0.0
+    for i in range(3):
+        axis = matrix.col[i].to_3d()
+        axis -= normal * axis.dot(normal)
+        if axis.length < 1e-6:
+            continue
+        axis.normalize()
+        for candidate in (axis, -axis):
+            dot = candidate.dot(flat_direction)
+            if dot > best_dot:
+                best, best_dot = candidate, dot
+    return best
 
 
 def _closest_edge_direction(obj, depsgraph, matrix, index, location):
@@ -173,6 +245,12 @@ def ensure_screw_modifier(obj, segments):
         mod.use_smooth_shade = False
     mod.steps = segments
     mod.render_steps = segments
+    # The spun caps are triangle fans, Planar Decimate turns each into one ngon. The angle stays
+    # below the step between the sides (1.4 degrees at 256 segments), so the sides are kept.
+    if not any(m.type == 'DECIMATE' for m in obj.modifiers):
+        decimate = obj.modifiers.new(name="Decimate", type='DECIMATE')
+        decimate.decimate_type = 'DISSOLVE'
+        decimate.angle_limit = math.radians(0.5)
     return mod
 
 
@@ -196,23 +274,31 @@ Add mode makes a new object from the shape instead"""
 
     operation: EnumProperty(name="Operation", items=OPERATION_ITEMS, default='DIFFERENCE')  # type: ignore
     shape: EnumProperty(name="Shape", items=SHAPE_ITEMS, default='BOX')  # type: ignore
-    align: EnumProperty(name="Align", items=ALIGN_ITEMS, default='EDGE')  # type: ignore
+    align: EnumProperty(name="Align", items=ALIGN_ITEMS, default='VIEW')  # type: ignore
     solver: EnumProperty(name="Solver", items=SOLVER_ITEMS, default='FAST')  # type: ignore
     segments: IntProperty(name="Segments", description="Circle segments", default=32, min=3, max=256)  # type: ignore
     snap_increment: FloatProperty(name="Snap", description="Grid increment used while holding Ctrl", default=0.1, min=0.0001, soft_max=10.0, subtype='DISTANCE')  # type: ignore
-    live: BoolProperty(name="Live", description="Create the cutter and boolean while drawing. Slower on heavy meshes, off by default", default=False)  # type: ignore
-    apply: BoolProperty(name="Apply", description="Apply the boolean and delete the cutter when done", default=False)  # type: ignore
+    live: BoolProperty(name="Live", description="Show the boolean while drawing. Turn off for heavy meshes. Object Mode only", default=True)  # type: ignore
+    apply: BoolProperty(name="Apply", description="Apply the boolean and delete the cutter when done. Always on in Edit Mode", default=False)  # type: ignore
+    bevel: BoolProperty(name="Bevel", description="Bevel the corners of the box", default=False)  # type: ignore
+    bevel_width: FloatProperty(name="Bevel Width", description="Bevel size as a share of the shorter side of the box", default=0.15, min=0.01, max=0.5, subtype='FACTOR')  # type: ignore
+    bevel_segments: IntProperty(name="Bevel Segments", description="Segments per bevelled corner", default=4, min=1, max=64)  # type: ignore
+    bevel_profile: FloatProperty(name="Bevel Profile", description="Shape of the bevel: 0.5 is round, 0.25 a straight chamfer, lower curves inward", default=0.5, min=0.0, max=1.0, subtype='FACTOR')  # type: ignore
+    mirror_x: BoolProperty(name="Mirror X", description="Mirror the cutter across the X axis of the object it starts on", default=False)  # type: ignore
+    mirror_y: BoolProperty(name="Mirror Y", description="Mirror the cutter across the Y axis of the object it starts on", default=False)  # type: ignore
+    mirror_z: BoolProperty(name="Mirror Z", description="Mirror the cutter across the Z axis of the object it starts on", default=False)  # type: ignore
     parent: BoolProperty(name="Parent Boolean", description="Parent the cutter to the object it cuts", default=False, options={'SKIP_SAVE'})  # type: ignore
-    depth_amount: FloatProperty(name="Depth", description="How far the cutter goes in, away from the view. In Add mode, how far the new object comes out of the surface", default=0.5, min=MIN_DEPTH, soft_max=100.0, subtype='DISTANCE', options={'SKIP_SAVE'})  # type: ignore
+    depth_amount: FloatProperty(name="Depth", description="How far the cutter goes in, away from the view. In Add mode, how far the new object comes out of the surface, negative goes into it", default=0.5, soft_min=-100.0, soft_max=100.0, subtype='DISTANCE', options={'SKIP_SAVE'})  # type: ignore
 
     # The finished cut, stored so the redo panel can rebuild it in execute()
     plane_matrix: FloatVectorProperty(size=16, options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     outline: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     target_names: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
+    mirror_pivot: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT' and context.area is not None and context.area.type == 'VIEW_3D'
+        return context.mode in {'OBJECT', 'EDIT_MESH'} and context.area is not None and context.area.type == 'VIEW_3D'
 
     def draw(self, context):
         """Redo panel, laid out like the Add Boolean operator's."""
@@ -224,12 +310,20 @@ Add mode makes a new object from the shape instead"""
         if not is_add:
             layout.label(text="Boolean Solver")
             layout.row().prop(self, "solver", expand=True)
-            layout.prop(self, "parent")
+            if context.mode == 'OBJECT':
+                layout.prop(self, "parent")
         layout.separator()
         layout.prop(self, "depth_amount")
         if self.shape == 'CIRCLE':
             layout.prop(self, "segments")
-        if not is_add:
+        if self.shape == 'BOX':
+            draw_bevel_settings(layout, self)
+        row = layout.row(align=True)
+        row.label(text="Mirror")
+        row.prop(self, "mirror_x", text="X", toggle=True)
+        row.prop(self, "mirror_y", text="Y", toggle=True)
+        row.prop(self, "mirror_z", text="Z", toggle=True)
+        if not is_add and context.mode == 'OBJECT':
             layout.prop(self, "apply")
 
     def execute(self, context):
@@ -246,9 +340,16 @@ Add mode makes a new object from the shape instead"""
         if not self._fixed_profile:
             return {'CANCELLED'}
         self.phase = 'EXTRUDE'
-        self.depth = self.depth_amount if is_add else -self.depth_amount
+        depth = self.depth_amount
+        if abs(depth) < MIN_DEPTH:
+            depth = math.copysign(MIN_DEPTH, depth)
+        self.depth = depth if is_add else -abs(depth)  # negative Add depth goes into the surface
         self.cutter = None
         self.created = []
+        self.mirror_object = bpy.data.objects.get(self.mirror_pivot) if self.mirror_pivot else None
+
+        if context.mode == 'EDIT_MESH':
+            return self._execute_edit_mode(context)
 
         self._create_cutter(context)
         self._write_cutter_mesh(self._fixed_profile, self.z_range(self._fixed_profile))
@@ -265,6 +366,78 @@ Add mode makes a new object from the shape instead"""
                 target.select_set(True)
             context.view_layer.objects.active = self.targets[0]
         return {'FINISHED'}
+
+    def _execute_edit_mode(self, context):
+        """Edit Mode cuts are destructive: Add puts the shape into the edit mesh, booleans are applied."""
+        profile = self._fixed_profile
+        z_range = self.z_range(profile)
+        if self.operation == 'ADD':
+            self._add_to_edit_mesh(context.edit_object, profile, z_range)
+            return {'FINISHED'}
+
+        # Booleans are applied as modifiers, which needs Object Mode for a moment
+        edit_objects = [o for o in context.objects_in_mode if o.type == 'MESH']
+        active = context.view_layer.objects.active
+        bpy.ops.object.mode_set(mode='OBJECT')
+        self._create_cutter(context)
+        self._write_cutter_mesh(profile, z_range)
+        self._apply(context)
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in edit_objects:
+            obj.select_set(True)
+        context.view_layer.objects.active = active
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'FINISHED'}
+
+    def _add_to_edit_mesh(self, obj, profile, z_range):
+        """Add mode in Edit Mode: build the shape (and its mirrored copies) into the mesh, selected."""
+        bm = bmesh.from_edit_mesh(obj.data)
+        for elements in (bm.verts, bm.edges, bm.faces):
+            for element in elements:
+                element.select = False
+        center = self._profile_center()
+        verts, faces = build_prism([p - center for p in profile], z_range[0], z_range[1])
+        to_local = obj.matrix_world.inverted_safe()
+        for mirror in self._mirror_matrices():
+            matrix = to_local @ mirror @ self._cutter_matrix(center)
+            flipped = matrix.determinant() < 0.0  # a mirrored copy would be inside out
+            new_verts = [bm.verts.new(matrix @ Vector(co)) for co in verts]
+            for face in faces:
+                indices = reversed(face) if flipped else face
+                bm.faces.new([new_verts[i] for i in indices]).select_set(True)
+        bmesh.update_edit_mesh(obj.data)
+
+    def _mirror_matrices(self):
+        """World matrices for the cutter and each mirrored copy. Mirroring happens in the space of
+        the object the cut started on, like a Mirror modifier with that object as mirror object."""
+        pivot = getattr(self, "mirror_object", None)
+        axes = [i for i, on in enumerate((self.mirror_x, self.mirror_y, self.mirror_z)) if on]
+        if pivot is None or not axes:
+            return [Matrix.Identity(4)]
+        to_pivot = pivot.matrix_world.inverted_safe()
+        matrices = []
+        for flips in itertools.product((False, True), repeat=len(axes)):
+            scale = [1.0, 1.0, 1.0, 1.0]
+            for axis, flip in zip(axes, flips):
+                if flip:
+                    scale[axis] = -1.0
+            matrices.append(pivot.matrix_world @ Matrix.Diagonal(scale) @ to_pivot)
+        return matrices
+
+    def _update_mirror_modifier(self):
+        """Mirror modifier on the cutter for the Mirror X / Y / Z settings."""
+        axes = (self.mirror_x, self.mirror_y, self.mirror_z)
+        pivot = getattr(self, "mirror_object", None)
+        mod = next((m for m in self.cutter.modifiers if m.type == 'MIRROR'), None)
+        if pivot is None or not any(axes):
+            if mod is not None:
+                self.cutter.modifiers.remove(mod)
+            return
+        if mod is None:
+            mod = self.cutter.modifiers.new(name="Mirror", type='MIRROR')
+        mod.use_axis = axes
+        mod.mirror_object = pivot
 
     def _store_outline(self, profile):
         """Box and circle store their bounds (circle segments stay editable on redo), ngon its points."""
@@ -289,10 +462,14 @@ Add mode makes a new object from the shape instead"""
         center = (lo + hi) * 0.5
         hx, hy = (hi.x - lo.x) * 0.5, (hi.y - lo.y) * 0.5
         if self.shape == 'BOX':
-            return [center + Vector(o) for o in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))]
+            return self._box(center, hx, hy)
         seg = self.segments
         return [center + Vector((hx * math.cos(i * math.tau / seg), hy * math.sin(i * math.tau / seg)))
                 for i in range(seg)]
+
+    def _box(self, center, hx, hy):
+        bevel = self.bevel_width if self.bevel else 0.0
+        return box_points(center, hx, hy, bevel, self.bevel_segments, self.bevel_profile)
 
     # -- setup --
 
@@ -311,10 +488,20 @@ Add mode makes a new object from the shape instead"""
         direction = region_2d_to_vector_3d(self.region, self.rv3d, mouse)
         hit = _ray_cast(context, depsgraph, origin, direction, cutter_collection)
 
-        selected = [o for o in context.selected_objects if _is_cut_target(o, cutter_collection)]
-        self.targets = selected or ([hit[3]] if hit else [])
-        if not self.targets and self.operation != 'ADD':
-            return self._click_select(context, event)
+        if context.mode == 'EDIT_MESH':
+            # Edit Mode cuts the meshes being edited, the active one first (it is the mirror object)
+            edit_objects = [o for o in context.objects_in_mode if o.type == 'MESH']
+            active = context.edit_object
+            self.targets = [active] + [o for o in edit_objects if o != active]
+        else:
+            selected = [o for o in context.selected_objects if _is_cut_target(o, cutter_collection)]
+            self.targets = selected or ([hit[3]] if hit else [])
+        self.on_floor = False  # set below when nothing is under the cursor
+        self.adjusting = None  # "bevel_width" (B) or "bevel_profile" (P) while the mouse sets it
+        self.click_to_finish = False
+        self.lmb_held = True  # the tool starts on a left mouse press
+        self.mirror_object = hit[3] if hit and hit[3] in self.targets else (self.targets[0] if self.targets else None)
+        self.mirror_pivot = self.mirror_object.name if self.mirror_object else ""
 
         view_rot = self.rv3d.view_rotation
         view_right = view_rot @ Vector((1.0, 0.0, 0.0))
@@ -324,28 +511,31 @@ Add mode makes a new object from the shape instead"""
             loc, normal, index, obj, matrix = hit
             if normal.dot(direction) > 0.0:
                 normal = -normal
-            x_axis = view_right
+            # View: the object axis that looks most like screen right, so the box lines up with
+            # the object instead of sitting skewed on the face
+            x_axis = _closest_axis(obj.matrix_world, normal, view_right)
             if self.align == 'EDGE':
                 edge_dir = _closest_edge_direction(obj, depsgraph, matrix, index, loc)
                 if edge_dir is not None:
                     x_axis = edge_dir
             self.plane = _plane_matrix(loc, normal, x_axis, view_up)
-        elif self.operation == 'ADD':
-            # Nothing under the cursor: draw on the floor through the 3D cursor, like Add Object.
-            # Looking along the floor, a view aligned plane through the 3D cursor instead.
-            cursor = context.scene.cursor.location
-            floor = Vector((0.0, 0.0, 1.0)) if direction.z < 0.0 else Vector((0.0, 0.0, -1.0))
-            point = intersect_line_plane(origin, origin + direction, cursor, floor) if abs(direction.z) > 0.1 else None
-            if point is not None and (point - origin).dot(direction) > 0.0:
-                self.plane = _plane_matrix(point, floor, Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)))
-            else:
-                closest = intersect_line_plane(origin, origin + direction, cursor, -direction) or cursor
-                self.plane = _plane_matrix(closest, -direction, view_right, view_up)
         else:
-            # Nothing under the cursor: view aligned plane through the targets
-            center = sum((o.matrix_world.translation for o in self.targets), Vector()) / len(self.targets)
-            closest = intersect_line_plane(origin, origin + direction, center, -direction) or center
-            self.plane = _plane_matrix(closest, -direction, view_right, view_up)
+            # Nothing under the cursor: always Add a new mesh, built up from the grid floor
+            # (world Z = 0). The plane origin is the world origin so Ctrl snaps to the grid.
+            self.on_floor = True
+            self.operation = 'ADD'
+            up = Vector((0.0, 0.0, 1.0))
+            point = intersect_line_plane(origin, origin + direction, Vector(), up) if abs(direction.z) > 0.1 else None
+            if point is not None and (point - origin).dot(direction) > 0.0:
+                self.plane = _plane_matrix(Vector(), up, Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)))
+            else:
+                # Looking along the floor: a view aligned plane through the targets or the 3D cursor
+                if self.targets:
+                    center = sum((o.matrix_world.translation for o in self.targets), Vector()) / len(self.targets)
+                else:
+                    center = context.scene.cursor.location.copy()
+                closest = intersect_line_plane(origin, origin + direction, center, -direction) or center
+                self.plane = _plane_matrix(closest, -direction, view_right, view_up)
 
         self.plane_inv = self.plane.inverted_safe()
         self.normal = self.plane.col[2].to_3d().normalized()
@@ -365,11 +555,13 @@ Add mode makes a new object from the shape instead"""
         self.created = []
         self._batches = None
         self._dirty = True
+        # Before any handler is added: if this fails, nothing is left running
+        self._update_status(context)
 
         # The handle lives in the closure too: if the operator is freed without _cleanup
         # (file load, Blender ending the modal) the callback removes itself instead of
         # raising ReferenceError on every redraw. Addon reloads are covered by
-        # unregister_cutter_tool(), which removes every handle in _draw_handles.
+        # unregister(), which removes every handle in _draw_handles.
         handle = []
 
         def remove():
@@ -392,7 +584,6 @@ Add mode makes a new object from the shape instead"""
         self._handle = handle[0]
         _draw_handles.add(self._handle)
         context.window_manager.modal_handler_add(self)
-        self._update_status(context)
         return {'RUNNING_MODAL'}
 
     def _click_select(self, context, event):
@@ -410,6 +601,11 @@ Add mode makes a new object from the shape instead"""
         origin = region_2d_to_origin_3d(self.region, self.rv3d, mouse)
         direction = region_2d_to_vector_3d(self.region, self.rv3d, mouse)
         return origin, direction
+
+    def _near_point(self, mouse, point):
+        """True when the mouse is within NGON_CLOSE_RADIUS pixels of a plane point."""
+        screen = location_3d_to_region_2d(self.region, self.rv3d, self.plane @ point.to_3d())
+        return screen is not None and (mouse - screen).length < NGON_CLOSE_RADIUS
 
     def _snap(self, value):
         inc = self.snap_increment
@@ -487,12 +683,12 @@ Add mode makes a new object from the shape instead"""
             if self.shift != (self.shape == 'CIRCLE'):
                 m = max(abs(d.x), abs(d.y))
                 d = Vector((math.copysign(m, d.x), math.copysign(m, d.y)))
-            if self.alt:
+            if self.alt or self.shape == 'CIRCLE':  # circles always grow from the center
                 center, hx, hy = self.start, abs(d.x), abs(d.y)
             else:
                 center, hx, hy = self.start + d * 0.5, abs(d.x) * 0.5, abs(d.y) * 0.5
             if self.shape == 'BOX':
-                pts = [center + Vector(o) for o in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))]
+                pts = self._box(center, hx, hy)
             else:
                 seg = self.segments
                 pts = [center + Vector((hx * math.cos(i * math.tau / seg), hy * math.sin(i * math.tau / seg)))
@@ -526,7 +722,7 @@ Add mode makes a new object from the shape instead"""
         if not profile or self.phase != 'EXTRUDE' or abs(self.depth) < 1e-6:
             return None
         if self.operation == 'ADD':
-            return tuple(sorted((0.0, self.depth)))  # sits on the surface and comes out of it
+            return tuple(sorted((0.0, self.depth)))  # from the surface, out of it or into it
         # Push the surface side slightly out of the material to avoid coplanar faces
         surface = -math.copysign(self._surface_margin(profile), self.depth)
         return tuple(sorted((self.depth, surface)))
@@ -542,8 +738,8 @@ Add mode makes a new object from the shape instead"""
         mesh.clear_geometry()
         matrix = self._cutter_matrix(center)
 
-        if self.shape == 'CIRCLE' and self.operation != 'ADD':
-            # Non destructive: a side profile spun by a Screw modifier, so segments stay editable.
+        if self.shape == 'CIRCLE':
+            # Non destructive, for cutters and Add: a side profile spun by a Screw modifier, so segments stay editable.
             # Ellipses use the object's Y scale.
             rx = max(abs(p.x - center.x) for p in profile)
             ry = max(abs(p.y - center.y) for p in profile)
@@ -560,10 +756,11 @@ Add mode makes a new object from the shape instead"""
 
         mesh.update()
         self.cutter.matrix_world = matrix
+        self._update_mirror_modifier()
 
     def _create_cutter(self, context):
         if self.operation == 'ADD':
-            # A plain new object in the active collection, real geometry (no Screw) like Add Object
+            # A plain new object in the active collection, like Add Object
             name = ADD_OBJECT_NAMES[self.shape]
             self.cutter = bpy.data.objects.new(name, bpy.data.meshes.new(name))
             context.collection.objects.link(self.cutter)
@@ -604,14 +801,18 @@ Add mode makes a new object from the shape instead"""
         self.created = []
 
     def _update_live(self, context):
-        if not self.live:
-            return
+        if not self.live or context.mode != 'OBJECT':
+            return  # Edit Mode cuts are applied on confirm, the overlay is the preview
         profile = self.profile()
         z = self.z_range(profile) if profile else None
         if z is None or (not self.targets and self.operation != 'ADD'):
             return
         if self.cutter is None:
             self._create_cutter(context)
+            # Hidden while drawing so only the overlay shows, not its wire. Hidden objects still
+            # cut. This preview cutter is removed on confirm, execute() builds the final one.
+            if self.operation != 'ADD':  # Add's new object is the preview, keep it visible
+                self.cutter.hide_set(True, view_layer=context.view_layer)
         self._write_cutter_mesh(profile, z)
 
     # -- finishing --
@@ -627,11 +828,28 @@ Add mode makes a new object from the shape instead"""
 
         self.plane_matrix = [v for row in self.plane for v in row]
         self._store_outline(profile)
+        if self.operation != 'ADD' and context.mode == 'EDIT_MESH':
+            # Edit Mode: cut the edited meshes the cutter overlaps
+            self.targets = self._overlapping_objects(context, profile, z)
         if not self.targets and self.operation != 'ADD':
-            return {'CANCELLED'}  # switched from Add to a boolean with nothing to cut
-        self.depth_amount = max(abs(self.depth), MIN_DEPTH)
+            self.report({'INFO'}, "Nothing to cut")
+            return {'CANCELLED'}
+        self.depth_amount = self.depth if self.operation == 'ADD' else abs(self.depth)  # Add keeps its side
         self.target_names = TARGET_SEPARATOR.join(o.name for o in self.targets)
         return self.execute(context)
+
+    def _overlapping_objects(self, context, profile, z_range):
+        """Meshes whose bounding box overlaps the cutter's: the objects in Edit Mode there,
+        otherwise every visible mesh that can be cut."""
+        corners = [mirror @ self.plane @ Vector((p.x, p.y, z)) for mirror in self._mirror_matrices()
+                   for p in profile for z in z_range]
+        cutter_bounds = _world_bounds(corners)
+        if context.mode == 'EDIT_MESH':
+            candidates = self.targets
+        else:
+            cutter_collection = bpy.data.collections.get("Cutters")
+            candidates = [o for o in context.visible_objects if _is_cut_target(o, cutter_collection)]
+        return [o for o in candidates if _bounds_overlap(cutter_bounds, _object_bounds(o))]
 
     def _apply(self, context):
         for owner, mod in self.created:
@@ -669,6 +887,8 @@ Add mode makes a new object from the shape instead"""
     def _apply_settings(self, context, values):
         """Apply changed settings to the running cut. Returns True when something changed."""
         values = {k: v for k, v in values.items() if getattr(self, k) != v}
+        if self.on_floor:
+            values.pop('operation', None)  # started on the floor: always Add, there is nothing to cut
         if 'shape' in values:
             new, old = values['shape'], self.shape
             if self.phase == 'EXTRUDE' and 'NGON' in (new, old):
@@ -684,9 +904,11 @@ Add mode makes a new object from the shape instead"""
             return False
         if 'operation' in values and self.phase == 'EXTRUDE' \
                 and (values['operation'] == 'ADD') != (self.operation == 'ADD'):
-            # Add comes out of the surface, cuts go in: mirror the depth so the mouse keeps working
-            self.depth_ref += 2.0 * self.depth
-            self.depth = -self.depth
+            # Cuts only go in. Going to Add mirrors the depth so it comes out, going to a cut keeps
+            # an Add that already goes in. depth_ref moves along so the mouse keeps working.
+            new_depth = abs(self.depth) if values['operation'] == 'ADD' else -abs(self.depth)
+            self.depth_ref += self.depth - new_depth
+            self.depth = new_depth
         for name, value in values.items():
             setattr(self, name, value)
         if self.cutter is not None and values.keys() & {'operation', 'shape', 'solver'}:
@@ -728,6 +950,58 @@ Add mode makes a new object from the shape instead"""
             self._cancel(context)
             raise
 
+    # -- mouse adjust: bevel width (B) and profile (P) --
+
+    def _start_adjust(self, context, mouse, name):
+        """Let horizontal mouse movement set a bevel setting until confirmed, then go back to
+        drawing or setting the depth. Also turns the bevel on."""
+        self.adjust_before = (self.bevel, getattr(self, name))
+        self._set_setting(context, "bevel", True)
+        self.adjusting = name
+        self.adjust_mouse_start = mouse.x
+        self.adjust_value_start = getattr(self, name)
+
+    def _end_adjust(self, mouse):
+        """Back to drawing or setting the depth, from where the mouse is now."""
+        self.adjusting = None
+        if self.phase == 'EXTRUDE':
+            self._anchor_depth(mouse)  # keep the depth, don't jump to the moved mouse
+        elif not self.lmb_held and self.shape != 'NGON':
+            self.click_to_finish = True  # the drag was let go: a click finishes the shape
+
+    def _adjust_event(self, context, event, mouse):
+        """Events while adjusting with the mouse. None lets the normal handling run (wheel, view)."""
+        name = self.adjusting
+        if event.type == 'MOUSEMOVE':
+            low, high = MOUSE_ADJUST_RANGES[name]
+            value = self.adjust_value_start + (mouse.x - self.adjust_mouse_start) / MOUSE_ADJUST_PIXELS
+            if event.ctrl:
+                value = round(value * 20.0) / 20.0
+            self._set_setting(context, name, max(low, min(high, value)))
+        elif event.type == 'LEFTMOUSE' and event.value in {'PRESS', 'RELEASE'}:
+            self._end_adjust(mouse)
+        elif event.type in {'RET', 'NUMPAD_ENTER', 'SPACE'}:
+            if event.value == 'PRESS':
+                self._end_adjust(mouse)
+        elif event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            bevel, value = self.adjust_before
+            self._set_setting(context, name, value)
+            self._set_setting(context, "bevel", bevel)
+            self._end_adjust(mouse)
+        elif event.type == 'B' and event.value == 'PRESS':
+            self._set_setting(context, "bevel", False)  # B again: no bevel
+            self._end_adjust(mouse)
+        elif event.type == 'P' and event.value == 'PRESS' and name != "bevel_profile":
+            self._end_adjust(mouse)
+            self._start_adjust(context, mouse, "bevel_profile")
+        else:
+            return None
+        self._dirty = True
+        self._update_live(context)
+        self._update_status(context)
+        self.region.tag_redraw()
+        return {'RUNNING_MODAL'}
+
     def _modal(self, context, event):
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         changed = self._sync_from_tool(context)
@@ -738,6 +1012,14 @@ Add mode makes a new object from the shape instead"""
                 self.shift, self.alt = event.shift, event.alt
                 changed = True
 
+        if event.type == 'LEFTMOUSE' and event.value in {'PRESS', 'RELEASE'}:
+            self.lmb_held = event.value == 'PRESS'
+
+        if self.adjusting:
+            result = self._adjust_event(context, event, mouse)
+            if result is not None:
+                return result
+
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             return self._cancel(context)
 
@@ -746,16 +1028,37 @@ Add mode makes a new object from the shape instead"""
 
         key_press = event.value == 'PRESS' and not (event.ctrl or event.alt or event.oskey)
 
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'NUMPAD_PLUS', 'NUMPAD_MINUS'}:
-            if self.shape != 'CIRCLE':
-                return {'PASS_THROUGH'}
+        if event.type in PLUS_KEYS | MINUS_KEYS:
+            # Wheel and - / + change the circle segments, or the bevel segments of a bevelled box
+            if self.shape == 'CIRCLE':
+                name, low, high = "segments", 3, 256
+            elif self.shape == 'BOX' and self.bevel:
+                name, low, high = "bevel_segments", 1, 64
+            elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'NUMPAD_PLUS', 'NUMPAD_MINUS'}:
+                return {'PASS_THROUGH'}  # zoom the view
+            else:
+                return {'RUNNING_MODAL'}
             if event.value == 'PRESS':  # wheel events also arrive as PRESS
-                step = 1 if event.type in {'WHEELUPMOUSE', 'NUMPAD_PLUS'} else -1
-                segments = max(3, min(256, self.segments + step * (4 if event.ctrl else 1)))
-                changed |= self._set_setting(context, "segments", segments)
+                step = 1 if event.type in PLUS_KEYS else -1
+                value = max(low, min(high, getattr(self, name) + step * (4 if event.ctrl else 1)))
+                changed |= self._set_setting(context, name, value)
 
-        elif event.type in OPERATION_KEYS and key_press:
-            changed |= self._set_setting(context, "operation", OPERATION_KEYS[event.type])
+        elif event.type in MIRROR_KEYS and key_press:
+            name = MIRROR_KEYS[event.type]
+            changed |= self._set_setting(context, name, not getattr(self, name))
+
+        elif event.type == 'X' and key_press:
+            index = OPERATION_ORDER.index(self.operation)
+            step = -1 if event.shift else 1
+            changed |= self._set_setting(context, "operation", OPERATION_ORDER[(index + step) % len(OPERATION_ORDER)])
+
+        elif event.type == 'B' and key_press and self.shape == 'BOX':
+            self._start_adjust(context, mouse, "bevel_width")
+            changed = True
+
+        elif event.type == 'P' and key_press and self.shape == 'BOX':
+            self._start_adjust(context, mouse, "bevel_profile")
+            changed = True
 
         elif event.type in SHAPE_KEYS and key_press:
             changed |= self._set_setting(context, "shape", SHAPE_KEYS[event.type])
@@ -763,7 +1066,7 @@ Add mode makes a new object from the shape instead"""
         elif event.type == 'L' and key_press:
             changed |= self._set_setting(context, "live", not self.live)
 
-        elif event.type == 'A' and key_press and self.operation != 'ADD':
+        elif event.type == 'A' and key_press and self.operation != 'ADD' and context.mode == 'OBJECT':
             changed |= self._set_setting(context, "apply", not self.apply)
 
         elif event.type == 'D' and key_press:
@@ -790,7 +1093,9 @@ Add mode makes a new object from the shape instead"""
                     if event.ctrl:
                         depth = self._snap(depth)
                     if self.operation == 'ADD':
-                        depth = max(depth, MIN_DEPTH)  # Add only comes out of the surface
+                        # Add goes either way: out of the surface or into it, never flat
+                        if abs(depth) < MIN_DEPTH:
+                            depth = math.copysign(MIN_DEPTH, depth)
                     else:
                         depth = min(depth, -MIN_DEPTH)  # only ever away from the camera, never toward it
                     if depth != self.depth:
@@ -800,14 +1105,20 @@ Add mode makes a new object from the shape instead"""
         elif event.type == 'LEFTMOUSE':
             if event.alt and event.value == 'PRESS' and (self.shape == 'NGON' or self.phase == 'EXTRUDE'):
                 return {'PASS_THROUGH'}  # Alt + LMB navigation
-            if self.phase == 'DRAW' and self.shape != 'NGON' and event.value == 'RELEASE':
+            if self.phase == 'DRAW' and self.shape != 'NGON' and self.click_to_finish:
+                # The drag was let go while adjusting the bevel: a click finishes the shape
+                if event.value == 'PRESS':
+                    return self._end_draw(context, mouse)
+            elif self.phase == 'DRAW' and self.shape != 'NGON' and event.value == 'RELEASE':
                 if not self.has_dragged:
                     self._cancel(context)
                     return self._click_select(context, event)
                 return self._end_draw(context, mouse)
-            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value == 'PRESS':
-                first = location_3d_to_region_2d(self.region, self.rv3d, self.plane @ self.points[0].to_3d())
-                if len(self.points) >= 3 and first is not None and (mouse - first).length < NGON_CLOSE_RADIUS:
+            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
+                # Close the ngon by clicking the first point, the last point again, or double clicking
+                if len(self.points) >= 3 and (event.value == 'DOUBLE_CLICK'
+                                              or self._near_point(mouse, self.points[0])
+                                              or self._near_point(mouse, self.points[-1])):
                     self.current = self.points[-1]  # drop the floating cursor point
                     return self._end_draw(context, mouse)
                 p = self._mouse_to_plane(mouse, event.ctrl)
@@ -838,8 +1149,20 @@ Add mode makes a new object from the shape instead"""
 
     # -- UI --
 
-    def _status_items(self):
+    def _mirror_text(self):
+        axes = "".join(a for a, on in zip("XYZ", (self.mirror_x, self.mirror_y, self.mirror_z)) if on)
+        if axes and getattr(self, "mirror_object", None) is None:
+            return f"{axes} (needs an object)"
+        return axes or "Off"
+
+    def _status_items(self, context):
         """(icons, text) pairs for the status bar, Blender style: key icons followed by a label."""
+        if self.adjusting:
+            label = "Bevel Width" if self.adjusting == "bevel_width" else "Bevel Profile"
+            value = getattr(self, self.adjusting)
+            return [(('MOUSE_MOVE',), f"{label}: {value:.2f}"), (('EVENT_CTRL',), "Snap"),
+                    (('MOUSE_MMB_SCROLL',), f"Bevel Segments: {self.bevel_segments}"),
+                    (('MOUSE_LMB',), "Confirm"), (('EVENT_B',), "No Bevel"), (('MOUSE_RMB',), "Cancel")]
         items = []
         if self.phase == 'DRAW':
             if self.shape == 'NGON':
@@ -847,20 +1170,28 @@ Add mode makes a new object from the shape instead"""
                           (('EVENT_RETURN',), "Close")]
             else:
                 items += [(('MOUSE_LMB_DRAG',), "Draw"),
-                          (('EVENT_SHIFT',), "Ellipse" if self.shape == 'CIRCLE' else "Square"),
-                          (('EVENT_ALT',), "From Center")]
+                          (('EVENT_SHIFT',), "Ellipse" if self.shape == 'CIRCLE' else "Square")]
+                if self.shape == 'BOX':
+                    items.append((('EVENT_ALT',), "From Center"))
         else:
             items += [(('MOUSE_LMB',), "Confirm"), (('MOUSE_MOVE',), "Depth")]
         items.append((('EVENT_CTRL',), "Snap"))
         if self.shape == 'CIRCLE':
             items.append((('MOUSE_MMB_SCROLL',), f"Segments: {self.segments}"))
         items += [
-            (('EVENT_ONEKEY', 'EVENT_FIVEKEY'), OPERATION_NAMES[self.operation]),
+            (('EVENT_X',), OPERATION_NAMES[self.operation]),
             (('EVENT_B', 'EVENT_C', 'EVENT_N'), self.shape.title()),
-            (('EVENT_L',), f"Live: {'On' if self.live else 'Off'}"),
         ]
-        if self.operation != 'ADD':
-            items.append((('EVENT_A',), f"Apply: {'On' if self.apply else 'Off'}"))
+        if self.shape == 'BOX':
+            items.append((('EVENT_B',), f"Bevel Width: {self.bevel_width:.2f}" if self.bevel else "Bevel"))
+            if self.bevel:
+                items += [(('MOUSE_MMB_SCROLL',), f"Bevel Segments: {self.bevel_segments}"),
+                          (('EVENT_P',), f"Profile: {self.bevel_profile:.2f}")]
+        items.append((('EVENT_ONEKEY', 'EVENT_TWOKEY', 'EVENT_THREEKEY'), f"Mirror: {self._mirror_text()}"))
+        if context.mode == 'OBJECT':
+            items.append((('EVENT_L',), f"Live: {'On' if self.live else 'Off'}"))
+            if self.operation != 'ADD':
+                items.append((('EVENT_A',), f"Apply: {'On' if self.apply else 'Off'}"))
         items += [
             (('EVENT_D',), "Options"),
             (('MOUSE_RMB',), "Cancel"),
@@ -869,7 +1200,7 @@ Add mode makes a new object from the shape instead"""
 
     def _update_status(self, context):
         op = self.operation.title()
-        items = self._status_items()
+        items = self._status_items(context)
 
         def draw_status(header, _context):
             row = header.layout.row(align=True)
@@ -891,7 +1222,13 @@ Add mode makes a new object from the shape instead"""
             info += f"   depth {abs(self.depth):.3f}"
         if self.shape == 'CIRCLE':
             info += f"   {self.segments} segments"
-        if self.live:
+        if self.shape == 'BOX' and self.bevel:
+            info += f"   bevel {self.bevel_width:.2f}  {self.bevel_segments} seg  profile {self.bevel_profile:.2f}"
+        if any((self.mirror_x, self.mirror_y, self.mirror_z)):
+            info += f"   mirror {self._mirror_text()}"
+        if context.mode == 'EDIT_MESH':
+            info += "   (Edit Mode, applied)"
+        elif self.live:
             info += "   (Live)"
         if context.area:
             context.area.header_text_set(info)
@@ -926,7 +1263,7 @@ Add mode makes a new object from the shape instead"""
             lines = []
             for i in range(n):
                 lines += (ring[i], ring[(i + 1) % n])
-            fill = batch_for_shader(fill_shader, 'TRIS', {"pos": ring}, indices=tris)
+            coords = ring
         else:
             bottom = [plane @ Vector((p.x, p.y, z[0])) for p in profile]
             top = [plane @ Vector((p.x, p.y, z[1])) for p in profile]
@@ -934,13 +1271,23 @@ Add mode makes a new object from the shape instead"""
             coords = top + bottom
             tris = list(cap) + [(a + n, b + n, c + n) for a, b, c in cap]
             lines = []
+            rounded = self.shape == 'CIRCLE' or (self.shape == 'BOX' and self.bevel)
             for i in range(n):
                 j = (i + 1) % n
                 tris += [(i, j, n + j), (i, n + j, n + i)]
                 lines += (top[i], top[j], bottom[i], bottom[j])
-                if self.shape != 'CIRCLE' or i % max(1, n // 8) == 0:
+                if not rounded or i % max(1, n // 8) == 0:
                     lines += (top[i], bottom[i])
-            fill = batch_for_shader(fill_shader, 'TRIS', {"pos": coords}, indices=tris)
+
+        # Mirrored copies (1 / 2 / 3) are drawn as more of the same shape
+        mirrors = self._mirror_matrices()
+        all_coords, all_tris = [], []
+        for mirror in mirrors:
+            offset = len(all_coords)
+            all_coords += [mirror @ p for p in coords]
+            all_tris += [(a + offset, b + offset, c + offset) for a, b, c in tris]
+        lines = [mirror @ p for mirror in mirrors for p in lines]
+        fill = batch_for_shader(fill_shader, 'TRIS', {"pos": all_coords}, indices=all_tris)
 
         self._batches = {
             "fill": fill,
@@ -983,7 +1330,7 @@ Add mode makes a new object from the shape instead"""
             line_shader = batches["line_shader"]
             # Two passes against the scene depth: the part inside the object draws faint (x-ray),
             # the part in front of it draws solid, so you can see the cutter going in.
-            for depth_test, fill_alpha, line_alpha, width in (('NONE', 0.06, 0.35, 1.5), ('LESS_EQUAL', 0.18, 0.95, 2.0)):
+            for depth_test, fill_alpha, line_alpha, width in (('NONE', 0.02, 0.35, 1.5), ('LESS_EQUAL', 0.06, 0.9, 2.0)):
                 gpu.state.depth_test_set(depth_test)
                 fill_shader.bind()
                 fill_shader.uniform_float("color", (*color, fill_alpha))
@@ -1053,12 +1400,10 @@ class CutterSetOperation(bpy.types.Operator):
 
     @classmethod
     def description(cls, context, properties):
-        keys = {v: k for k, v in OPERATION_KEYS.items()}
-        number = {'ONE': "1", 'TWO': "2", 'THREE': "3", 'FOUR': "4", 'FIVE': "5"}
         name = OPERATION_NAMES[properties.operation]
         if properties.operation == 'ADD':
             name = "Add a new object instead of cutting"
-        return f"{name}  ({number[keys[properties.operation]]} while cutting)"
+        return f"{name}  (X cycles while cutting)"
 
     def execute(self, context):
         props = _tool_props(context)
@@ -1068,10 +1413,52 @@ class CutterSetOperation(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def draw_cutter_options(layout, props):
+CIRCLE_SEGMENT_PRESETS = (8, 12, 16, 24, 32, 64)
+BEVEL_SEGMENT_PRESETS = (1, 2, 3, 4, 6, 8)
+
+
+class CutterSetSegments(bpy.types.Operator):
+    """Set the segment count of the Cutter Tool"""
+    bl_idname = "keyops.cutter_set_segments"
+    bl_label = "Cutter Segments"
+    bl_options = {'INTERNAL'}
+
+    setting: StringProperty(options={'HIDDEN'})  # type: ignore
+    value: IntProperty()  # type: ignore
+
+    def execute(self, context):
+        props = _tool_props(context)
+        if props is None or self.setting not in {"segments", "bevel_segments"}:
+            return {'CANCELLED'}
+        setattr(props, self.setting, self.value)
+        return {'FINISHED'}
+
+
+def draw_segment_presets(layout, props, setting, presets):
+    """A row of preset buttons for a segment count, the current one pressed."""
+    row = layout.row(align=True)
+    for value in presets:
+        op = row.operator(CutterSetSegments.bl_idname, text=str(value), depress=getattr(props, setting) == value)
+        op.setting = setting
+        op.value = value
+
+
+def draw_bevel_settings(layout, props, with_keys=False):
+    """Box bevel settings, shared by the D popup and the redo panel."""
+    col = layout.column(align=True)
+    col.prop(props, "bevel", text="Bevel")
+    if props.bevel:
+        col.prop(props, "bevel_width", text="Width    B" if with_keys else "Width")
+        col.prop(props, "bevel_segments", text="Segments    Wheel / - +" if with_keys else "Segments")
+        if with_keys:
+            draw_segment_presets(col, props, "bevel_segments", BEVEL_SEGMENT_PRESETS)
+        col.prop(props, "bevel_profile", text="Profile    P" if with_keys else "Profile")
+
+
+def draw_cutter_options(layout, props, context):
     """Tool settings with their modal shortcuts, used by the D popup."""
     col = layout.column(align=True)
-    col.label(text="Operation    1 - 5")
+    col.label(text="Operation    X")
     draw_operation_buttons(col, props, scale=1.4)
 
     col = layout.column(align=True)
@@ -1081,7 +1468,17 @@ def draw_cutter_options(layout, props):
     for identifier, _name, _desc, icon, _num in SHAPE_ITEMS:
         row.prop_enum(props, "shape", identifier, text="", icon=icon)
     if props.shape == 'CIRCLE':
-        col.prop(props, "segments", text="Segments    Wheel")
+        col.prop(props, "segments", text="Segments    Wheel / - +")
+        draw_segment_presets(col, props, "segments", CIRCLE_SEGMENT_PRESETS)
+    if props.shape == 'BOX':
+        draw_bevel_settings(layout, props, with_keys=True)
+
+    col = layout.column(align=True)
+    col.label(text="Mirror    1 / 2 / 3")
+    row = col.row(align=True)
+    row.prop(props, "mirror_x", text="X", toggle=True)
+    row.prop(props, "mirror_y", text="Y", toggle=True)
+    row.prop(props, "mirror_z", text="Z", toggle=True)
 
     is_add = props.operation == 'ADD'
     col = layout.column(align=True)
@@ -1090,10 +1487,13 @@ def draw_cutter_options(layout, props):
     col.prop(props, "align", text="Align")
     col.prop(props, "snap_increment", text="Snap  Ctrl")
 
-    row = layout.row()
-    row.prop(props, "live", text="Live  L")
-    if not is_add:
-        row.prop(props, "apply", text="Apply  A")
+    if context.mode == 'OBJECT':
+        row = layout.row()
+        row.prop(props, "live", text="Live  L")
+        if not is_add:
+            row.prop(props, "apply", text="Apply  A")
+    else:
+        layout.label(text="Edit Mode: cuts are applied to the mesh")
 
 
 class CutterToolOptions(bpy.types.Operator):
@@ -1112,7 +1512,7 @@ class CutterToolOptions(bpy.types.Operator):
         if props is None:
             return
         self.layout.label(text="Cutter Tool", icon='MOD_BOOLEAN')
-        draw_cutter_options(self.layout, props)
+        draw_cutter_options(self.layout, props, context)
 
     def execute(self, context):
         return {'FINISHED'}
@@ -1128,7 +1528,7 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
     bl_description = (
         "Draw a shape and boolean it into the selected objects, or the object under the cursor.\n"
         "Draw the shape, then set the depth with the mouse. Uses a light overlay, the boolean is only added when you confirm.\n"
-        "Add mode (5) makes a new object from the shape instead"
+        "Add mode (X cycles the operation) makes a new object from the shape instead"
     )
     bl_icon = os.path.join(ICON_DIR, "ops.object.cutter_tool") 
     bl_keymap = (
@@ -1144,49 +1544,72 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
         layout.prop(props, "shape", expand=True, icon_only=True)
         if props.shape == 'CIRCLE':
             layout.prop(props, "segments")
+        if props.shape == 'BOX':
+            layout.prop(props, "bevel")
+            if props.bevel:
+                layout.prop(props, "bevel_segments", text="Segments")
+        row = layout.row(align=True)
+        row.prop(props, "mirror_x", text="X", toggle=True)
+        row.prop(props, "mirror_y", text="Y", toggle=True)
+        row.prop(props, "mirror_z", text="Z", toggle=True)
         is_add = props.operation == 'ADD'
         layout.prop(props, "align", text="")
         if not is_add:
             layout.prop(props, "solver", text="")
         layout.prop(props, "snap_increment")
-        layout.prop(props, "live")
-        if not is_add:
-            layout.prop(props, "apply")
+        if context.mode == 'OBJECT':
+            layout.prop(props, "live")
+            if not is_add:
+                layout.prop(props, "apply")
 
 
-classes = (Cutter, CutterSetOperation, KEYOPS_MT_cutter_operation, CutterToolOptions)
+class WorkSpaceCutterEdit(bpy.types.WorkSpaceTool):
+    """The Cutter in Edit Mode: same tool, but the cut is applied to the mesh"""
+    bl_space_type = 'VIEW_3D'
+    bl_context_mode = 'EDIT_MESH'
+    bl_idname = EDIT_TOOL_IDNAME
+    bl_label = "Cutter Tool"
+    bl_description = (
+        "Draw a shape and cut it into the mesh being edited. The cut is applied right away.\n"
+        "Add mode builds the shape into the mesh instead"
+    )
+    bl_icon = WorkSpaceCutter.bl_icon
+    bl_keymap = WorkSpaceCutter.bl_keymap
+    draw_settings = WorkSpaceCutter.draw_settings
+
+
+classes = (Cutter, CutterSetOperation, CutterSetSegments, KEYOPS_MT_cutter_operation, CutterToolOptions)
 
 # Draw handles of running Cutter operators, so a reload mid-cut can't leave one behind
 _draw_handles = set()
 
 
-def register_cutter_tool():
-    from .merge_tool import remove_stale_tool
-
+def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    try:
-        if not hasattr(WorkSpaceCutter, "_bl_tool"):
-            remove_stale_tool(WorkSpaceCutter)
-            bpy.utils.register_tool(WorkSpaceCutter, after={"builtin.measure"}, separator=True, group=False)
-    except Exception as e:
-        print(f"Failed to register WorkSpaceCutter: {e}")
+
+def set_enabled(on):
+    """The tool sits in the toolbar (Object and Edit Mode) only while the feature is on."""
+    from .merge_tool import remove_stale_tool
+    for tool in (WorkSpaceCutter, WorkSpaceCutterEdit):
+        try:
+            if on and not hasattr(tool, "_bl_tool"):
+                remove_stale_tool(tool)
+                bpy.utils.register_tool(tool, after={"builtin.measure"}, separator=True, group=False)
+            elif not on and hasattr(tool, "_bl_tool"):
+                bpy.utils.unregister_tool(tool)
+        except Exception as e:
+            print(f"Key Ops: could not update the Cutter tool in the toolbar: {e}")
 
 
-def unregister_cutter_tool():
+def unregister():
     for h in list(_draw_handles):
         try:
             bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
         except ValueError:
             pass
     _draw_handles.clear()
-
-    try:
-        if hasattr(WorkSpaceCutter, "_bl_tool"):
-            bpy.utils.unregister_tool(WorkSpaceCutter)
-    except Exception as e:
-        print(f"Failed to unregister WorkSpaceCutter: {e}")
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

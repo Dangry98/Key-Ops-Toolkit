@@ -272,12 +272,12 @@ def draw_mode_row(layout, context):
 classes = (KEYOPS_OT_sub_object_mode, KEYOPS_OT_sub_object_watch)
 
 
-def register_sub_object_modes():
+def register():
     for c in classes:
         bpy.utils.register_class(c)
 
 
-def unregister_sub_object_modes():
+def unregister():
     state["mode"] = "NONE"
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

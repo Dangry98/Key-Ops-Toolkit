@@ -2,6 +2,7 @@ import bpy.types
 from bpy.types import Operator
 from ..utils.pref_utils import clear_registered_keymaps
 import time
+from ..utils.pref_utils import get_keyops_prefs
 
 registered_modi_key_keymaps = []
 
@@ -50,7 +51,7 @@ class ModiKey(Operator):
         # On the Scene tab, let the Polycount List keyboard navigation have W/S
         if context.space_data.context == 'SCENE':
             from .poly_count_list import POLYCOUNT_OT_walk
-            if POLYCOUNT_OT_walk.is_registered and POLYCOUNT_OT_walk.poll(context):
+            if get_keyops_prefs().enable_polycount_list and POLYCOUNT_OT_walk.poll(context):
                 return False
         return True
 
@@ -279,11 +280,11 @@ class ModiKey(Operator):
             elif self.type == 'select':
                 pass
         return {'FINISHED'}
-def register_modi_key():
+def register():
     bpy.utils.register_class(ModiKey)
     bpy.utils.register_class(ModiKeyNoUndo)
     register_modi_key_keymaps()
-def unregister_modi_key():
+def unregister():
     clear_registered_keymaps(registered_modi_key_keymaps)
     bpy.utils.unregister_class(ModiKeyNoUndo)
     bpy.utils.unregister_class(ModiKey)

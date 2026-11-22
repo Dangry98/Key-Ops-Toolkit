@@ -3,7 +3,6 @@ import math
 from ..utils.pref_utils import get_keyops_prefs, get_icon
 from ..utils.node_groups import get_node_group
 
-prefs = get_keyops_prefs()
 
 # to do:
 # add X symmetrize option for decimate modifier - DONE
@@ -195,11 +194,11 @@ class AutoLOD(bpy.types.Operator):
         wm.progress_end()
 
         return {'FINISHED'}
-def register_auto_lod():
+def register():
     bpy.utils.register_class(AutoLOD)
     # bpy.utils.register_class(GenerateLODPanel)
 
-def unregister_auto_lod():
+def unregister():
     bpy.utils.unregister_class(AutoLOD)
     # bpy.utils.unregister_class(GenerateLODPanel)
 

@@ -385,9 +385,9 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-def register_resample_edges():
+def register():
     bpy.utils.register_class(KEYOPS_OT_resample_edges)
 
 
-def unregister_resample_edges():
+def unregister():
     bpy.utils.unregister_class(KEYOPS_OT_resample_edges)

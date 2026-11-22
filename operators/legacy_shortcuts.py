@@ -41,12 +41,6 @@ def register_legacy_shortcuts_keymaps():
 NUMBERS_1 = ('ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO')
 
 
-def register_legacy_collection_shortcuts():
-    if bpy.app.version < (5, 0, 0):
-        return
-    add_legacy_collection_shortcuts()
-
-
 def add_legacy_collection_shortcuts():
     global registered_legacy_collection_shortcuts_keymaps
 
@@ -102,11 +96,20 @@ def _template_object_hide_collection_from_number_keys():
     return items
 
 
-def unregister_legacy_shortcuts():
+def register():
+    register_legacy_shortcuts_keymaps()
+
+
+def unregister():
     clear_registered_keymaps(registered_legacy_shortcuts_keymaps)
-
-
-def unregister_legacy_collection_shortcuts():
     clear_registered_keymaps(registered_legacy_collection_shortcuts_keymaps)
+
+
+def set_enabled(on):
+    """The collection number keys (Blender 5.0+) are an extra setting of this feature."""
+    from ..utils.pref_utils import get_keyops_prefs
+    clear_registered_keymaps(registered_legacy_collection_shortcuts_keymaps)
+    if on and get_keyops_prefs().enable_legacy_collection_shortcuts:
+        add_legacy_collection_shortcuts()
 
     

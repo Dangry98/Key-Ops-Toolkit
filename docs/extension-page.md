@@ -32,7 +32,7 @@ Fast, interactive tools. While a tool runs, its keys are listed in the status ba
 
 - **Merge Tool**: drag a vertex or edge onto another to merge them. Supports multi-merge and merge to center, and keeps UVs intact.
 - **Fast Loop Cut** (`Alt R`): hover to preview, click to cut. No slide step. Even, center and edge-flow modes.
-- **Cutter**: draw a box, circle or ngon to cut (difference, union, intersect, slice) or add geometry. The boolean is only added on release, so drawing stays fast on heavy meshes.
+- **Cutter**: draw a box, circle or ngon to cut (difference, union, intersect, slice) or add geometry, with bevelled boxes and mirroring. Draws new meshes on the grid floor, and works in Edit Mode, where the cut is applied to the mesh.
 - **Fast Mirror** (`Alt X`): click a block to mirror on that axis. Hold a modifier key to bisect, symmetrize or flip instead.
 - **Fast Bevel, Array and Solidify**: drag and scroll to set up modifiers interactively from the Add Modifier pie.
 - **Booleans** (`Ctrl Numpad - + * /`): difference, union, intersect and slice on the selection.
@@ -83,7 +83,7 @@ Everything lives in the **Toolkit** tab of the 3D Viewport sidebar (`N`).
 - **Add Objects** (`Shift Alt A`): primitives sized to your view, so they are never too big or too small.
 - **Add Modifier** (`Shift Q`, off by default).
 - **Cursor** (`Shift S`): snapping plus set origin.
-- **Flatten** (`Alt 3` in Edit Mode): flatten the selection from the view.
+- **Flatten** (`Alt 3` in Edit Mode and the UV Editor): flatten the selection from the view.
 - **Workspace** (`Shift \`, off by default).
 - **View Camera** (`Space`, via the Rebind tab).
 - **Utility and UV pies** (`U`, `Space`, `Q`, experimental).

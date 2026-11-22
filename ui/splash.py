@@ -168,6 +168,15 @@ def _text(x, y, text, size, color, center=False):
     blf.draw(0, text)
 
 
+_overlay = {"handle": None}  # the welcome screen's draw handler, while it is open
+
+
+def remove_overlay():
+    if _overlay["handle"] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_overlay["handle"], 'WINDOW')
+        _overlay["handle"] = None
+
+
 class KEYOPS_OT_welcome(bpy.types.Operator):
     bl_idname = "keyops.welcome"
     bl_label = "Welcome to Key Ops"
@@ -206,6 +215,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
                 except Exception:
                     pass
         self.handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_overlay, (), 'WINDOW', 'POST_PIXEL')
+        _overlay["handle"] = self.handle
         context.window_manager.modal_handler_add(self)
         self.area.tag_redraw()
         return {'RUNNING_MODAL'}
@@ -230,7 +240,7 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
         return {'RUNNING_MODAL'}  # the welcome screen stays until Get Started
 
     def finish(self, context):
-        bpy.types.SpaceView3D.draw_handler_remove(self.handle, 'WINDOW')
+        remove_overlay()
         if self.image is not None:
             bpy.data.images.remove(self.image)
         for img, _tex in self.pictures.values():
@@ -254,6 +264,11 @@ class KEYOPS_OT_welcome(bpy.types.Operator):
 
     # ---------------------------------------------------------------- drawing
     def draw_overlay(self):
+        try:
+            self.area
+        except ReferenceError:  # a file was opened while the screen was up: Blender ended the operator
+            remove_overlay()
+            return
         if bpy.context.area != self.area:
             return
         if self.whats_new:

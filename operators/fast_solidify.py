@@ -519,11 +519,11 @@ classes = (
 )
 
 
-def register_fast_solidify():
+def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
 
-def unregister_fast_solidify():
+def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

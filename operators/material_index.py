@@ -209,17 +209,9 @@ class AssignMaterial(bpy.types.Operator):
         return {'FINISHED'}
 
     
-    def register():
-        bpy.types.EEVEE_MATERIAL_PT_context_material.append(menu_material)
-        if hasattr(bpy.types, 'CYCLES_PT_context_material'):
-            bpy.types.CYCLES_PT_context_material.append(menu_material)
-    def unregister():
-        if hasattr(bpy.types, 'EEVEE_MATERIAL_PT_context_material'):
-            bpy.types.EEVEE_MATERIAL_PT_context_material.remove(menu_material)
-        if hasattr(bpy.types, 'CYCLES_PT_context_material'):
-            bpy.types.CYCLES_PT_context_material.remove(menu_material)
-    
 def menu_material(self, context):
+    if not get_keyops_prefs().enable_material_index:
+        return
     if bpy.context.mode == 'OBJECT':
         layout = self.layout
         row = layout.row(align=True)
@@ -301,29 +293,39 @@ classes = (
 )
 
 def draw_remove_all_materials(self, context):
+    if not get_keyops_prefs().enable_material_index:
+        return
     layout = self.layout
     layout.separator()
     op = layout.operator(RemoveAllObjectMaterials.bl_idname, text="Remove All Materials", icon='X')
     op.all_selected_objects = False
 
 def draw_remove_all_materials_from_selected(self, context):
+    if not get_keyops_prefs().enable_material_index:
+        return
     layout = self.layout
     layout.separator()
     op = layout.operator(RemoveAllObjectMaterials.bl_idname, text="Remove All Materials from Selected", icon='X')
     op.all_selected_objects = True
 
-def register_material_index():
+def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     register_material_index_keymaps()
 
     bpy.types.MATERIAL_MT_context_menu.append(draw_remove_all_materials)
     bpy.types.VIEW3D_MT_object_cleanup.append(draw_remove_all_materials_from_selected)
+    bpy.types.EEVEE_MATERIAL_PT_context_material.append(menu_material)
+    if hasattr(bpy.types, 'CYCLES_PT_context_material'):
+        bpy.types.CYCLES_PT_context_material.append(menu_material)
 
-def unregister_material_index():
+def unregister():
     clear_registered_keymaps(registered_material_index_keymaps)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
     bpy.types.MATERIAL_MT_context_menu.remove(draw_remove_all_materials)
     bpy.types.VIEW3D_MT_object_cleanup.remove(draw_remove_all_materials_from_selected)
+    bpy.types.EEVEE_MATERIAL_PT_context_material.remove(menu_material)
+    if hasattr(bpy.types, 'CYCLES_PT_context_material'):
+        bpy.types.CYCLES_PT_context_material.remove(menu_material)

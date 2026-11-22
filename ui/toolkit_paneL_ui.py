@@ -334,24 +334,19 @@ class NewToolkitPanel(bpy.types.Panel):
         # row.prop(context.scene.keyops, "show_lod_panel", text="", icon_value=get_icon("mesh_icosphere2"), emboss=scene.show_lod_panel)
         # row.prop(context.scene.keyops, "show_cad_decimate_panel", text="", icon_value=get_icon("mod_decim"), emboss=scene.show_cad_decimate_panel)
 
-    def register():
 
-        bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
-            name="Toolkit Panel Mode",
-            description="Manage which panels should show",
-            items=get_toolkit_panel_items,
-            options={'ENUM_FLAG'},
-        )
+def register():
+    bpy.types.WindowManager.toolkit_panel_mode = bpy.props.EnumProperty(
+        name="Toolkit Panel Mode",
+        description="Manage which panels should show",
+        items=get_toolkit_panel_items,
+        options={'ENUM_FLAG'},
+    )
+    bpy.utils.register_class(ToggleToolkitPanelEnum)
+    bpy.utils.register_class(NewToolkitPanel)
 
-        
-        bpy.utils.register_class(ToggleToolkitPanelEnum)
-        from ..operators.select_similar import register_select_similar
-        register_select_similar()
-        
-    def unregister():
-        del bpy.types.WindowManager.toolkit_panel_mode
 
-        bpy.utils.unregister_class(ToggleToolkitPanelEnum)
-        from ..operators.select_similar import unregister_select_similar
-        unregister_select_similar()
-
+def unregister():
+    bpy.utils.unregister_class(NewToolkitPanel)
+    bpy.utils.unregister_class(ToggleToolkitPanelEnum)
+    del bpy.types.WindowManager.toolkit_panel_mode

@@ -1,6 +1,5 @@
 import bpy.types, bmesh, os
 from ..utils.pref_utils import get_keyops_prefs
-from ..utils.pref_utils import clear_registered_keymaps
 from bpy.types import Menu
 
 """
@@ -8,15 +7,6 @@ TODO:
 Add Support for Custom Meshes from .blend, fbx and bpy.ops
 """
 
-registered_add_objects_pie_keymaps = []
-
-def register_add_objects_pie_keymaps():
-    global registered_add_objects_pie_keymaps
-    wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps.new(name='3D View Generic', space_type='VIEW_3D')
-    kmi = km.keymap_items.new('wm.call_menu_pie', 'A', 'PRESS', shift=True, alt=True)
-    kmi.properties.name = 'KEYOPS_MT_add_objects_pie_menu'
-    registered_add_objects_pie_keymaps.append((km, kmi))
 
 def calculate_scale(context, scale_property, use_relative_scale, scale_relative_float, custom_scale_factor=1.0):
     prefs = get_keyops_prefs()
@@ -245,7 +235,6 @@ class AddMesh(bpy.types.Operator):
     bl_idname = "keyops.add_mesh"
     bl_label = "Add Mesh"
     bl_options = {"REGISTER", "UNDO"}
-    prefs = get_keyops_prefs()
 
     mesh_type: bpy.props.EnumProperty(
         items=[
@@ -261,9 +250,9 @@ class AddMesh(bpy.types.Operator):
             ("BLEND", ".blend", "Add a object from a .blend file"),
             ("CUSTOM", "Custom", "Add a object with bpy.ops")],
         name="Mesh Type", default="CUBE") #type:ignore
-    scale_property: bpy.props.FloatProperty(name="Size", default=prefs.add_object_pie_default_scale, min=0.1, max=10.0,description="Absolute scale of the mesh", unit='LENGTH') #type:ignore
-    use_relative_scale: bpy.props.BoolProperty(name="Relative Scale", default=prefs.add_object_pie_use_relative) #type:ignore
-    scale_relative_float: bpy.props.FloatProperty(name="Scale", default=prefs.add_object_pie_relative_scale, min=1.0, max=25.0, description="Relative scale of the mesh") #type:ignore
+    scale_property: bpy.props.FloatProperty(name="Size", default=2.0, min=0.1, max=10.0,description="Absolute scale of the mesh", unit='LENGTH') #type:ignore
+    use_relative_scale: bpy.props.BoolProperty(name="Relative Scale", default=True) #type:ignore
+    scale_relative_float: bpy.props.FloatProperty(name="Scale", default=7.0, min=1.0, max=25.0, description="Relative scale of the mesh") #type:ignore
     cylinder_radius: bpy.props.FloatProperty(name="Radius", default=0.5, min=0.0001, max=1000.0, description="Radius of the cylinder", unit='LENGTH') #type:ignore
     cylinder_height: bpy.props.FloatProperty(name="Height", default=1.0, min=0.0001, max=1000.0, description="Height of the cylinder", unit='LENGTH') #type:ignore
     segment_amount: bpy.props.IntProperty(name="Segments", default=32, min=3, max=256, description="Amount of segments the cylinder has") #type:ignore
@@ -346,6 +335,17 @@ class AddMesh(bpy.types.Operator):
         if is_orthographic_view(context) and self.mesh_type == "MODCYLINDER":
             layout.prop(self, "align_to_view")
 
+    def invoke(self, context, event):
+        # Sizes not given by the caller start from the defaults in the preferences
+        prefs = get_keyops_prefs()
+        if not self.properties.is_property_set("scale_property"):
+            self.scale_property = prefs.add_object_pie_default_scale
+        if not self.properties.is_property_set("use_relative_scale"):
+            self.use_relative_scale = prefs.add_object_pie_use_relative
+        if not self.properties.is_property_set("scale_relative_float"):
+            self.scale_relative_float = prefs.add_object_pie_relative_scale
+        return self.execute(context)
+
     def execute(self, context):
         radius = None
         height = None
@@ -390,13 +390,11 @@ class AddMesh(bpy.types.Operator):
                 return {'CANCELLED'}
         return {'FINISHED'}
     
-def register_add_objects_pie():
+def register():
     bpy.utils.register_class(AddMesh)
     bpy.utils.register_class(AddObjectsPie)
-    register_add_objects_pie_keymaps()
 
-def unregister_add_objects_pie():
-    clear_registered_keymaps(registered_add_objects_pie_keymaps)
+def unregister():
     bpy.utils.unregister_class(AddMesh)
     bpy.utils.unregister_class(AddObjectsPie)
 

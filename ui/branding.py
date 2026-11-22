@@ -26,8 +26,9 @@ def _icons():
     global _previews
     if _previews is None:
         _previews = bpy.utils.previews.new()
+        from ..utils.pref_utils import load_icon_now
         for i in range(2):
-            _previews.load(f"logo_{i}", os.path.join(BRAND_DIR, f"logo_tile_{i}.png"), 'IMAGE')
+            load_icon_now(_previews.load(f"logo_{i}", os.path.join(BRAND_DIR, f"logo_tile_{i}.png"), 'IMAGE'))
     return _previews
 
 

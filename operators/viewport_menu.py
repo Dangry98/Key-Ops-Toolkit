@@ -103,11 +103,11 @@ class ViewportMenu(bpy.types.Operator):
                 previes_shading_types_settings = []
         return {'FINISHED'}
         
-def register_viewport_menu():
+def register():
     bpy.utils.register_class(ViewportMenu)
     bpy.utils.register_class(VIEW3D_MT_viewport_menu)
     register_viewport_menu_keymaps()
-def unregister_viewport_menu():
+def unregister():
     clear_registered_keymaps(registered_viewport_menu_keymaps)
     bpy.utils.unregister_class(ViewportMenu)
     bpy.utils.unregister_class(VIEW3D_MT_viewport_menu)

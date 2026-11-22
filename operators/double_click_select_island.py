@@ -243,11 +243,11 @@ class DoubleClickSelectIsland(bpy.types.Operator):
 
         return {'FINISHED'}
     
-def register_double_click_select_island():
+def register():
     bpy.utils.register_class(DoubleClickSelectIsland)
     bpy.utils.register_class(SelectEdgeLoop)
     register_double_click_select_island_keymaps()
-def unregister_double_click_select_island():
+def unregister():
     clear_registered_keymaps(registered_double_click_select_island_keymaps)
     bpy.utils.unregister_class(DoubleClickSelectIsland)
     bpy.utils.unregister_class(SelectEdgeLoop)

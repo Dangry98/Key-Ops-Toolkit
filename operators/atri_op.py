@@ -1,4 +1,5 @@
 import bpy.types
+from ..utils.pref_utils import get_keyops_prefs
 
 def update_float_value(self, context):
     wm = bpy.context.window_manager
@@ -13,6 +14,8 @@ def update_integer_value(self, context):
     bpy.ops.mesh.attribute_set('EXEC_DEFAULT', True, value_int=wm.integer_value)
 
 def draw_custom_button(self, context):
+    if not get_keyops_prefs().enable_atri_op:
+        return
     wm = bpy.context.window_manager
 
     if context.active_object.mode == 'EDIT':
@@ -110,13 +113,13 @@ class AtriOP(bpy.types.Operator):
 
         return {'FINISHED'}
 
-def register_atri_op():
+def register():
     bpy.utils.register_class(AtriOP)
     bpy.types.DATA_PT_mesh_attributes.append(draw_custom_button)
     bpy.types.WindowManager.float_value = bpy.props.FloatProperty(name="Float Value", default=1.0, update=update_float_value)
     bpy.types.WindowManager.float_color_value = bpy.props.FloatVectorProperty(size=4, subtype="COLOR", name="Float Color Value", default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, update=update_float_color_value)
     bpy.types.WindowManager.integer_value = bpy.props.IntProperty(name="Integer Value", default=0, update=update_integer_value)
-def unregister_atri_op():
+def unregister():
     bpy.utils.unregister_class(AtriOP)
     bpy.types.DATA_PT_mesh_attributes.remove(draw_custom_button)
     del bpy.types.WindowManager.float_value

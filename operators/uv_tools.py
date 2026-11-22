@@ -228,7 +228,7 @@ class SmartUVSync(bpy.types.Operator):
 
         return {'FINISHED'}
 
-def register_uv_tools():
+def register():
     bpy.utils.register_class(SmartUVSync)
     # bpy.utils.register_class(UVEDITORSMARTUVSYNC_PT_Panel)
     bpy.utils.register_class(UVCut)
@@ -245,10 +245,16 @@ def register_uv_tools():
     # bpy.utils.register_class(SelectSimilarUVIsland)
     bpy.utils.register_class(RemoveAllPins)
     register_uv_tools_keymaps()
-    register_uv_map_menu()
 
-def unregister_uv_tools():
-    unregister_uv_map_menu()
+def set_enabled(on):
+    """Adds Seam by Angle to Blender's UV Unwrap menu while the feature is on."""
+    if on and _uv_map_original_draw is None:
+        register_uv_map_menu()
+    elif not on and _uv_map_original_draw is not None:
+        unregister_uv_map_menu()
+
+
+def unregister():
     clear_registered_keymaps(registered_uv_tools_keymaps)
     bpy.utils.unregister_class(SmartUVSync)
     # bpy.utils.unregister_class(UVEDITORSMARTUVSYNC_PT_Panel)
@@ -908,8 +914,7 @@ class SelectSimilarUVIsland(bpy.types.Operator):
         return {'FINISHED'}
 
 class UVEDITORSMARTUVSYNC_PT_Panel(bpy.types.Panel):
-    prefs = get_keyops_prefs()
-    category_name = prefs.uv_tools_panel_name
+    category_name = "Toolkit"
     bl_label = "Key Ops: Toolkit - UV Tools"
     bl_idname = "UVEDITORSMARTUVSYNC_PT_Panel"
     bl_space_type = 'IMAGE_EDITOR'

@@ -1,5 +1,4 @@
 import bpy.types
-from ..utils.pref_utils import clear_registered_keymaps
 from mathutils import Vector, Matrix
 from bpy.types import Menu
 from ..utils.utilities import force_show_obj
@@ -11,15 +10,6 @@ from .fast_bevel import FastBevel
 
 started_in_edit_mode = False
 BLENDER_VERSION = bpy.app.version
-registered_add_modifier_pie_keymaps = []
-
-def register_add_modifier_pie_keymaps():
-    global registered_add_modifier_pie_keymaps
-    wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps.new(name='Window', space_type='EMPTY')
-    kmi = km.keymap_items.new('wm.call_menu_pie', 'Q', 'PRESS', shift=True)
-    kmi.properties.name = 'KEYOPS_MT_add_modifier_pie'
-    registered_add_modifier_pie_keymaps.append((km, kmi))
 
 boolean_objects = set()
 start_active_obj_booleon_scroll = None
@@ -730,21 +720,15 @@ class AddModifier(bpy.types.Operator):
             print("Execution time: ", time.time() - exec_time)
         return {'FINISHED'} 
     
-def register_add_modifier_pie():
-    from .fast_solidify import register_fast_solidify
-    register_fast_solidify()
+def register():
     bpy.utils.register_class(FastBevel)
     bpy.utils.register_class(FastArray)
     bpy.utils.register_class(AddModifierPie)
-    register_add_modifier_pie_keymaps()
 
-def unregister_add_modifier_pie():
-    clear_registered_keymaps(registered_add_modifier_pie_keymaps)
+def unregister():
     bpy.utils.unregister_class(AddModifierPie)
     bpy.utils.unregister_class(FastBevel)
     bpy.utils.unregister_class(FastArray)
-    from .fast_solidify import unregister_fast_solidify
-    unregister_fast_solidify()
 
 def create_lattice_object(self, context):
     coll_name = "ML_Gizmo Objects" 

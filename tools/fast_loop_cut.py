@@ -803,42 +803,41 @@ def register_fast_loop_cut_keymaps():
     registered_fast_loop_cut_keymaps.append((km, kmi))
 
 
-def register_fast_loop_cut():
-    from .merge_tool import remove_stale_tool
-
+def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-
-    try:
-        if not hasattr(WorkSpaceFastLoopCut, "_bl_tool"):
-            remove_stale_tool(WorkSpaceFastLoopCut)
-            bpy.utils.register_tool(WorkSpaceFastLoopCut, after={"builtin.bevel"}, separator=False, group=False)
-    except Exception as e:
-        print(f"Failed to register WorkSpaceFastLoopCut: {e}")
-
-    if _clear_cache_handler not in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.append(_clear_cache_handler)
-
-    if not registered_fast_loop_cut_keymaps:
-        register_fast_loop_cut_keymaps()
+    register_fast_loop_cut_keymaps()
 
 
-def unregister_fast_loop_cut():
+def unregister():
     from ..utils.pref_utils import clear_registered_keymaps
     clear_registered_keymaps(registered_fast_loop_cut_keymaps)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
 
-    if _clear_cache_handler in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.remove(_clear_cache_handler)
+
+def set_enabled(on):
+    """The tool sits in the toolbar, and its mesh cache is kept fresh, only while the feature is on."""
+    from .merge_tool import remove_stale_tool
+    handlers = bpy.app.handlers.depsgraph_update_post
+    if on:
+        if _clear_cache_handler not in handlers:
+            handlers.append(_clear_cache_handler)
+        try:
+            if not hasattr(WorkSpaceFastLoopCut, "_bl_tool"):
+                remove_stale_tool(WorkSpaceFastLoopCut)
+                bpy.utils.register_tool(WorkSpaceFastLoopCut, after={"builtin.bevel"}, separator=False, group=False)
+        except Exception as e:
+            print(f"Key Ops: could not add the Fast Loop Cut tool to the toolbar: {e}")
+        return
+    if _clear_cache_handler in handlers:
+        handlers.remove(_clear_cache_handler)
     _bvh_cache.clear()
     _preview["loops"] = []
     _preview["point"] = None
     clear_status_bar()
-
     try:
         if hasattr(WorkSpaceFastLoopCut, "_bl_tool"):
             bpy.utils.unregister_tool(WorkSpaceFastLoopCut)
     except Exception as e:
-        print(f"Failed to unregister WorkSpaceFastLoopCut: {e}")
-
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        print(f"Key Ops: could not remove the Fast Loop Cut tool from the toolbar: {e}")

@@ -46,9 +46,9 @@ class SetFlow(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_set_flow():
+def register():
     bpy.utils.register_class(SetFlow)
 
 
-def unregister_set_flow():
+def unregister():
     bpy.utils.unregister_class(SetFlow)

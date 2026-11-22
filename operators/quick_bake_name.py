@@ -17,7 +17,6 @@ import string
 from ..utils.pref_utils import get_keyops_prefs
 from ..utils.utilities import force_show_obj
 
-prefs = get_keyops_prefs()
  
 def random_name(size=5, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
@@ -234,11 +233,11 @@ With more than two selected objects, the active object becomes _low and the rest
                     obj.hide_set(True)
         return {'FINISHED'}
     
-def register_quick_bake_name():
+def register():
     bpy.utils.register_class(QuickBakeName)
     # bpy.utils.register_class(QuickBakeNamePanel)
     bpy.utils.register_class(HideShowLowHigh)
-def unregister_quick_bake_name():
+def unregister():
     bpy.utils.unregister_class(QuickBakeName)
     # bpy.utils.unregister_class(QuickBakeNamePanel)
     bpy.utils.unregister_class(HideShowLowHigh)

@@ -91,10 +91,10 @@ class QuickExport(bpy.types.Operator):
             bpy.ops.wm.alembic_export(filepath=export_path, selected=self.selected, global_scale=self.scale)
         return {'FINISHED'}
 
-def register_quick_export():
+def register():
     bpy.utils.register_class(QuickExport)
     register_quick_export_keymaps()
-def unregister_quick_export():
+def unregister():
     clear_registered_keymaps(registered_quick_export_keymaps)
     bpy.utils.unregister_class(QuickExport)
 #     def register():

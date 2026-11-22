@@ -49,23 +49,9 @@ tablet_keymap_config = [
 ]
 
 def add_sculpt_shortcuts():
-        add_shortcuts(sculpt_navigation)
-        add_shortcuts(sculpt_navigation)
-        set_shortcuts_active(sculpt_mask, set=False)
+    add_shortcuts(sculpt_navigation)
+    set_shortcuts_active(sculpt_mask, set=False)
 
-
-def update_tablet_navigation(self, context):
-    if self.maya_navigation_tablet_navigation:
-        add_shortcuts(tablet_keymap_config)
-    else:
-        remove_shortcuts(tablet_keymap_config)
-
-def update_sculpt_navigation(self, context):
-    if self.maya_navigation_sculpt_navigation:
-        add_sculpt_shortcuts()
-    else:
-        remove_shortcuts(sculpt_navigation)
-        set_shortcuts_active(sculpt_mask, set=True)
 
 mask_keymap = None
 
@@ -123,21 +109,25 @@ class MayaNavigation(bpy.types.Operator):
         pass
         return {"PASS_THROUGH"}
 
-def register_maya_navigation():
+def register():
     bpy.utils.register_class(MayaNavigation)
     register_maya_navigation_keymaps()
-    prefs = get_keyops_prefs()
-    if prefs.maya_navigation_tablet_navigation:
-        add_shortcuts(tablet_keymap_config)
 
-    if prefs.maya_navigation_sculpt_navigation:
-        bpy.app.timers.register(add_sculpt_shortcuts, first_interval=0.1)
-    
-def unregister_maya_navigation():
-    clear_registered_keymaps(registered_maya_navigation_keymaps)
-    bpy.utils.unregister_class(MayaNavigation)  
-    remove_shortcuts(tablet_keymap_config)
+
+def set_enabled(on):
+    """The optional tablet and sculpt navigation keys follow the feature."""
+    prefs = get_keyops_prefs()
+    remove_shortcuts(tablet_keymap_config)  # never add them twice
     remove_shortcuts(sculpt_navigation)
     set_shortcuts_active(sculpt_mask, set=True)
+    if on and prefs.maya_navigation_tablet_navigation:
+        add_shortcuts(tablet_keymap_config)
+    if on and prefs.maya_navigation_sculpt_navigation:
+        add_sculpt_shortcuts()
+
+
+def unregister():
+    clear_registered_keymaps(registered_maya_navigation_keymaps)
+    bpy.utils.unregister_class(MayaNavigation)
 
         

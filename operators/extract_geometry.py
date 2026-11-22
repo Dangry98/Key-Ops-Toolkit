@@ -73,9 +73,9 @@ class KEYOPS_OT_extract_geometry(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_extract_geometry():
+def register():
     bpy.utils.register_class(KEYOPS_OT_extract_geometry)
 
 
-def unregister_extract_geometry():
+def unregister():
     bpy.utils.unregister_class(KEYOPS_OT_extract_geometry)

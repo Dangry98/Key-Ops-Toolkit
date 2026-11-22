@@ -51,4 +51,6 @@ paths_exclude_pattern = [
   "/docs/",
   "/*.zip",
   "/tests/",
+  "/scripts/",
+  "/CLAUDE.local.md",
 ]

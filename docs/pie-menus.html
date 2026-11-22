@@ -79,6 +79,12 @@
   <details class="details"><summary>More info</summary><p class="where">UV Editor</p><p>Needs <a href='preferences.html#experimental'>Experimental</a>.</p><p>Straighten Quads and Straighten after Edge need an extra add-on. Without it they are greyed out.</p><p>Unwrap in Place works up to Blender 5.0. Blender 5.1 removed the operator it relies on.</p><p class="pref">Toggle in preferences: <b>UV Pies</b></p></details>
 </section>
 
+<section class="feature" id="q-menu">
+  <div class="feature-head"><h2>Q Menu</h2><span class="badge key">Q</span><span class="badge off">Off by default</span></div>
+  <p class="tagline">One popup menu that shows the tools that fit what you have selected.</p>
+  <details class="details"><summary>More info</summary><p class="where">Object Mode, Edit Mode</p><p>Add it from <b>Custom Menus › Add Preset › Q Menu</b>. It takes over Blender's Quick Favorites key; change the key in the menu editor if you use Quick Favorites.</p><ul class='plain'><li><b>Boolean</b>: Difference, Union, Intersect and Slice, when two or more meshes are selected.</li><li><b>Cut</b>: the <a href='modeling-tools.html#cutter'>Cutter</a> tool, and Boolean Scroll when the active object has booleans.</li><li><b>Modifiers</b>: <a href='modeling-tools.html#fast-mirror'>Fast Mirror</a>, <a href='modeling-tools.html#fast-bevel'>Fast Bevel</a>, <a href='modeling-tools.html#fast-array'>Fast Array</a>, <a href='modeling-tools.html#fast-solidify'>Fast Solidify</a>, more modifiers, and Apply Modifiers when the object has some.</li><li><b>Object</b>: Smart Apply Scale, Snap to Floor, Origin to Selection, Shade Auto Smooth, Clean Up.</li><li><b>Mesh</b> (Edit Mode): Boolean on the selection, Cutter, Extract Geometry, Fast Merge, Set Flow, Resample Edges, Make Trim.</li></ul><p>Every item has its own <b>Show If</b> test, so you can change what shows when. Tests can use <code>mods</code> (the active object's modifier types, e.g. <code>'BOOLEAN' in mods</code>), <code>sel</code> (how many objects are selected) and <code>len()</code>.</p></details>
+</section>
+
 <nav id="pager"></nav>
 <footer class="site-footer">Key Ops: Toolkit · GPL-3.0-or-later</footer>
 </div></main>

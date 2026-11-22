@@ -489,22 +489,21 @@ def remove_stale_tool(tool_cls):
             return
 
 
-def register_merge_tool():
+def register():
     bpy.utils.register_class(MergeTool)
 
+
+def unregister():
+    bpy.utils.unregister_class(MergeTool)
+
+
+def set_enabled(on):
+    """The tool sits in the toolbar only while the feature is on."""
     try:
-        if not hasattr(WorkSpaceMergeTool, "_bl_tool"):
+        if on and not hasattr(WorkSpaceMergeTool, "_bl_tool"):
             remove_stale_tool(WorkSpaceMergeTool)
             bpy.utils.register_tool(WorkSpaceMergeTool, after={"builtin.spin"}, separator=False, group=False)
-    except Exception as e:
-        print(f"Failed to register WorkSpaceMergeTool: {e}")
-
-
-def unregister_merge_tool():
-    try:
-        if hasattr(WorkSpaceMergeTool, "_bl_tool"):
+        elif not on and hasattr(WorkSpaceMergeTool, "_bl_tool"):
             bpy.utils.unregister_tool(WorkSpaceMergeTool)
     except Exception as e:
-        print(f"Failed to unregister WorkSpaceMergeTool: {e}")
-
-    bpy.utils.unregister_class(MergeTool)
+        print(f"Key Ops: could not update the Merge tool in the toolbar: {e}")

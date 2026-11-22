@@ -8,6 +8,7 @@ from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
 from ..utils.pref_utils import get_icon, clear_registered_keymaps
 from bpy.app.handlers import persistent
+from ..utils.pref_utils import get_keyops_prefs
 
 # Todo: Add icon in panel and add ms and tris count to panel header
 
@@ -236,7 +237,7 @@ class PolyCountList(bpy.types.Operator):
         get_poly_count(context)
         return {'FINISHED'}
     
-def register_polycount_list():
+def register():
     bpy.utils.register_class(PolyCountList)
 
     bpy.utils.register_class(KEYOPS_PT_poly_count_list_scene_panel)
@@ -244,12 +245,9 @@ def register_polycount_list():
     bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
     bpy.utils.register_class(POLYCOUNT_OT_walk)
     register_polycount_keymaps()
-    # bpy.utils.register_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
-    bpy.app.handlers.depsgraph_update_post.append(get_latest_updated_objects_in_depsgraph_poly_count_list)
-    # bpy.app.handlers.depsgraph_update_pre.append(get_obj_lookup_cache)
 
-def unregister_polycount_list():
+def unregister():
     bpy.utils.unregister_class(PolyCountList)
 
     bpy.utils.unregister_class(KEYOPS_PT_poly_count_list_scene_panel)
@@ -257,13 +255,16 @@ def unregister_polycount_list():
     bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
     clear_registered_keymaps(registered_polycount_keymaps)
     bpy.utils.unregister_class(POLYCOUNT_OT_walk)
-    # bpy.utils.unregister_class(POLYCOUNT_PT_AutoUpdate_Settings)
 
-    if get_latest_updated_objects_in_depsgraph_poly_count_list in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.remove(get_latest_updated_objects_in_depsgraph_poly_count_list)
 
-    # if get_obj_lookup_cache in bpy.app.handlers.depsgraph_update_pre:
-    #     bpy.app.handlers.depsgraph_update_pre.remove(get_obj_lookup_cache)
+def set_enabled(on):
+    """The list keeps up with edits through a depsgraph handler, only while the feature is on."""
+    handlers = bpy.app.handlers.depsgraph_update_post
+    handler = get_latest_updated_objects_in_depsgraph_poly_count_list
+    if on and handler not in handlers:
+        handlers.append(handler)
+    elif not on and handler in handlers:
+        handlers.remove(handler)
 
 ui_updates = 0
 last_draw_time = 0
@@ -490,6 +491,10 @@ class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "scene"
+
+    @classmethod
+    def poll(cls, context):
+        return get_keyops_prefs().enable_polycount_list
 
     def draw_header(self, context):
         layout = self.layout

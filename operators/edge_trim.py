@@ -183,9 +183,9 @@ def make_trims(bm, opts):
         v.select = False
 
     a, b = opts.width_a, (opts.width_b if opts.separate_widths else opts.width_a)
-    total = a + b
-    v_corner = opts.v_min + (opts.v_max - opts.v_min) * (a / total if total > 0 else 0.5)
-    limit = 4.0 * (opts.offset + max(a, b))
+    total = abs(a) + abs(b)  # a negative width points the flange the other way; the UV split uses its size
+    v_corner = opts.v_min + (opts.v_max - opts.v_min) * (abs(a) / total if total > 0 else 0.5)
+    limit = 4.0 * (abs(opts.offset) + max(abs(a), abs(b)))
     corner_edges = []
 
     def chain_length(verts, closed):
@@ -198,7 +198,8 @@ def make_trims(bm, opts):
         n = len(verts)
         frames = _segment_frames(verts, closed, opts.profile)
         sign = guess_side(frames) * (-1.0 if opts.flip_side else 1.0)  # best guess, or the other side
-        segs = [(t, up, side * sign) for t, up, side, _inward in frames]
+        up_sign = -1.0 if opts.flip_up else 1.0  # the other way along the normal, when the faces point wrong
+        segs = [(t, up * up_sign, side * sign) for t, up, side, _inward in frames]
         profiles = [_profile(up, side, opts, a, b) for _t, up, side in segs]
         rows = []  # per point: (flange A end, corner, flange B end)
         for i, v in enumerate(verts):
@@ -264,16 +265,18 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
     profile: EnumProperty(name="Profile", default="UPRIGHT", items=(
         ("WRAP", "Wrap Edge", "Fold around the edge like a corner moulding: both flanges lie back along the surface"),
         ("UPRIGHT", "Upright", "Stand one flange up from the surface, the other lying on it"))) # type: ignore
-    width_a: FloatProperty(name="Width", default=0.05, min=0.0001, soft_max=1.0, subtype='DISTANCE',
-                           description="Width of the flanges") # type: ignore
+    width_a: FloatProperty(name="Width", default=0.05, soft_min=-1.0, soft_max=1.0, subtype='DISTANCE',
+                           description="Width of the flanges. Negative points them the other way") # type: ignore
     separate_widths: BoolProperty(name="Different Widths", default=False,
                                   description="Give the second flange its own width") # type: ignore
-    width_b: FloatProperty(name="Second Width", default=0.05, min=0.0001, soft_max=1.0, subtype='DISTANCE') # type: ignore
-    offset: FloatProperty(name="Offset", default=0.002, min=0.0, soft_max=0.1, subtype='DISTANCE',
+    width_b: FloatProperty(name="Second Width", default=0.05, soft_min=-1.0, soft_max=1.0, subtype='DISTANCE') # type: ignore
+    offset: FloatProperty(name="Offset", default=0.0, soft_min=-0.1, soft_max=0.1, subtype='DISTANCE',
                           description="Gap between the trim and the surface, so they don't overlap") # type: ignore
     flip_side: BoolProperty(name="Flip Side", default=False,
                             description="Put the L on the other side of the edges. Key Ops first guesses the side "
                                         "from the geometry: toward the face the edges border, or into a loop") # type: ignore
+    flip_up: BoolProperty(name="Flip Up", default=False,
+                          description="Point the L the other way along the surface normal, when Key Ops guesses the wrong direction") # type: ignore
     flip_normals: BoolProperty(name="Flip Normals", default=False) # type: ignore
     smooth: BoolProperty(name="Smooth Shading", default=True,
                          description="Shade the trim smooth; the corner of the L stays sharp") # type: ignore
@@ -307,6 +310,7 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         layout.prop(self, "offset")
         col = layout.column(heading="Options")
         col.prop(self, "flip_side")
+        col.prop(self, "flip_up")
         col.prop(self, "flip_normals")
         col.prop(self, "smooth")
         col.prop(self, "separate")
@@ -346,9 +350,9 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_edge_trim():
+def register():
     bpy.utils.register_class(KEYOPS_OT_edge_trim)
 
 
-def unregister_edge_trim():
+def unregister():
     bpy.utils.unregister_class(KEYOPS_OT_edge_trim)

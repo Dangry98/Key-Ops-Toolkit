@@ -3,10 +3,8 @@ import bmesh
 from bpy.types import Menu, Operator
 from bpy.props import EnumProperty, BoolProperty, FloatVectorProperty
 from mathutils import Vector
-from ..utils.pref_utils import clear_registered_keymaps
 
 
-registered_flatten_pie_keymaps = []
 
 DIRECTIONS = [
     ("LEFT", "Left", "Flatten onto the left most point of the selection"),
@@ -185,26 +183,11 @@ class KEYOPS_MT_flatten_pie(Menu):
         pie.operator("keyops.flatten", text="Top", icon="TRIA_UP").direction = "TOP" #TOP
 
 
-def register_flatten_pie_keymaps():
-    wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
-    kmi = km.keymap_items.new('wm.call_menu_pie', 'THREE', 'PRESS', alt=True)
-    kmi.properties.name = 'KEYOPS_MT_flatten_pie'
-    registered_flatten_pie_keymaps.append((km, kmi))
-
-    km = wm.keyconfigs.addon.keymaps.new(name='UV Editor', space_type='EMPTY')
-    kmi = km.keymap_items.new('wm.call_menu_pie', 'THREE', 'PRESS', alt=True)
-    kmi.properties.name = 'KEYOPS_MT_flatten_pie'
-    registered_flatten_pie_keymaps.append((km, kmi))
-
-
-def register_flatten_pie():
+def register():
     bpy.utils.register_class(KEYOPS_OT_flatten)
     bpy.utils.register_class(KEYOPS_MT_flatten_pie)
-    register_flatten_pie_keymaps()
 
 
-def unregister_flatten_pie():
-    clear_registered_keymaps(registered_flatten_pie_keymaps)
+def unregister():
     bpy.utils.unregister_class(KEYOPS_MT_flatten_pie)
     bpy.utils.unregister_class(KEYOPS_OT_flatten)

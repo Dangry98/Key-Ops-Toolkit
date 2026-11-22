@@ -1,6 +1,8 @@
 """X-Ray Select: always select through geometry with the box/circle/lasso select tools.
 
-Adds an "X-Ray Select" checkbox to the tool header of the select tools, right after the Mode enum. While it's enabled, a lightweight timer watches for a running
+Adds an "X-Ray Select" checkbox to the tool header of the select tools, right after the Mode enum.
+Each tool has its own setting, so e.g. Select Box can go through while Select Circle doesn't.
+While a tool's setting is on, a lightweight timer watches for a running
 box/circle/lasso select gesture in Edit Mesh mode and turns on an opaque X-ray
 (faces stay solid, hidden wireframe shows through) for its duration, so the selection
 goes through the geometry. The previous shading is restored as soon as the gesture
@@ -11,8 +13,17 @@ Always registered (not tied to an addon preference).
 
 import bpy
 
-SELECT_TOOLS = {"builtin.select_box", "builtin.select_circle", "builtin.select_lasso"}
-SELECT_GESTURE_OPS = {"VIEW3D_OT_select_box", "VIEW3D_OT_select_circle", "VIEW3D_OT_select_lasso"}
+# Each select tool has its own on/off setting in scene.keyops
+TOOL_SETTING = {
+    "builtin.select_box": "xray_select_box",
+    "builtin.select_circle": "xray_select_circle",
+    "builtin.select_lasso": "xray_select_lasso",
+}
+GESTURE_SETTING = {
+    "VIEW3D_OT_select_box": "xray_select_box",
+    "VIEW3D_OT_select_circle": "xray_select_circle",
+    "VIEW3D_OT_select_lasso": "xray_select_lasso",
+}
 
 IDLE_INTERVAL = 0.1     # seconds between checks while no gesture is running
 ACTIVE_INTERVAL = 0.02  # seconds between checks while a gesture is running
@@ -38,9 +49,13 @@ def _window_in_edit_mesh(window):
     return obj is not None and obj.type == 'MESH' and obj.mode == 'EDIT'
 
 
-def _gesture_running(window):
+def _running_gesture(window):
+    """The scene.keyops setting name of the select gesture running in this window, or None."""
     # modal_operators can contain None entries (handlers without a Python-visible operator)
-    return any(op is not None and op.bl_idname in SELECT_GESTURE_OPS for op in window.modal_operators)
+    for op in window.modal_operators:
+        if op is not None and op.bl_idname in GESTURE_SETTING:
+            return GESTURE_SETTING[op.bl_idname]
+    return None
 
 
 def _force_xray(window):
@@ -83,39 +98,53 @@ def _xray_select_watcher():
     for window in wm.windows:
         key = window.as_pointer()
         open_windows.add(key)
-        running = _gesture_running(window)
+        setting = _running_gesture(window)
 
         if key in _forced_xray:
-            if not running:
+            if setting is None:
                 _restore_xray(key)
-        elif running and window.scene.keyops.xray_select and _window_in_edit_mesh(window):
+        elif setting and getattr(window.scene.keyops, setting) and _window_in_edit_mesh(window):
             _force_xray(window)
 
     for key in list(_forced_xray):  # windows closed mid-gesture
         if key not in open_windows:
             _forced_xray.pop(key, None)
 
-    return ACTIVE_INTERVAL if _forced_xray or any(_gesture_running(w) for w in wm.windows) else IDLE_INTERVAL
+    busy = _forced_xray or any(_running_gesture(w) for w in wm.windows)
+    return ACTIVE_INTERVAL if busy else IDLE_INTERVAL
 
 
 class XraySelectToggleOperator(bpy.types.Operator):
     bl_idname = "keyops.xray_select_toggle"
     bl_label = "KeyOps: Toggle X-Ray Select"
-    bl_description = "Toggle always selecting through geometry with the box, circle and lasso select tools"
+    bl_description = "Toggle always selecting through geometry for the active select tool (box, circle or lasso)"
     bl_options = {'REGISTER'}
 
+    @classmethod
+    def poll(cls, context):
+        return _active_tool_setting(context) is not None
+
     def execute(self, context):
-        context.scene.keyops.xray_select = not context.scene.keyops.xray_select
+        setting = _active_tool_setting(context)
+        keyops = context.scene.keyops
+        setattr(keyops, setting, not getattr(keyops, setting))
         return {'FINISHED'}
 
 
-def _draw_select_through(context, layout):
-    if context.mode != 'EDIT_MESH' or getattr(context.space_data, "type", None) != 'VIEW_3D':
-        return
+def _active_tool_setting(context):
+    """The scene.keyops setting for the active Edit Mesh select tool, or None for other tools."""
+    if context.mode != 'EDIT_MESH':
+        return None
     tool = context.workspace.tools.from_space_view3d_mode(context.mode, create=False)
-    if tool is None or tool.idname not in SELECT_TOOLS:
+    return TOOL_SETTING.get(tool.idname) if tool else None
+
+
+def _draw_select_through(context, layout):
+    if getattr(context.space_data, "type", None) != 'VIEW_3D':
         return
-    layout.prop(context.scene.keyops, "xray_select", text="X-Ray Select")
+    setting = _active_tool_setting(context)
+    if setting:
+        layout.prop(context.scene.keyops, setting, text="X-Ray Select")
 
 
 # The select tools' Mode enum is drawn by the tool's own draw_settings, called from

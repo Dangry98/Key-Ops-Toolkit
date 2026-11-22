@@ -202,9 +202,9 @@ class KEYOPS_OT_mesh_cleanup(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_mesh_cleanup():
+def register():
     bpy.utils.register_class(KEYOPS_OT_mesh_cleanup)
 
 
-def unregister_mesh_cleanup():
+def unregister():
     bpy.utils.unregister_class(KEYOPS_OT_mesh_cleanup)

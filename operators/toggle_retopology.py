@@ -385,14 +385,14 @@ class RETOPOLOGY_PT_Settings(bpy.types.Panel):
         row.prop(prefs, "toggle_retopology_snapping_settings_face_project", icon="SNAP_FACE")
         row.prop(prefs, "toggle_retopology_snapping_settings_face_nearest", icon="MOD_SHRINKWRAP")
 
-def register_toggle_retopology():
+def register():
     bpy.utils.register_class(SearchRetopologyTool)
     bpy.utils.register_class(ToggleRetopology)
     # bpy.utils.register_class(Retopolgy_Panel)
     bpy.utils.register_class(RETOPOLOGY_PT_Settings)
     register_toggle_retopology_keymaps()
 
-def unregister_toggle_retopology():
+def unregister():
     clear_registered_keymaps(registered_toggle_retopology_keymaps)
     bpy.utils.unregister_class(ToggleRetopology)
     bpy.utils.unregister_class(SearchRetopologyTool)

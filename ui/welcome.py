@@ -26,12 +26,32 @@ def _find_view3d(context):
     return None, None, None
 
 
-def _invoke_welcome(whats_new=False):
+def _invoke(operator, **props):
     window, area, region = _find_view3d(bpy.context)
     if window is None:
-        return None
+        return
     with bpy.context.temp_override(window=window, area=area, region=region):
-        bpy.ops.keyops.welcome('INVOKE_DEFAULT', whats_new=whats_new)
+        operator('INVOKE_DEFAULT', **props)
+
+
+def _invoke_welcome(whats_new=False):
+    _invoke(bpy.ops.keyops.welcome, whats_new=whats_new)
+    return None
+
+
+def _splash_is_open():
+    """Blender shows its splash screen when it starts without a file. Python can't ask
+    whether it is still open, so at startup we wait for the first click or key, which
+    closes it."""
+    starting_up = not bpy.context.preferences.is_dirty  # enabling in Preferences marks them changed
+    return starting_up and bpy.context.preferences.view.show_splash and not bpy.data.filepath
+
+
+def _show_first_screen(whats_new):
+    if _splash_is_open():
+        _invoke(bpy.ops.keyops.welcome_wait_for_splash, whats_new=whats_new)
+    else:
+        _invoke_welcome(whats_new)
     return None
 
 
@@ -55,9 +75,32 @@ def schedule_welcome():
         return
     kind = first_screen(get_keyops_prefs())
     if kind == 'WELCOME':
-        bpy.app.timers.register(_invoke_welcome, first_interval=1.0)
+        bpy.app.timers.register(lambda: _show_first_screen(False), first_interval=1.0)
     elif kind == 'WHATS_NEW':
-        bpy.app.timers.register(lambda: _invoke_welcome(True), first_interval=1.0)
+        bpy.app.timers.register(lambda: _show_first_screen(True), first_interval=1.0)
+
+
+class KEYOPS_OT_welcome_wait_for_splash(bpy.types.Operator):
+    """Waits for Blender's splash screen to close, then opens the Key Ops welcome screen.
+    Every event is passed on, so the splash screen works as usual."""
+    bl_idname = "keyops.welcome_wait_for_splash"
+    bl_label = "Wait for Splash Screen"
+    bl_options = {'INTERNAL'}
+
+    whats_new: BoolProperty(options={'SKIP_SAVE'}) # type: ignore
+
+    def invoke(self, context, event):
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        closes_splash = event.value == 'PRESS' and (
+            event.type in {'LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE', 'ESC', 'RET', 'NUMPAD_ENTER'})
+        if closes_splash:
+            whats_new = self.whats_new
+            bpy.app.timers.register(lambda: _invoke_welcome(whats_new), first_interval=0.3)
+            return {'FINISHED', 'PASS_THROUGH'}
+        return {'PASS_THROUGH'}
 
 
 class KEYOPS_OT_toggle_feature_card(bpy.types.Operator):
@@ -226,6 +269,7 @@ class KEYOPS_OT_shortcut_cheatsheet(bpy.types.Operator):
 
 classes = (
     KEYOPS_OT_welcome,
+    KEYOPS_OT_welcome_wait_for_splash,
     KEYOPS_OT_toggle_feature_card,
     KEYOPS_OT_shortcut_group_toggle,
     KEYOPS_OT_shortcut_group_restore,
@@ -242,6 +286,8 @@ def register():
 
 
 def unregister():
+    from .splash import remove_overlay
+    remove_overlay()
     branding.unregister()
     del bpy.types.WindowManager.keyops_open_feature
     for cls in reversed(classes):

@@ -193,9 +193,20 @@ class KeyOpsSceneProperties(PropertyGroup):
     )
 
     # --- X-Ray select (operators/xray_select.py) -----------------------------
-    xray_select: BoolProperty(  # type: ignore
+    # One setting per select tool, so each tool remembers its own (like its Mode)
+    xray_select_box: BoolProperty(  # type: ignore
         name="X-Ray Select",
-        description="Always select through geometry when using the box, circle or lasso select tools",
+        description="Always select through geometry with the Select Box tool",
+        default=False,
+    )
+    xray_select_circle: BoolProperty(  # type: ignore
+        name="X-Ray Select",
+        description="Always select through geometry with the Select Circle tool",
+        default=False,
+    )
+    xray_select_lasso: BoolProperty(  # type: ignore
+        name="X-Ray Select",
+        description="Always select through geometry with the Select Lasso tool",
         default=False,
     )
 

@@ -162,9 +162,9 @@ class ParentUsedObjects(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register_parent_used_objects():
+def register():
     bpy.utils.register_class(ParentUsedObjects)
 
 
-def unregister_parent_used_objects():
+def unregister():
     bpy.utils.unregister_class(ParentUsedObjects)

@@ -843,7 +843,7 @@ def menu_func(self, context):
         self.layout.operator(KEYOPS_OT_select_similar.bl_idname, text="Select Similar Objects")
 
 
-def register_select_similar():
+def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -857,7 +857,7 @@ def register_select_similar():
             pass
 
 
-def unregister_select_similar():
+def unregister():
     for name in reversed(_MENUS):
         try:
             getattr(bpy.types, name).remove(menu_func)

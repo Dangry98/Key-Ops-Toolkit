@@ -6,13 +6,8 @@ import math
 from ..utils.utilities import BLENDER_VERSION_MAJOR_POINT_MINOR, select_loop, select_ring, operator_exists, safe_icon
 from ..utils.pref_utils import get_icon
 from .add_modifier import AddModifier
-from .smart_apply_scale import SmartApplyScale
 from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
-from .extrude_edge_along_normals import register_extrude_edge_along_normals, unregister_extrude_edge_along_normals
-from .offset_extrude_edge import register_offset_extrude_edge, unregister_offset_extrude_edge
-from .set_flow import register_set_flow, unregister_set_flow
-from .fast_mirror import register_fast_mirror, unregister_fast_mirror
 from ..utils.node_groups import get_node_group
 
 from .subobject_modes import draw_mode_row
@@ -981,77 +976,6 @@ class ToolkitPanel(bpy.types.Operator):
 
         return {'FINISHED'}
 
-def register_toolkit_panel():
-    from .snap_to_floor import register_snap_to_floor
-    from .parent_used_objects import register_parent_used_objects
-    from .resample_edges import register_resample_edges
-    from .mesh_cleanup import register_mesh_cleanup
-    from .extract_geometry import register_extract_geometry
-    register_extract_geometry()
-    from .edge_trim import register_edge_trim
-    from .subobject_modes import register_sub_object_modes
-    register_sub_object_modes()
-    register_edge_trim()
-    register_resample_edges()
-    register_mesh_cleanup()
-    register_set_flow()
-    register_fast_mirror()
-    register_snap_to_floor()
-    register_parent_used_objects()
-    bpy.utils.register_class(ToolkitPanel)
-    # bpy.utils.register_class(NewToolkitPanel)
-    # bpy.utils.register_class(ObjectModePanel)
-    # bpy.utils.register_class(ModifierPanel)
-    # bpy.utils.register_class(EditModePanel)
-    #bpy.utils.register_class(SmartExtrude)
-    register_extrude_edge_along_normals()
-    register_offset_extrude_edge()
-    bpy.utils.register_class(EDIT_PT_Settings)
-    bpy.utils.register_class(AddModifier)
-    bpy.utils.register_class(SmartApplyScale)
-    bpy.utils.register_class(AddBooleanModifier)
-    bpy.utils.register_class(BooleanScroll)
-    register_toolkit_panel_keymaps()
-    # bpy.types.Scene.RGB_Enum = bpy.props.EnumProperty(items=[('R', 'Red', 'Red', 'EVENT_R', 0), ('G', 'Green', 'Green', 'EVENT_G', 1), ('B', 'Blue', 'Blue', 'EVENT_B', 2)], name="RGB", default='R', update=click_rgb_enum)
-    bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
-    bpy.context.window_manager.live_booleans = True
-
-def unregister_toolkit_panel():
-    from .snap_to_floor import unregister_snap_to_floor
-    from .parent_used_objects import unregister_parent_used_objects
-    from .resample_edges import unregister_resample_edges
-    from .mesh_cleanup import unregister_mesh_cleanup
-    from .extract_geometry import unregister_extract_geometry
-    unregister_extract_geometry()
-    from .edge_trim import unregister_edge_trim
-    from .subobject_modes import unregister_sub_object_modes
-    unregister_sub_object_modes()
-    unregister_edge_trim()
-    unregister_resample_edges()
-    unregister_mesh_cleanup()
-    clear_registered_keymaps(registered_toolkit_panel_keymaps)
-    unregister_fast_mirror()
-    unregister_set_flow()
-    unregister_snap_to_floor()
-    unregister_parent_used_objects()
-    bpy.utils.unregister_class(ToolkitPanel)
-    # bpy.utils.unregister_class(ObjectModePanel)
-    # bpy.utils.unregister_class(ModifierPanel)
-    # bpy.utils.unregister_class(EditModePanel)
-    #bpy.utils.unregister_class(SmartExtrude)
-    unregister_extrude_edge_along_normals()
-    unregister_offset_extrude_edge()
-    bpy.utils.unregister_class(EDIT_PT_Settings)
-    bpy.utils.unregister_class(AddModifier)
-    bpy.utils.unregister_class(SmartApplyScale)
-    bpy.utils.unregister_class(AddBooleanModifier)
-    bpy.utils.unregister_class(BooleanScroll)
-    # bpy.utils.unregister_class(NewToolkitPanel)
-    # del bpy.types.Scene.RGB_Enum
-    del bpy.types.WindowManager.live_booleans
-    if ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered:
-        bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)
-
 def toggle_realtime_booleans(self, context):
     # Update callbacks fire on every assignment, not only when the value changes.
     is_registered = ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered
@@ -1127,14 +1051,6 @@ class ExtrudeEdgeByNormal(bpy.types.Operator):
 
         return {'FINISHED'}
     
-def register():
-    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.prepend(menu_extrude)
-def unregister():
-    bpy.types.VIEW3D_MT_edit_mesh_extrude_pre.remove(menu_extrude)
-
-def menu_extrude(self, context):
-    if bpy.context.mode == 'EDIT_MESH' and not bpy.context.tool_settings.mesh_select_mode[2] == True:
-        self.layout.operator(ExtrudeEdgeByNormal.bl_idname, text="Extrude Edge by Normal")
 def draw_modifier_panel(self, context, draw_header=False):
         layout = self.layout
         prefs = get_keyops_prefs()
@@ -1492,4 +1408,22 @@ class EDIT_PT_Settings(bpy.types.Panel):
             col.label(text="Key Ops + Blender operators", icon='INFO')
         else:
             col.label(text="Key Ops operators only", icon='INFO')
-        
+
+
+classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    register_toolkit_panel_keymaps()
+    bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
+
+
+def unregister():
+    clear_registered_keymaps(registered_toolkit_panel_keymaps)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    del bpy.types.WindowManager.live_booleans
+    if ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered:
+        bpy.utils.unregister_class(ENTERING_TRANSFORM_OT_None_Live_Booleans)

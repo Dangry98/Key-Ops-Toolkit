@@ -126,9 +126,9 @@ def run():
 
     # ---- feature off/on
     p.enable_maya_pivot = False
-    check("feature off removes its keymap items", not any(kmi.idname == "keyops.pivot_press" for _k, kmi in addon_items()))
+    check("feature off switches its keys off", not any(kmi.idname == "keyops.pivot_press" and kmi.active for _k, kmi in addon_items()))
     p.enable_maya_pivot = True
-    check("feature on restores its keymap items", any(kmi.idname == "keyops.pivot_press" for _k, kmi in addon_items()))
+    check("feature on switches its keys back on", any(kmi.idname == "keyops.pivot_press" and kmi.active for _k, kmi in addon_items()))
 
     # ---- pies are editable
     pie = next(x for x in p.pies if x.preset == "add_objects")
@@ -293,6 +293,32 @@ def run():
     view = next(x for x in p.pies if x.preset == "view")
     blender_view = ["view3d.view_axis"] * 6 + ["view3d.view_camera", "view3d.view_selected"]
     check("View pie matches Blender's View pie slot for slot", [i.idname for i in view.items] == blender_view and view.key == "SPACE")
+
+    # ---- Q Menu preset: a popup menu whose items pick themselves with Show If
+    check("Q Menu is only added from Add Preset", not any(x.preset == "q_menu" for x in p.pies))
+    bpy.ops.keyops.pie_add(preset="q_menu")
+    qm = p.pies[-1]
+    bad_ops = [i.idname for i in qm.items if i.kind == PM.O
+               and i.idname.partition(".")[2] not in dir(getattr(bpy.ops, i.idname.partition(".")[0]))]
+    bad_icons = [i.icon for i in qm.items if i.icon and i.icon not in PM._ICONS]
+    check("Q Menu: popup menu on Q, every item has a Show If", qm.menu_type == "MENU" and qm.key == "Q"
+          and all(i.show_if for i in qm.items), str([i.label for i in qm.items if not i.show_if]))
+    check("Q Menu: every operator and icon exists", not bad_ops and not bad_icons, f"{bad_ops} {bad_icons}")
+    bad_tests = []
+    for i in qm.items:
+        try:
+            PM.safe_test(i.show_if, bpy.context)
+        except Exception as e:  # noqa: BLE001
+            bad_tests.append(f"{i.label}: {e}")
+    check("Q Menu: every Show If test reads", not bad_tests, str(bad_tests))
+    check("tests can use len(), mods and sel", PM.safe_test("len(mods) >= 0 and sel >= 0 and len(C.selected_objects) == sel",
+                                                         bpy.context))
+    sub = next(i for i in qm.items if i.kind == PM.SUB)
+    check("Q Menu: More Modifiers opens the Add Modifier pie", PM.find_pie(sub.idname) is not None
+          and PM.find_pie(sub.idname).preset == "add_modifier")
+    shown = [(n, i) for n, i in enumerate(qm.items) if PM.item_visible(bpy.context, i, qm.uid)]
+    check("hidden items never leave an empty column", all(PM.layout_groups(shown)))
+    p.pies.remove(list(p.pies).index(qm))
     bpy.ops.keyops.pie_add(menu_type="MENU")
     menu = p.pies[-1]
     p.active_pie = len(p.pies) - 1
@@ -472,15 +498,20 @@ def run():
     PM.loaded_from_disk = False
     with F.suspended():
         p.enable_auto_delete = True   # an explicitly saved 0.2 setting
-    p["enable_cursor_pie"] = 0        # a 0.2 user who had switched the Cursor pie off
-    p["enable_workspace_pie"] = 1     # ...and the Workspace pie on
+    # Blender 5.4 dropped IDProperty access on add-on preferences, so raw 0.2 pie switches
+    # can't be saved (or read back by features._saved_value) there. Only test the carry-over before 5.4.
+    raw_props = bpy.app.version < (5, 4, 0)
+    if raw_props:
+        p["enable_cursor_pie"] = 0        # a 0.2 user who had switched the Cursor pie off
+        p["enable_workspace_pie"] = 1     # ...and the Workspace pie on
     F.migrate()
-    F.sync_all()
+    F.apply_all()
     PM = sys.modules[MOD].pie_menus
     check("upgrade keeps 0.2 pies on", PM.live_count() >= 3, str(PM.live_count()))
     states = {x.preset: x.enabled for x in p.pies}
-    check("upgrade keeps a pie the user switched off in 0.2 (Cursor)", states["cursor"] is False, str(states))
-    check("upgrade keeps a pie the user switched on in 0.2 (Workspace)", states["workspace"] is True)
+    if raw_props:
+        check("upgrade keeps a pie the user switched off in 0.2 (Cursor)", states["cursor"] is False, str(states))
+        check("upgrade keeps a pie the user switched on in 0.2 (Workspace)", states["workspace"] is True)
     check("upgrade keeps 0.2 shortcuts on", any(kmi.type == "DEL" and kmi.active for _k, kmi in addon_items()))
     check("upgrade shows What's new", p.show_whats_new)
     addon_utils.disable(MOD, default_set=True)

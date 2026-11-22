@@ -21,12 +21,12 @@ def _new(store, keymap, idname, key, menu, space_type="EMPTY", **mods):
     store.append((km, kmi))
 
 
-def register_w_context_menu():
+def register():
     _new(registered_w_context_menu_keymaps, "Object Mode", "wm.call_menu", "W", "VIEW3D_MT_object_context_menu")
     _new(registered_w_context_menu_keymaps, "Mesh", "wm.call_menu", "W", "VIEW3D_MT_edit_mesh_context_menu")
     _new(registered_w_context_menu_keymaps, "Curve", "wm.call_menu", "W", "VIEW3D_MT_edit_curve_context_menu")
 
 
-def unregister_w_context_menu():
+def unregister():
     unregister_keymaps(registered_w_context_menu_keymaps)
     registered_w_context_menu_keymaps.clear()

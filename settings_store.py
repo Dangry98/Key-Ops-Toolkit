@@ -290,7 +290,7 @@ def _load_preferences(prefs, data, merge):
                 setattr(prefs, name, value)
             except (TypeError, ValueError, AttributeError):
                 pass
-    features.sync_all()
+    features.apply_all()
 
 
 register_section("preferences", _save_preferences, _load_preferences, own_file=False)

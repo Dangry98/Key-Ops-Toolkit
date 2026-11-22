@@ -1367,7 +1367,7 @@ def remove_draw_handlers():
             pass
 
 
-def register_fast_mirror():
+def register():
     wm_type = bpy.types.WindowManager
     wm_type.keyops_fast_mirror_gizmo = bpy.props.BoolProperty(name="Mirror Gizmo", description="Show the Fast Mirror gizmo", default=False) # type: ignore
     wm_type.keyops_fast_mirror_mode = bpy.props.EnumProperty(name="Mirror Mode", items=MODE_ITEMS, default=DEFAULT_MODE, update=on_fast_mirror_mode_changed) # type: ignore
@@ -1393,7 +1393,7 @@ def register_fast_mirror():
     bpy.app.driver_namespace[HANDLERS_KEY] = (handler,)
 
 
-def unregister_fast_mirror():
+def unregister():
     global last_hovered_arrow, last_modal_hovered_arrow
 
     context = bpy.context

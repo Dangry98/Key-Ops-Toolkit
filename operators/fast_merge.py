@@ -102,13 +102,16 @@ class FastMerge(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     preserve_uvs: bpy.props.BoolProperty(name="Preserve UVs", description="Try Preserve UVs (Slower and does not always work)", default=True) # type: ignore
-    prefs = get_keyops_prefs()
     mouse_position = Vector((0, 0))
     draw_preserve_uvs = False
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'EDIT_MESH' and context.scene.tool_settings.mesh_select_mode[0]
+
+    @property
+    def prefs(self):
+        return get_keyops_prefs()
 
     def invoke(self, context, event):
         self.mouse_position[0] = event.mouse_region_x
@@ -193,14 +196,14 @@ class FastMerge(bpy.types.Operator):
         has_clicked_once = None
             
         return {'FINISHED'}
-def register_fast_merge():
+def register():
     bpy.utils.register_class(FastMerge)
     bpy.utils.register_class(FastKnife)
     bpy.utils.register_class(FastConnect)
     bpy.utils.register_class(Connect)
     register_fast_merge_keymaps()
 
-def unregister_fast_merge():
+def unregister():
     clear_registered_keymaps(registered_fast_merge_keymaps)
     bpy.utils.unregister_class(FastMerge)
     bpy.utils.unregister_class(FastKnife)

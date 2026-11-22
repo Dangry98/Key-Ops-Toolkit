@@ -84,7 +84,7 @@ def toggle_deafult_gizmos(context, hide=False):
 
 def should_show_pivot_gizmo(context):
     prefs = get_keyops_prefs()
-    if not prefs:
+    if not prefs or not prefs.enable_maya_pivot:
         return False
     show_gizmo = prefs.maya_pivot_show_gizmo
     wm = context.window_manager
@@ -296,7 +296,7 @@ class PivotPress(bpy.types.Operator):
                     return {'PASS_THROUGH'}
         return {'FINISHED'}
 
-def register_maya_pivot():
+def register():
     bpy.utils.register_class(PivotPress)
     bpy.utils.register_class(MayaPivotGizmoGroup)
     bpy.utils.register_class(ResetButton)
@@ -307,7 +307,7 @@ def register_maya_pivot():
         description="Show 3D Cursor Gizmo",
         default=False)
 
-def unregister_maya_pivot():
+def unregister():
     clear_registered_keymaps(registered_maya_pivot_keymaps)
     bpy.utils.unregister_class(PivotPress)
     bpy.utils.unregister_class(MayaPivotGizmoGroup)

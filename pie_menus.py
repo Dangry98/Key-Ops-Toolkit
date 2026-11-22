@@ -93,6 +93,63 @@ def _op(label, icon, idname, props=""):
     return (O, label, icon, idname, props)
 
 
+def _q_menu_items():
+    """The Q Menu preset: (kind, label, icon, idname, props, show_if) for each item."""
+    obj_mesh = "mode == 'OBJECT' and obj and obj.type == 'MESH'"
+    booleans = obj_mesh + " and sel > 1"
+    has_bool = "mode == 'OBJECT' and 'BOOLEAN' in mods"
+    mesh = "obj and obj.type == 'MESH' and mode in ('OBJECT', 'EDIT_MESH')"
+    edit = "mode == 'EDIT_MESH'"
+    obj_mode = "mode == 'OBJECT'"
+
+    def item(test, kind, label, icon="", idname="", props=""):
+        return (kind, label, icon, idname, props, test)
+
+    def op(test, label, icon, idname, props=""):
+        return item(test, O, label, icon, idname, props)
+
+    bool_op = "object.add_boolean_modifier_operator"
+    return (
+        # first column: booleans and cutters in Object Mode, mesh tools in Edit Mode
+        item(booleans, LABEL, "Boolean", "MOD_BOOLEAN"),
+        op(booleans, "Difference", "SELECT_SUBTRACT", bool_op, "type='DIFFERENCE'"),
+        op(booleans, "Union", "SELECT_EXTEND", bool_op, "type='UNION'"),
+        op(booleans, "Intersect", "SELECT_INTERSECT", bool_op, "type='INTERSECT'"),
+        op(booleans, "Slice", "SELECT_DIFFERENCE", bool_op, "type='SLICE'"),
+        item(obj_mesh, LABEL, "Cut", "MOD_BOOLEAN"),
+        op(obj_mesh, "Cutter Tool", "MOD_BOOLEAN", "wm.tool_set_by_id", "name='object.keyops_cutter_tool'"),
+        op(has_bool, "Boolean Scroll", "SORTSIZE", "object.boolean_scroll"),
+        item(edit, LABEL, "Mesh", "EDITMODE_HLT"),
+        op(edit, "Boolean Cut Selected", "SELECT_SUBTRACT", "mesh.intersect_boolean", "operation='DIFFERENCE'"),
+        op(edit, "Boolean Union Selected", "SELECT_EXTEND", "mesh.intersect_boolean", "operation='UNION'"),
+        op(edit, "Cutter Tool", "MOD_BOOLEAN", "wm.tool_set_by_id", "name='mesh.keyops_cutter_tool'"),
+        op(edit, "Extract Geometry", "UNLINKED", "keyops.extract_geometry"),
+        op(edit, "Fast Merge", "AUTOMERGE_OFF", "keyops.fast_merge"),
+        op(edit, "Set Flow", "MOD_SMOOTH", "mesh.set_mesh_edge_flow"),
+        op(edit, "Resample Edges", "CURVE_PATH", "keyops.resample_edges"),
+        op(edit, "Make Trim", "MOD_EDGESPLIT", "keyops.edge_trim"),
+        # second column: the modifier modals, for meshes in Object and Edit Mode
+        item(mesh, BREAK, ""),
+        item(mesh, LABEL, "Modifiers", "MODIFIER"),
+        op(mesh, "Fast Mirror", "MOD_MIRROR", "keyops.fast_mirror"),
+        op(mesh, "Fast Bevel", "MOD_BEVEL", "keyops.fast_bevel"),
+        op(mesh, "Fast Array", "MOD_ARRAY", "keyops.fast_array"),
+        op(mesh, "Fast Solidify", "MOD_SOLIDIFY", "keyops.fast_solidify"),
+        op(mesh, "Weighted Normal", "MOD_NORMALEDIT", "keyops.add_modifier", "type='WEIGHTED_NORMAL'"),
+        op(mesh, "Triangulate", "MOD_TRIANGULATE", "keyops.add_modifier", "type='TRIANGULATE'"),
+        item(mesh, SUB, "More Modifiers", "ADD", "preset:add_modifier"),
+        op("mode == 'OBJECT' and len(mods) > 0", "Apply Modifiers", "CHECKMARK", "object.convert", "target='MESH'"),
+        # third column: object tools in Object Mode
+        item(obj_mode, BREAK, ""),
+        item(obj_mode, LABEL, "Object", "OBJECT_DATAMODE"),
+        op(obj_mode, "Smart Apply Scale", "CON_SIZELIKE", "object.smart_apply_scale"),
+        op(obj_mode, "Snap to Floor", "SNAP_FACE", "keyops.snap_to_floor"),
+        op(obj_mode, "Origin to Selection", "LAYER_USED", "keyops.origin_to_selection", "type='origin_to_geometry'"),
+        op(obj_mesh, "Shade Auto Smooth", "MOD_SMOOTH", "object.shade_auto_smooth"),
+        op(obj_mesh, "Clean Up", "BRUSH_DATA", "keyops.mesh_cleanup"),
+    )
+
+
 PRESETS = (
     dict(id="add_objects", name="Add Objects", editor="3D View Generic", key="A", shift=True, alt=True,
          styles={"BLENDER_PLUS", "INDUSTRY"}, items=(
@@ -114,7 +171,7 @@ PRESETS = (
              _op("Weld", "AUTOMERGE_OFF", "keyops.add_modifier", "type='WELD'"),
              _op("Triangulate", "MOD_TRIANGULATE", "keyops.add_modifier", "type='TRIANGULATE'"),
              _op("Shrinkwrap", "MOD_SHRINKWRAP", "keyops.add_modifier", "type='SHRINKWRAP'"))),
-    dict(id="flatten", name="Flatten", editor="Mesh", key="THREE", alt=True,
+    dict(id="flatten", name="Flatten", editor="Mesh, UV Editor", key="THREE", alt=True,
          styles={"BLENDER_PLUS", "INDUSTRY"}, items=(
              _op("Left", "TRIA_LEFT", "keyops.flatten", "direction='LEFT'"),
              _op("Right", "TRIA_RIGHT", "keyops.flatten", "direction='RIGHT'"),
@@ -229,6 +286,12 @@ PRESETS = (
                  *(("mesh.select_edge_ring_multi",) if bpy.app.version >= (5, 1, 0) else ("mesh.loop_multi_select", "ring=True"))),
              _op("To Inner Region", "SNAP_FACE", "mesh.loop_to_region"),
              _op("To Edge Perimeter", "MESH_CAPSULE", "mesh.region_to_loop"))),
+) + (
+    # ---- Q Menu: optional preset. One popup menu whose items change with the mode and the selection:
+    # booleans when two or more meshes are selected, Boolean Scroll when the active object has booleans,
+    # the modifier modals for meshes, edit-mode tools in Edit Mode. Each item's Show If does the picking.
+    dict(id="q_menu", name="Q Menu", editor="Object Mode, Mesh", key="Q", menu_type="MENU",
+         optional=True, styles=set(), items=_q_menu_items()),
 )
 PRESET_BY_ID = {p["id"]: p for p in PRESETS}
 # The presets that existed before files recorded which presets they had seen
@@ -262,8 +325,8 @@ def _sync_update(self, context):
 def _build_catalog():
     seen, out = set(), []
     for preset in PRESETS:
-        for kind, label, icon, idname, props in preset["items"]:
-            if kind in (N, SUB) or (kind, idname, props) in seen:
+        for kind, label, icon, idname, props, *_show_if in preset["items"]:
+            if kind in (N, SUB, LABEL) or (kind, idname, props) in seen:
                 continue
             seen.add((kind, idname, props))
             out.append((preset["name"], kind, label, icon, idname, props))
@@ -408,7 +471,8 @@ class KeyOpsPieItem(PropertyGroup):
     props: StringProperty(name="Options", description="Operator options, e.g. type='WELD', segments=4", update=_changed) # type: ignore
     show_if: StringProperty(name="Show If", update=_changed,
                             description="Optional test, e.g. space.shading.type == 'SOLID'. The item is only shown "
-                                        "when it's true. Names: C, obj, space, scene, tool, mode") # type: ignore
+                                        "when it's true. Names: C, obj, space, scene, tool, mode, "
+                                        "mods (modifier types, e.g. 'BOOLEAN' in mods), sel (selected count)") # type: ignore
     choice: EnumProperty(name="Action", description="What this slot does. Pick any Key Ops action",
                          items=_choice_items, get=_choice_get, set=_choice_set) # type: ignore
 
@@ -446,7 +510,8 @@ class KeyOpsPie(PropertyGroup):
     condition: StringProperty(
         name="Show When", update=_changed,
         description="Optional test on settings, e.g. obj and obj.type == 'MESH' or space.shading.type == 'SOLID'. "
-                    "Names: C (context), obj, space, scene, tool, mode. When it's false, the key does what Blender does") # type: ignore
+                    "Names: C (context), obj, space, scene, tool, mode, mods (modifier types), sel (selected count). "
+                    "When it's false, the key does what Blender does") # type: ignore
     append_to: StringProperty(name="Add To", update=_sync_update, search=lambda self, context, text: _append_targets(text),
                               description="Also show this menu inside one of Blender's menus, headers or panels, "
                                           "e.g. VIEW3D_MT_object_context_menu (right-click menu in Object Mode)") # type: ignore
@@ -482,12 +547,16 @@ def _fill(pie, preset):
     pie.shift = preset.get("shift", False)
     pie.alt = preset.get("alt", False)
     pie.key_event = preset.get("key_event", "PRESS")
+    pie.menu_type = preset.get("menu_type", "PIE")
+    pie.condition = preset.get("condition", "")
     pie.items.clear()
-    for kind, label, icon, idname, props in preset["items"]:
+    # items are (kind, label, icon, idname, props) with an optional sixth field: the item's Show If test
+    for kind, label, icon, idname, props, *show_if in preset["items"]:
         it = pie.items.add()
         if kind == SUB and idname.startswith("preset:"):
             idname = _pie_for_preset(idname[len("preset:"):])
         it.kind, it.label, it.icon, it.idname, it.props = kind, label, icon, idname, props
+        it.show_if = show_if[0] if show_if else ""
 
 
 def _pie_for_preset(preset_id):
@@ -528,7 +597,7 @@ PIE_FIELDS = ("uid", "name", "preset", "enabled", "menu_type", "editor", "key", 
 ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
                "display", "emboss", "height", "width", "same_row", "alert", "setting_style")
 STEP_FIELDS = ("idname", "props", "interactive")
-PIE_SCHEMA = 6  # bump when the saved layout changes, and add a migration below
+PIE_SCHEMA = 7  # bump when the saved layout changes, and add a migration below
 
 
 def _extra(obj):
@@ -651,8 +720,16 @@ def _migrate_pies_5_to_6(data):
     return data
 
 
+def _migrate_pies_6_to_7(data):
+    """Schema 7: the Flatten preset also works in the UV Editor (Flatten straightens UVs there)."""
+    for p in data.get("pies", []):
+        if p.get("preset") == "flatten" and p.get("editor") == "Mesh":
+            p["editor"] = "Mesh, UV Editor"
+    return data
+
+
 PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3, 3: _migrate_pies_3_to_4, 4: _migrate_pies_4_to_5,
-                  5: _migrate_pies_5_to_6}
+                  5: _migrate_pies_5_to_6, 6: _migrate_pies_6_to_7}
 
 
 def load_from_disk():
@@ -1090,9 +1167,14 @@ _CMP = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b, ast.Lt: lam
 
 
 def _test_names(context):
-    return {"C": context, "context": context, "obj": getattr(context, "active_object", None),
+    obj = getattr(context, "active_object", None)
+    return {"C": context, "context": context, "obj": obj,
             "space": getattr(context, "space_data", None), "scene": getattr(context, "scene", None),
             "tool": getattr(getattr(context, "scene", None), "tool_settings", None), "mode": context.mode,
+            # mods: the active object's modifier types, e.g. 'BOOLEAN' in mods
+            "mods": tuple(m.type for m in getattr(obj, "modifiers", ())),
+            # sel: how many objects are selected, e.g. sel > 1
+            "sel": len(getattr(context, "selected_objects", None) or ()),
             "True": True, "False": False, "None": None}
 
 
@@ -1115,11 +1197,15 @@ def _test_value(node, names):
         return True
     if isinstance(node, ast.Constant):
         return node.value
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "len"
+            and len(node.args) == 1 and not node.keywords):  # len() is the one call a test may make
+        value = _test_value(node.args[0], names)
+        return 0 if value is None else len(value)
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         return tuple(_test_value(e, names) for e in node.elts)
     if isinstance(node, ast.Name):
         if node.id not in names:
-            raise NameError(f"'{node.id}' is not known here (use C, obj, space, scene, tool or mode)")
+            raise NameError(f"'{node.id}' is not known here (use C, obj, space, scene, tool, mode, mods or sel)")
         return names[node.id]
     if isinstance(node, ast.Attribute):
         if node.attr.startswith("_"):
@@ -1145,6 +1231,23 @@ def _tested(context, key, code, name):
             _condition_errors.add((key, code))
             print(f"Key Ops: the test of '{name}' failed and is ignored: {e}")
         return True
+
+
+def _in_editor(context, editor):
+    """Is the mouse in this EDITORS entry right now? Blender's keymaps are looser than
+    their names: the UV Editor keymap also runs outside UV editing, for example."""
+    area = context.area.type if context.area else ""
+    if editor == "UV Editor":
+        space = context.space_data
+        return area == 'IMAGE_EDITOR' and context.mode == 'EDIT_MESH' and getattr(space, "mode", "") == 'UV'
+    if editor == "Mesh":
+        return area == 'VIEW_3D' and context.mode == 'EDIT_MESH'
+    return True  # the other keymaps only run in their own editor
+
+
+def works_here(context, pie):
+    """True when the menu's Works In list includes the editor the key was pressed in."""
+    return any(_in_editor(context, editor) for editor in editor_names(pie))
 
 
 def condition_ok(context, pie):
@@ -1186,7 +1289,7 @@ class WM_OT_keyops_call_pie(Operator):
             return {'CANCELLED'}
         if pie.only_mode != "ANY" and context.mode != pie.only_mode:
             return {'PASS_THROUGH'}  # let Blender's own key do its thing here
-        if not self.direct and not condition_ok(context, pie):
+        if not self.direct and not (works_here(context, pie) and condition_ok(context, pie)):
             return {'PASS_THROUGH'}
         self._hold = None
         if pie.key_event == "HOLD" and not self.direct and pie.menu_type not in {"STICKY", "MODAL", "PANEL"} \
@@ -1415,7 +1518,8 @@ def layout_groups(items):
     box = None
     for i, it in items:
         if it.kind == BREAK:
-            columns.append([])
+            if columns[-1]:  # no empty columns, e.g. when Show If hid everything before this
+                columns.append([])
             box = None
             continue
         if it.kind == BOX:
@@ -2388,7 +2492,7 @@ def _preset_key_text(preset):
 
 
 def _preset_summary(preset, limit=3):
-    labels = [label for _kind, label, _icon, _idname, _props in preset["items"] if label]
+    labels = [item[1] for item in preset["items"] if item[1] and item[0] != LABEL]
     return ", ".join(labels[:limit]) + (", ..." if len(labels) > limit else "")
 
 
@@ -3426,69 +3530,6 @@ def draw_macro_steps(layout, item, slot):
     box.operator("keyops.macro_step_add", text="Add Step", icon='ADD')
 
 
-# ---------------------------------------------------------------- operators the presets use
-
-_SUPPORT = (
-    ("operators.add_mesh", "register_add_objects_pie", "unregister_add_objects_pie"),
-    ("operators.add_modifier", "register_add_modifier_pie", "unregister_add_modifier_pie"),
-    ("operators.origin_to_selection", "register_cursor_pie", "unregister_cursor_pie"),
-    ("operators.flatten", "register_flatten_pie", "unregister_flatten_pie"),
-    ("menu.pies", "register_workspace_pie", "unregister_workspace_pie"),
-    ("menu.pies", "register_utility_pie", "unregister_utility_pie"),
-    ("menu.pies", "register_uv_pies", "unregister_uv_pies"),
-)
-
-
-def _register_support():
-    """Register the operators the preset pies call. The old modules also add their
-    fixed keys; those are removed again, since keys now come from the pie list."""
-    from .features import _module
-    kc = bpy.context.window_manager.keyconfigs.addon
-
-    def items():
-        if kc is None:
-            return {}
-        return {kmi.as_pointer(): (km, kmi) for km in kc.keymaps for kmi in km.keymap_items}
-
-    for module, reg, _unreg in _SUPPORT:
-        mod = _module(module)
-        before = set(items())
-        getattr(mod, reg)()
-        removed = set()
-        for ptr, (km, kmi) in items().items():
-            if ptr not in before and " Tool: " not in km.name:
-                km.keymap_items.remove(kmi)
-                removed.add(ptr)
-        _forget_removed(mod, removed)
-
-
-def _forget_removed(mod, removed):
-    """The old modules keep lists of the (keymap, item) pairs they added, to remove them on
-    unregister. Drop the ones removed above, so nothing tries to remove them a second time."""
-    if not removed:
-        return
-    for value in vars(mod).values():
-        if isinstance(value, list) and value and all(isinstance(e, tuple) and len(e) == 2 for e in value):
-            keep = []
-            for km, kmi in value:
-                try:
-                    if kmi.as_pointer() in removed:
-                        continue
-                except (ReferenceError, AttributeError):
-                    continue
-                keep.append((km, kmi))
-            value[:] = keep
-
-
-def _unregister_support():
-    from .features import _module
-    for module, _reg, unreg in reversed(_SUPPORT):
-        try:
-            getattr(_module(module), unreg)()
-        except Exception:
-            pass
-
-
 property_classes = (KeyOpsValue, KeyOpsMacroStep, KeyOpsPieItem, KeyOpsPie, KeyOpsExportChoice)
 classes = (WM_OT_keyops_run_script, KEYOPS_OT_script_edit, KEYOPS_OT_script_save, KEYOPS_OT_slot_set_kind,
            KEYOPS_OT_pie_duplicate, KEYOPS_OT_value_add, KEYOPS_OT_value_remove, KEYOPS_PT_user_panels_3d, KEYOPS_PT_user_panels_image, KEYOPS_PT_user_panels_node,
@@ -3545,7 +3586,6 @@ def register():
     bpy.types.WindowManager.keyops_icon_category = EnumProperty(
         name="Category", items=[(c[0], c[1], f"{c[1]} icons") for c in ICON_CATEGORIES] + [("OTHER", "Other", "Everything else")],
         update=_icon_rows_update)
-    _register_support()
     sync_keymaps()
 
 
@@ -3555,7 +3595,6 @@ def unregister():
     from . import settings_store
     settings_store.flush_now()  # don't lose a change made just before disabling
     _remove_pie_keymaps()
-    _unregister_support()
     del bpy.types.WindowManager.keyops_icon_category
     del bpy.types.WindowManager.keyops_icon_filter
     del bpy.types.WindowManager.keyops_icon_rows

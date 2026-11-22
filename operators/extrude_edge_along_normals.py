@@ -2,6 +2,7 @@ import bpy
 import bmesh
 from mathutils import Vector
 from bpy_extras import view3d_utils
+from ..utils.pref_utils import get_keyops_prefs
 
 
 def update_edit_mesh(bm, mesh, destructive=False):
@@ -266,6 +267,8 @@ class KEYOPS_OT_extrude_edge_along_normals_menu(bpy.types.Operator):
 
 
 def menu_func(self, context):
+    if not get_keyops_prefs().enable_toolkit_panel:
+        return
     self.layout.operator(KEYOPS_OT_extrude_edge_along_normals_menu.bl_idname,
                          text="Extrude Edge Along Normals")
 
@@ -273,35 +276,17 @@ def menu_func(self, context):
 classes = (MESH_OT_extrude_edge_along_normals, KEYOPS_OT_extrude_edge_along_normals_menu)
 
 
-def register_extrude_edge_along_normals():
-    if bpy.app.version >= (5, 4, 0):  # included by default in Blender 5.4
+def register():
+    if bpy.app.version >= (5, 4, 0):  # included in Blender itself from 5.4
         return
-
     for cls in classes:
         bpy.utils.register_class(cls)
-
     bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_func)
 
 
-def unregister_extrude_edge_along_normals():
+def unregister():
     if bpy.app.version >= (5, 4, 0):
         return
-
-    if hasattr(bpy.types, "VIEW3D_MT_edit_mesh_extrude"):
-        try:
-            bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_func)
-        except ValueError:
-            pass
-
+    bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_func)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-
-def register():
-    if bpy.app.version < (5, 4, 0):
-        register_extrude_edge_along_normals()
-
-
-def unregister():
-    if bpy.app.version < (5, 4, 0):
-        unregister_extrude_edge_along_normals()

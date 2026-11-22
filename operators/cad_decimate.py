@@ -13,7 +13,6 @@ def pyfqmr_available():
 
 PYFQMR_MISSING = "pyfqmr is not installed. Reinstall the extension so Blender installs its bundled wheels"
 
-prefs = get_keyops_prefs()
 totall_tris = 0
 
 class CADDecimate(bpy.types.Operator):
@@ -52,13 +51,17 @@ class CADDecimate(bpy.types.Operator):
         
         return {'FINISHED'}
         
-def register_cad_decimate():
+def register():
     bpy.utils.register_class(CADDecimate)
     bpy.utils.register_class(ExportCADDecimate)
     bpy.utils.register_class(ImportCADDecimate)
     bpy.utils.register_class(ImportAllCADDecimate)
     bpy.utils.register_class(CADDecimatePanel)
-def unregister_cad_decimate():
+    bpy.utils.register_class(KEYOPS_PT_cad_decimate_panel_manual)
+
+
+def unregister():
+    bpy.utils.unregister_class(KEYOPS_PT_cad_decimate_panel_manual)
     bpy.utils.unregister_class(CADDecimate)
     bpy.utils.unregister_class(ExportCADDecimate)
     bpy.utils.unregister_class(ImportCADDecimate)
@@ -546,10 +549,4 @@ class CADDecimatePanel(bpy.types.Panel):
 
     def draw(self, context):
         draw_cad_decimate_panel(self, context, draw_header=False)
-
-    def register():
-        bpy.utils.register_class(KEYOPS_PT_cad_decimate_panel_manual)
-
-    def unregister():
-        bpy.utils.unregister_class(KEYOPS_PT_cad_decimate_panel_manual)
 
