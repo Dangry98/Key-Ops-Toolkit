@@ -1,7 +1,7 @@
 // Key Ops: Toolkit docs: navigation, search, theme and lightbox.
 // NAV is the single source of truth for the sidebar and the search index.
 // Keep feature ids in sync with the links in addon_preferences.py.
-const VERSION = "0.2.7";
+const VERSION = "0.3.0";
 const LINKS = {
   download: "https://extensions.blender.org/add-ons/key-ops-toolkit/",
   github: "https://github.com/Dangry98/Key-Ops-Toolkit",
