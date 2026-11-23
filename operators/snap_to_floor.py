@@ -26,6 +26,13 @@ class SnapToFloor(bpy.types.Operator):
         options={'SKIP_SAVE'}
     )  # type: ignore
 
+    to_surface: bpy.props.BoolProperty(
+        name="Snap to Surface",
+        description="Drop onto the nearest mesh face below instead of the grid floor. "
+                    "Falls back to the grid floor when nothing is below",
+        default=False,
+    )  # type: ignore
+
     def invoke(self, context, event):
         global ev
         ev = []
@@ -43,10 +50,22 @@ class SnapToFloor(bpy.types.Operator):
 
         return self.execute(context)
 
+    def draw(self, context):
+        layout = self.layout
+        if self.to_surface:
+            layout.label(text="Snap to Surface", icon="SNAP_FACE")
+        else:
+            layout.label(text="Snap to Grid Floor", icon="VIEW_PERSPECTIVE")
+        layout.prop(self, "to_surface")
+        layout.prop(self, "individual")
+
     def execute(self, context):
         if not bpy.context.selected_objects:
             self.report({'WARNING'}, "No Objects Selected")
             return {'CANCELLED'}
+
+        if self.to_surface:
+            return self.snap_to_surface(context)
 
         depsgraph = bpy.context.evaluated_depsgraph_get()
 
@@ -97,6 +116,104 @@ class SnapToFloor(bpy.types.Operator):
                 selection = [obj for obj in selection if obj in bpy.context.selected_objects]
                 move_individual_to_floor(selection)
 
+        return {'FINISHED'}
+
+    def snap_to_surface(self, context):
+        """Drop the selection straight down onto the closest face of an unselected mesh."""
+        from mathutils.bvhtree import BVHTree
+        from ..utils.utilities import get_obj_coords
+
+        context.view_layer.update()
+        depsgraph = context.evaluated_depsgraph_get()
+        selected = list(context.selected_objects)
+        selected_set = set(selected)
+        geo_types = {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}
+
+        def world_points(objs):
+            points = []
+            for obj in objs:
+                if obj.type in geo_types:
+                    coords = get_obj_coords(obj, depsgraph=depsgraph)
+                    if coords is not None and coords.size:
+                        points.extend(Vector(c) for c in coords)
+                elif obj.type in {'EMPTY', 'LATTICE'}:
+                    points.append(obj.matrix_world.translation.copy())
+            return points
+
+        # World-space BVH trees for every visible, unselected mesh-like object
+        trees = []
+        for obj in context.visible_objects:
+            if obj in selected_set or obj.type not in geo_types:
+                continue
+            ob_eval = obj.evaluated_get(depsgraph)
+            mesh = ob_eval.to_mesh()
+            if mesh.polygons:
+                mw = obj.matrix_world
+                verts = [mw @ v.co for v in mesh.vertices]
+                polys = [tuple(p.vertices) for p in mesh.polygons]
+                xs = [v.x for v in verts]
+                ys = [v.y for v in verts]
+                trees.append((BVHTree.FromPolygons(verts, polys),
+                              min(xs), max(xs), min(ys), max(ys)))
+            ob_eval.to_mesh_clear()
+
+        down = Vector((0, 0, -1))
+        eps = 1e-4
+
+        def drop_distance(points):
+            """Shortest downward distance from the points to a surface, or None."""
+            if not points:
+                return None
+            min_x = min(p.x for p in points)
+            max_x = max(p.x for p in points)
+            min_y = min(p.y for p in points)
+            max_y = max(p.y for p in points)
+            near = [t[0] for t in trees
+                    if t[1] <= max_x and t[2] >= min_x and t[3] <= max_y and t[4] >= min_y]
+            best = None
+            for tree in near:
+                for p in points:
+                    hit, _normal, _index, dist = tree.ray_cast(p + Vector((0, 0, eps)), down)
+                    if hit is not None and (best is None or dist < best):
+                        best = dist
+            return None if best is None else best - eps
+
+        missed = 0
+
+        def move(objs, offset):
+            for obj in objs:
+                obj.matrix_world.translation.z -= offset
+
+        if not self.individual:
+            points = world_points(selected)
+            if not points:
+                return {'CANCELLED'}
+            dist = drop_distance(points)
+            if dist is None:
+                missed += 1
+                dist = min(p.z for p in points)
+            move([o for o in selected if o.parent not in selected_set], dist)
+        else:
+            def drop_each(objs):
+                nonlocal missed
+                for obj in objs:
+                    points = world_points([obj])
+                    if not points:
+                        continue
+                    dist = drop_distance(points)
+                    if dist is None:
+                        missed += 1
+                        dist = min(p.z for p in points)
+                    move([obj], dist)
+                    context.view_layer.update()
+
+            drop_each(selected)
+            children = [c for obj in selected for c in obj.children if c in selected_set]
+            if children:
+                drop_each(children)
+
+        if missed:
+            self.report({'INFO'}, "No surface below: snapped to the grid floor")
         return {'FINISHED'}
 
 

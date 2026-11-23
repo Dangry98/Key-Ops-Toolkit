@@ -38,8 +38,8 @@ PRESETS = (
 WHATS_NEW = (
     ("Build your own menus", "Pies, popup menus, panels and macros, with icons, rows and boxes.", "menus.png"),
     ("Marking menus", "Flick through pie menus without waiting, in their own clean look.", "marking.png"),
-    ("Border and Element modes", "Pick whole borders or mesh islands, next to Vertex, Edge and Face.", "modes.png"),
-    ("Make Trim", "Turn edges into L-shaped trims with trim-sheet UVs, in one click.", "trim.png"),
+    ("Element mode", "Pick whole mesh islands, next to Vertex, Edge and Face.", "modes.png"),
+    ("Make Edge Trim", "Turn edges into L-shaped trims with trim-sheet UVs, in one click.", "trim.png"),
 )
 WHATS_NEW_HEADLINE = "A completely new design: Features, Custom Menus and Shortcuts, rebuilt from the ground up."
 WHATS_NEW_MORE = "Also new: Resample Edges, Clean Up, and every feature quiet until you turn it on."

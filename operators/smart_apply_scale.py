@@ -4,6 +4,7 @@
 import bpy
 from mathutils import Vector
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 BLENDER_VERSION = bpy.app.version
 
 MODS = {
@@ -356,7 +357,7 @@ class SmartApplyScale(bpy.types.Operator):
         return { 'FINISHED' }
 
 def menu_apply(self, context):
-    if not get_keyops_prefs().enable_toolkit_panel:
+    if not feature_on("toolkit_panel"):
         return
     layout = self.layout
     layout.separator()

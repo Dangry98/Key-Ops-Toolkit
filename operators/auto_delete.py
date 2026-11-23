@@ -6,46 +6,32 @@ registered_auto_delete_keymaps = []
 def register_auto_delete_keymaps():
     global registered_auto_delete_keymaps
     wm = bpy.context.window_manager
-    km = wm.keyconfigs.addon.keymaps.new(name='Mesh', space_type='EMPTY')
+    kc = wm.keyconfigs.addon
+    if kc is None:  # background mode
+        return
+    km = kc.keymaps.new(name='Mesh', space_type='EMPTY')
     kmi = km.keymap_items.new('keyops.auto_delete', 'DEL', 'PRESS')
     registered_auto_delete_keymaps.append((km, kmi))
 
-def remove_confirm_delete():
-    prefs = get_keyops_prefs()
+    # Object Mode X: our own delete shortcut, on top of Blender's, so the confirm popup can be
+    # skipped without changing Blender's own keymap item.
+    km = kc.keymaps.new(name='Object Mode', space_type='EMPTY')
+    kmi = km.keymap_items.new('object.delete', 'X', 'PRESS')
+    registered_auto_delete_keymaps.append((km, kmi))
+    sync_confirm_delete()
 
-    if not prefs.auto_delete_confirm_object_mode:
-        # wm = bpy.context.window_manager
-        # km = wm.keyconfigs.active.keymaps['Object Mode']                    
-        # km.keymap_items.new('object.delete', 'X', 'PRESS').properties.confirm = False
-        
-        #this does not work since the keymap is not aviable at startup
-        for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-            if keymap.name == 'Object Mode':
-                for keymap_item in keymap.keymap_items:
-                    if keymap_item.name == "Delete" and keymap_item.type == "X":
-                        if keymap_item.properties.confirm == True:
-                            keymap_item.properties.confirm = False
-        # for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-        #     if keymap.name == 'Object Mode':
-        #         for keymap_item in keymap.keymap_items:
-        #             if keymap_item.name == "Delete" and keymap_item.type == "X":
-        #                 if keymap_item.properties.use_global == True:
-        #                     keymap_item.properties.use_global = True
-        #                     print("delete")
-        
-def default_confirm_delete():   
-    for keymap in bpy.context.window_manager.keyconfigs.user.keymaps:
-        if keymap.name == 'Object Mode':
-            for keymap_item in keymap.keymap_items:
-                if keymap_item.name == "Delete" and keymap_item.type == "X":
-                    if keymap_item.properties.confirm == False:
-                        keymap_item.properties.confirm = True
+
+def sync_confirm_delete():
+    """Set the confirm option of our own Object Mode X delete item from the preference."""
+    prefs = get_keyops_prefs()
+    confirm = bool(prefs and prefs.auto_delete_confirm_object_mode)
+    for _km, kmi in registered_auto_delete_keymaps:
+        if kmi.idname == 'object.delete':
+            kmi.properties.confirm = confirm
+
 
 def update_auto_delete_confirm_delete(self, context):
-    if self.auto_delete_confirm_object_mode:
-        default_confirm_delete()
-    else:
-        remove_confirm_delete()
+    sync_confirm_delete()
 
 class AutoDelete(bpy.types.Operator):
     bl_idname = "keyops.auto_delete"
@@ -90,10 +76,8 @@ def unregister():
     bpy.utils.unregister_class(AutoDelete)
 
 
+
 def set_enabled(on):
-    """Auto Delete also skips the confirm popup of Blender's own X delete in Object Mode."""
+    """Preferences may not exist yet at register time: apply the confirm setting once they do."""
     if on:
-        remove_confirm_delete()
-    else:
-        default_confirm_delete()
-    
+        sync_confirm_delete()

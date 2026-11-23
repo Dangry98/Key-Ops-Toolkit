@@ -1,11 +1,12 @@
-"""Make Trim: turn selected edge chains into L-shaped trim strips (two flanges at 90 degrees) with UVs laid
+"""Make Edge Trim: turn selected edge chains into L-shaped trim strips (two flanges at 90 degrees) with UVs laid
 out for a trim sheet.
 
 Select edges, run it, get a trim: each chain gets an L profile swept along it, mitred at the turns so the
 flanges keep their width. Its UVs are one piece: U runs along the length (fitted to the sheet, or tiled per
 metre), V spans the chosen strip of the trim sheet across the L, split at the corner by flange width, so a
 trim texture lines up without any UV editing. Works on open chains and closed loops, on wire edges or edges
-on a surface. Which side the L goes on is guessed from the geometry; Flip Side puts it on the other side.
+on a surface. Which side the L goes on and which way it points are guessed from the geometry so it hugs the
+faces at the edge (around an outside corner, into an inside one); Flip Side and Flip Up override the guess.
 """
 
 import bmesh
@@ -74,14 +75,48 @@ def _segment_frames(verts, closed, profile):
             inward = centre - mid
         else:
             inward = Vector()
-        frames.append((t, up, t.cross(up).normalized(), inward))
+        faces = list(edge.link_faces) if edge else []
+        normals = sum((f.normal for f in faces), Vector())
+        frames.append((t, up, t.cross(up).normalized(), inward, normals, _up_vote(faces, base, up, mid, t, profile)))
     return frames
+
+
+def _toward(face, mid, t):
+    """Unit direction from the edge's middle into a face, across the edge (zero when it can't tell)."""
+    d = face.calc_center_median() - mid
+    d -= d.project(t) if t.length > 1e-9 else Vector()
+    return d.normalized() if d.length > 1e-9 else Vector()
+
+
+def _up_vote(faces, base, up, mid, t, profile):
+    """How strongly this edge wants the L to hug its two faces with Up as is (+) or flipped (-), 0 if no opinion.
+
+    The intended trim hugs the surfaces at the edge: on an outside corner (a box top) it wraps around the
+    outside, in an inside corner (floor meeting wall) it sits in the corner. Upright: the standing flange should
+    run along the other face, so Up points the way the other face goes. Wrap: both flanges lie back along the
+    faces, which needs Up pointing out of the solid on an outside corner and into the room in an inside one."""
+    if len(faces) != 2:
+        return 0.0
+    fa, fb = faces
+    if profile == "UPRIGHT" and base is not None:
+        other = fb if base is fa else fa
+        vote = up.dot(_toward(other, mid, t))
+    else:  # inside corner: each face rises toward the other's normal side
+        concave = fa.normal.dot(_toward(fb, mid, t)) + fb.normal.dot(_toward(fa, mid, t))
+        vote = -concave / 2
+    return vote if abs(vote) > 0.2 else 0.0  # nearly flat: no reliable opinion
 
 
 def guess_side(frames):
     """+1 or -1: the side most of the chain's edges point inward on (toward their face or the loop's middle)."""
-    score = sum(side.dot(inward) for _t, _up, side, inward in frames)
+    score = sum(f[2].dot(f[3]) for f in frames)
     return -1.0 if score < 0 else 1.0
+
+
+def guess_up(frames):
+    """+1 or -1: whether the chain's Up should be flipped so the L hugs the faces, by a vote along the chain
+    so one chain never twists from one side to the other halfway."""
+    return -1.0 if sum(f[5] for f in frames) < 0 else 1.0
 
 
 def _pair_score(v, a, b):
@@ -198,8 +233,9 @@ def make_trims(bm, opts):
         n = len(verts)
         frames = _segment_frames(verts, closed, opts.profile)
         sign = guess_side(frames) * (-1.0 if opts.flip_side else 1.0)  # best guess, or the other side
-        up_sign = -1.0 if opts.flip_up else 1.0  # the other way along the normal, when the faces point wrong
-        segs = [(t, up * up_sign, side * sign) for t, up, side, _inward in frames]
+        up_sign = guess_up(frames) * (-1.0 if opts.flip_up else 1.0)  # hug the faces, or the other way
+        segs = [(f[0], f[1] * up_sign, f[2] * sign) for f in frames]
+        outward = [f[4] for f in frames]  # the edge's face normals: the trim's visible side faces the same way
         profiles = [_profile(up, side, opts, a, b) for _t, up, side in segs]
         rows = []  # per point: (flange A end, corner, flange B end)
         for i, v in enumerate(verts):
@@ -230,7 +266,10 @@ def make_trims(bm, opts):
             j = (i + 1) % n
             _t, up_s, side_s = segs[i]
             # wrap: faces point away from the edge they cover; upright: into the L, the side you see
+            # on a surface: the same way as the faces under it, so it reads right on inside and outside corners
             facing = up_s if opts.profile == "WRAP" else up_s + side_s
+            if outward[i].length > 1e-6:
+                facing = outward[i]
             u0 = u_base + lengths[i] * u_per_metre + opts.u_offset
             u1 = u_base + lengths[i + 1] * u_per_metre + opts.u_offset
             for k0, k1, v0, v1 in ((0, 1, opts.v_max, v_corner), (1, 2, v_corner, opts.v_min)):
@@ -257,7 +296,7 @@ def make_trims(bm, opts):
 
 class KEYOPS_OT_edge_trim(bpy.types.Operator):
     bl_idname = "keyops.edge_trim"
-    bl_label = "Make Trim"
+    bl_label = "Make Edge Trim"
     bl_description = ("Turn the selected edges into L-shaped trims (two flanges at 90 degrees) with UVs laid out "
                       "for a trim sheet")
     bl_options = {'REGISTER', 'UNDO'}
@@ -276,7 +315,8 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
                             description="Put the L on the other side of the edges. Key Ops first guesses the side "
                                         "from the geometry: toward the face the edges border, or into a loop") # type: ignore
     flip_up: BoolProperty(name="Flip Up", default=False,
-                          description="Point the L the other way along the surface normal, when Key Ops guesses the wrong direction") # type: ignore
+                          description="Point the L the other way along the surface normal. Key Ops first guesses it so "
+                                      "the trim hugs the faces at the edge: around an outside corner, into an inside one") # type: ignore
     flip_normals: BoolProperty(name="Flip Normals", default=False) # type: ignore
     smooth: BoolProperty(name="Smooth Shading", default=True,
                          description="Shade the trim smooth; the corner of the L stays sharp") # type: ignore

@@ -1,5 +1,6 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 from ..utils.pref_utils import clear_registered_keymaps
 import bmesh
 import math
@@ -168,8 +169,6 @@ def get_description(type: str) -> str:
         return "Triplanar UV Mapping"
     elif type == "Remove_Triplanar_UV_Mapping":
         return "Remove the Triplanar UV Mapping modifier"
-    elif type == "snap_to_floor":
-        return "Snap To Grid Floor"
     elif type == "Instant_Apply_Modifiers":
         return "Apply All Modifiers on currently Selected Objects (very fast, since it only returns whats on screen)"
     elif type == "clear_custom_normals":
@@ -178,6 +177,15 @@ def get_description(type: str) -> str:
         return "Join/Combine selected objects"
     elif type == "seprate_objects_by":
         return "Separate Selected Objects by"
+    elif type == "un_subdivide_cylinder":
+        return ("Halve the number of sides of a cylinder by dissolving every other edge loop that runs along it.\n"
+                "Select one edge that runs along the length of the cylinder")
+    elif type == "subdivide_cylinder":
+        return ("Double the number of sides of a cylinder by adding an edge loop between each pair that runs along it.\n"
+                "Select one edge that runs along the length of the cylinder")
+    elif type == "change_cylinder_segments_modifier":
+        return ("Revolve the selected edges around the object's origin with a Screw modifier, to make a round shape "
+                "from a profile.\nEverything that is not selected in this object is deleted first")
 
 class ToolkitPanel(bpy.types.Operator):
     bl_description = "Object Panel Operator"
@@ -227,7 +235,6 @@ class ToolkitPanel(bpy.types.Operator):
     remove_modifiers: bpy.props.BoolProperty(name="Remove Modifiers", default=True) # type: ignore
     ovveride_color: bpy.props.BoolProperty(name="Override Color", default=False) # type: ignore
     ovveride_color_vec: bpy.props.FloatVectorProperty(name="Color", default=(0.0, 0.0, 0.0, 1.0), subtype='COLOR', size=4) # type: ignore
-    individual: bpy.props.BoolProperty(name="Individual", description="Snap each object to the floor individually (hold Alt when clicking button)", default=False, options={'SKIP_SAVE'}) # type: ignore
     instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
     seprate_by: bpy.props.EnumProperty(name="Separate By",
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
@@ -291,9 +298,6 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "Instant_Apply_Modifiers":
             layout.label(text="Apply All Modifiers", icon_value=get_icon("mesh"))
             layout.prop(self, "convert_to_options", text="Convert To")
-        elif self.type == "snap_to_floor":
-            layout.label(text="Snap to Grid Floor", icon="VIEW_PERSPECTIVE")
-            layout.prop(self, "individual")
         elif self.type == "duplicate_linked_modifiers":
             layout.label(text="Duplicate Linked Modifiers", icon="LINKED")
             layout.prop(self, "instance")
@@ -640,7 +644,7 @@ class ToolkitPanel(bpy.types.Operator):
             if bpy.app.version <= (4, 0, 0):
                 bpy.context.object.data.use_auto_smooth = True
 
-            # if self.set_material_index == True and prefs.enable_material_index:
+            # if self.set_material_index == True and feature_on("material_index"):
             #     bpy.ops.keyops.material_index(type="Make_Material_Index")
             bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
             context.scene.cursor.location = (pos2[0], pos2[1], pos2[2])
@@ -839,7 +843,7 @@ class ToolkitPanel(bpy.types.Operator):
             if self.angle_to_add <= 1.570:
                 bm = bmesh.from_edit_mesh(mesh_obj.data)
                 # Define the angle threshold for edge deletion
-                angle_threshold = math.radians(self.angle_to_skip)
+                angle_threshold = self.angle_to_add  # already in radians (subtype ANGLE)
 
                 # Loop through all edges in the mesh
                 for edge in bm.edges:
@@ -1064,7 +1068,7 @@ def draw_modifier_panel(self, context, draw_header=False):
         row = column.split(factor=0.57, align=False)
         row.operator("keyops.toolkit_panel", text="Triplanar UV", icon="AXIS_SIDE").type = "Triplanar_UV_Mapping"
         row.operator("keyops.toolkit_panel", text="Remove").type = "Remove_Triplanar_UV_Mapping"
-        if prefs.enable_uv_tools:
+        if feature_on("uv_tools"):
             column.operator("keyops.sharp_from_uv_islands", text="Sharp from UV Islands", icon="MOD_EDGESPLIT")
 
 class ModifierPanel(bpy.types.Panel):
@@ -1082,7 +1086,7 @@ class ModifierPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_toolkit_panel
+        return feature_on("toolkit_panel")
     
     def draw(self, context):
        draw_modifier_panel(self, context, draw_header=False)
@@ -1142,7 +1146,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
     prefs = get_keyops_prefs()
 
     # Off = only Key Ops operators, on = Key Ops + Blender built-in operators (3ds Max-style)
-    show_blender_ops = prefs.edit_toolkit_show_blender_ops
+    show_blender_ops = getattr(prefs, "edit_toolkit_show_blender_ops", False)
 
     layout = self.layout
     box = layout.box()
@@ -1158,11 +1162,11 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.scale_x = 2.15
         row.scale_y = 1.5
         row.alignment = 'CENTER'
-        # Vertex, Edge, Face plus the Border and Element modes, as one row of modes
+        # Vertex, Edge, Face plus Element mode, as one centered row of modes
         draw_mode_row(row, context)
 
     vert_mode, edge_mode, face_mode = sel_mode
-    fast_merge = prefs.enable_fast_merge
+    fast_merge = feature_on("fast_merge")
 
     # Selection
     if show_blender_ops:
@@ -1214,22 +1218,28 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         items["dissolve"] = _op("mesh.dissolve_limited", "Limited Dissolve")
         if vert_mode or edge_mode:
             items["resample"] = _op("keyops.resample_edges", "Resample Edges")
-            items["trim"] = _op("keyops.edge_trim", "Make Trim")
+            items["trim"] = _op("keyops.edge_trim", "Make Edge Trim")
         _section(box, title, list(items.values()))
     else:
         _section(box, "Edit Mesh", [
             _op("mesh.connect2", "Connect") if fast_merge else None,
             _op("mesh.set_mesh_edge_flow", "Set Flow"),
             _op("keyops.resample_edges", "Resample Edges"),
-            _op("keyops.edge_trim", "Make Trim"),
+            _op("keyops.edge_trim", "Make Edge Trim"),
         ])
 
-    # UV
-    _section(box, "UV", [
+    # UV: Preserve UVs sits on the header row, right of the label
+    box.separator(factor=0.5)
+    row = box.row(align=True)
+    row.label(text="UV")
+    sub = row.row(align=True)
+    sub.alignment = 'RIGHT'
+    sub.prop(context.scene.keyops, "correct_uvs", text="Preserve UVs")
+    _section(box, None, [
         _wide(lambda layout: layout.menu("VIEW3D_MT_uv_map", text="UV Unwrap")),
         _op("mesh.mark_seam", "Mark Seam", clear=False),
         _op("mesh.mark_seam", "Clear Seam", clear=True),
-        _wide(_op("keyops.seam_by_angle", "Seam by Angle")) if prefs.enable_uv_tools else None,
+        _wide(_op("keyops.seam_by_angle", "Seam by Angle")) if feature_on("uv_tools") else None,
     ])
 
     # Vertex color
@@ -1245,7 +1255,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.label(text="Edit Geometry")
         sub = row.row(align=True)
         sub.alignment = 'RIGHT'
-        sub.prop(context.scene.tool_settings, "use_transform_correct_face_attributes", text="Preserve UVs")
         sub.popover_group(context=".mesh_edit", space_type='VIEW_3D', region_type='UI', category="Tool")
 
         loop_tools = []
@@ -1276,9 +1285,10 @@ def draw_edit_mode_panel(self, context, draw_header=False):
 
     # Cylinder
     _section(box, "Cylinder", [
-        _wide(_op("keyops.toolkit_panel", "Cylinder from Edge", type="change_cylinder_segments_modifier")),
-        _op("keyops.toolkit_panel", "Un-Subdivide", type="un_subdivide_cylinder"),
-        _op("keyops.toolkit_panel", "Subdivide", type="subdivide_cylinder"),
+        _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides")),
+        _op("keyops.toolkit_panel", "Halve Sides", type="un_subdivide_cylinder"),
+        _op("keyops.toolkit_panel", "Double Sides", type="subdivide_cylinder"),
+        _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", type="change_cylinder_segments_modifier")),
     ])
 
 
@@ -1379,7 +1389,7 @@ class EDIT_PT_Settings(bpy.types.Panel):
         col = layout.column(align=True)
         col.scale_y = 0.8
         col.enabled = False
-        if prefs.edit_toolkit_show_blender_ops:
+        if getattr(prefs, "edit_toolkit_show_blender_ops", False):
             col.label(text="Key Ops + Blender operators", icon='INFO')
         else:
             col.label(text="Key Ops operators only", icon='INFO')

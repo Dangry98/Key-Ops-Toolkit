@@ -5,6 +5,7 @@ import os
 import bmesh
 import bpy
 import gpu
+import numpy as np
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, StringProperty
 from bpy_extras.view3d_utils import (
     location_3d_to_region_2d,
@@ -20,13 +21,16 @@ from mathutils.geometry import (
     tessellate_polygon,
 )
 
+from ..utils.draw_utils import point_shader
 from ..utils.pref_utils import get_icon
 from ..utils.utilities import safe_icon
 from ..operators.add_modifier import (
     BOOLEAN_OPERATION_ITEMS,
+    BOOLEAN_SOLVER_ITEMS,
     add_boolean_modifiers,
     get_cutter_collection,
     move_to_cutter_collection,
+    pick_boolean_solver,
     resolve_boolean_solver,
 )
 
@@ -58,6 +62,63 @@ SHAPE_KEYS = {'B': 'BOX', 'C': 'CIRCLE', 'N': 'NGON'}  # B on a box toggles the 
 MIRROR_KEYS = {'ONE': "mirror_x", 'TWO': "mirror_y", 'THREE': "mirror_z"}
 PLUS_KEYS = {'WHEELUPMOUSE', 'NUMPAD_PLUS', 'PLUS', 'EQUAL'}
 MINUS_KEYS = {'WHEELDOWNMOUSE', 'NUMPAD_MINUS', 'MINUS'}
+CTRL_KEYS = {'LEFT_CTRL', 'RIGHT_CTRL'}
+# Ctrl snapping: a vertex of the targets within this many pixels wins, otherwise the grid
+VERT_SNAP_RADIUS = 20.0
+SNAP_VERT_LIMIT = 1_000_000  # objects that would push the snap vertex count past this are skipped
+SNAP_GRID_DOTS = 4  # grid dots drawn on each side of the snapped grid point
+SNAP_VERT_COLOR = (1.0, 0.75, 0.2, 1.0)
+SNAP_GRID_COLOR = (1.0, 1.0, 1.0, 0.35)
+
+
+def _snap_targets(context, hit, cutter_collection):
+    """Objects whose vertices Ctrl snaps to: the objects a cut would go into (the meshes
+    in Edit Mode, else the selected cut targets) plus the object under the cursor. The
+    Cutter and its snap preview both use this, so the preview shows where the cut starts."""
+    objects = _selected_targets(context)
+    if hit and hit[3] not in objects:
+        objects.append(hit[3])
+    return objects
+
+
+def _object_snap_vertices(obj, depsgraph):
+    """World space vertex positions (N x 3 numpy array) of one mesh object, with its modifiers."""
+    if obj.mode == 'EDIT':
+        obj.update_from_editmode()
+        mesh = obj.data
+    else:
+        mesh = obj.evaluated_get(depsgraph).data
+    count = len(mesh.vertices)
+    co = np.empty(count * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    mat = np.array(obj.matrix_world, dtype=np.float32)
+    return co @ mat[:3, :3].T + mat[:3, 3]
+
+
+def _snap_vertices(context, objects, cache=None):
+    """World space vertex positions (N x 3 numpy array) of the given mesh objects. Read once
+    per stroke, before the live cutter exists, so the cutter's own boolean never adds vertices
+    to snap to. `cache` (a dict) keeps each object's vertices so they are read only once.
+    An object that would push the total past SNAP_VERT_LIMIT is skipped, smaller ones still count."""
+    depsgraph = context.evaluated_depsgraph_get()
+    chunks = []
+    total = 0
+    for obj in objects:
+        if obj is None or obj.type != 'MESH':
+            continue
+        key = obj.as_pointer()
+        if cache is not None and key in cache:
+            co = cache[key]
+        else:
+            co = _object_snap_vertices(obj, depsgraph)
+            if cache is not None:
+                cache[key] = co
+        if not len(co) or total + len(co) > SNAP_VERT_LIMIT:
+            continue
+        total += len(co)
+        chunks.append(co)
+    return np.concatenate(chunks) if chunks else np.empty((0, 3), dtype=np.float32)
 # Operator settings mirrored from the tool, so the D popup and shortcuts edit one place
 SETTINGS = ("operation", "shape", "align", "solver", "segments", "snap_increment", "live", "apply",
             "bevel", "bevel_width", "bevel_segments", "bevel_profile", "mirror_x", "mirror_y", "mirror_z")
@@ -74,11 +135,6 @@ ALIGN_ITEMS = (
 # Settings the mouse drags with B (bevel width) and P (bevel profile): (min, max)
 MOUSE_ADJUST_RANGES = {"bevel_width": (0.01, 0.5), "bevel_profile": (0.0, 1.0)}
 MOUSE_ADJUST_PIXELS = 600.0  # mouse pixels for a change of 1.0
-SOLVER_ITEMS = (
-    ('FAST', "Fast", ""),
-    ('EXACT', "Exact", ""),
-    ('MANIFOLD', "Manifold", ""),
-)
 
 MIN_DEPTH = 1e-4  # smallest depth into the surface, depth can't go toward the camera
 TARGET_SEPARATOR = "\x1f"  # between object names in the stored target list
@@ -103,6 +159,14 @@ def _tool_props(context):
 def operation_icon(operation):
     """Toolkit icon id for an operation (the boolean icons, a cube for Add)."""
     return get_icon("mesh_cube" if operation == 'ADD' else operation.lower())
+
+
+def _selected_targets(context):
+    """Meshes a cut goes into when there is a selection: the meshes in Edit Mode, else every
+    selected mesh, cutters included (select a cutter to cut it)."""
+    if context.mode == 'EDIT_MESH':
+        return [o for o in context.objects_in_mode if o.type == 'MESH']
+    return [o for o in context.selected_objects if o.type == 'MESH']
 
 
 def _is_cut_target(obj, cutter_collection):
@@ -178,14 +242,17 @@ def _plane_matrix(origin, normal, x_axis, fallback_x):
 
 
 def _ray_cast(context, depsgraph, origin, direction, cutter_collection):
-    """First hit on a cuttable mesh, skipping wire cutters. Returns (location, normal, index, obj, matrix) or None."""
+    """First hit on a mesh the cut can go into: with a selection only the selected meshes
+    (cutters too), otherwise any cuttable mesh, skipping wire cutters.
+    Returns (location, normal, index, obj, matrix) or None."""
     scene = context.scene
+    selected = set(_selected_targets(context))
     for _ in range(16):
         hit, loc, normal, index, obj, matrix = scene.ray_cast(depsgraph, origin, direction)
         if not hit:
             return None
         original = getattr(obj, "original", obj)
-        if _is_cut_target(original, cutter_collection):
+        if original in selected if selected else _is_cut_target(original, cutter_collection):
             return loc, normal, index, original, matrix
         origin = loc + direction * 1e-4
     return None
@@ -229,6 +296,43 @@ def _closest_edge_direction(obj, depsgraph, matrix, index, location):
     return best
 
 
+def start_plane(context, region, rv3d, mouse, align):
+    """Drawing plane for a cut starting at mouse, and the _ray_cast hit (None off the meshes).
+
+    On a mesh: the face under the cursor, its X along the object axis that looks most like
+    screen right (View) or the closest edge of the face (Edge). The plane origin is the object
+    origin dropped onto the face, so the Ctrl grid lines up with the object and stays put while
+    the mouse moves. Off the meshes: the grid floor (world Z = 0) with its origin at the world
+    origin, or, looking along the floor, a view aligned plane through the 3D cursor."""
+    depsgraph = context.evaluated_depsgraph_get()
+    origin = region_2d_to_origin_3d(region, rv3d, mouse)
+    direction = region_2d_to_vector_3d(region, rv3d, mouse)
+    hit = _ray_cast(context, depsgraph, origin, direction, bpy.data.collections.get("Cutters"))
+    view_right = rv3d.view_rotation @ Vector((1.0, 0.0, 0.0))
+    view_up = rv3d.view_rotation @ Vector((0.0, 1.0, 0.0))
+
+    if hit:
+        loc, normal, index, obj, matrix = hit
+        if normal.dot(direction) > 0.0:
+            normal = -normal
+        x_axis = _closest_axis(obj.matrix_world, normal, view_right)
+        if align == 'EDGE':
+            edge_dir = _closest_edge_direction(obj, depsgraph, matrix, index, loc)
+            if edge_dir is not None:
+                x_axis = edge_dir
+        anchor = obj.matrix_world.translation
+        anchor = anchor - normal * (anchor - loc).dot(normal)
+        return _plane_matrix(anchor, normal, x_axis, view_up), hit
+
+    up = Vector((0.0, 0.0, 1.0))
+    point = intersect_line_plane(origin, origin + direction, Vector(), up) if abs(direction.z) > 0.1 else None
+    if point is not None and (point - origin).dot(direction) > 0.0:
+        return _plane_matrix(Vector(), up, Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0))), None
+    cursor = context.scene.cursor.location
+    closest = intersect_line_plane(origin, origin + direction, cursor, -direction) or cursor.copy()
+    return _plane_matrix(closest, -direction, view_right, view_up), None
+
+
 def ensure_screw_modifier(obj, segments):
     """Screw modifier that spins a side profile into a closed cylinder around local Z."""
     mod = next((m for m in obj.modifiers if m.type == 'SCREW'), None)
@@ -254,6 +358,48 @@ def ensure_screw_modifier(obj, segments):
     return mod
 
 
+def ensure_bevel_modifier(obj, width, segments, profile):
+    """Bevel modifier that rounds the side edges of a box prism, so the bevel stays editable.
+    Only edges with a bevel weight are bevelled (the four side edges, see build_prism)."""
+    mod = next((m for m in obj.modifiers if m.type == 'BEVEL'), None)
+    if mod is None:
+        mod = obj.modifiers.new(name="Bevel", type='BEVEL')
+        mod.affect = 'EDGES'
+        mod.offset_type = 'OFFSET'
+        mod.limit_method = 'WEIGHT'
+        mod.use_clamp_overlap = False  # keep the drawn width, a Weld modifier merges what meets
+    mod.width = width
+    mod.segments = segments
+    mod.profile = profile
+    return mod
+
+
+def remove_modifiers(obj, mod_type):
+    for mod in [m for m in obj.modifiers if m.type == mod_type]:
+        obj.modifiers.remove(mod)
+
+
+def ensure_weld_modifier(obj):
+    """Weld modifier in Connected mode, for bevels that meet: merges their doubled points.
+    Added only when the object has no Weld modifier yet."""
+    if any(m.type == 'WELD' for m in obj.modifiers):
+        return
+    mod = obj.modifiers.new(name="Weld", type='WELD')
+    mod.mode = 'CONNECTED'
+    mod.merge_threshold = 1e-4
+
+
+def _set_side_bevel_weights(mesh, count):
+    """Bevel weight 1 on the side edges of a prism with count profile points, 0 elsewhere."""
+    attr = mesh.attributes.get("bevel_weight_edge")
+    if attr is None:
+        attr = mesh.attributes.new("bevel_weight_edge", 'FLOAT', 'EDGE')
+    bottom = set(range(count))
+    for edge, value in zip(mesh.edges, attr.data):
+        a, b = edge.vertices
+        value.value = 1.0 if (a in bottom) != (b in bottom) else 0.0
+
+
 def build_prism(points, z0, z1):
     """Verts and faces of a closed prism from a CCW 2D profile."""
     n = len(points)
@@ -263,9 +409,143 @@ def build_prism(points, z0, z1):
     return verts, faces
 
 
+class SnapMixin:
+    """Ctrl snapping and the overlay draw handler, shared by the Cutter and its snap preview.
+    Needs self.region, self.rv3d, self.plane, self.plane_inv, self.normal, self.snap_increment,
+    self.snap_verts and self.phase."""
+
+    def _mouse_ray(self, mouse):
+        origin = region_2d_to_origin_3d(self.region, self.rv3d, mouse)
+        direction = region_2d_to_vector_3d(self.region, self.rv3d, mouse)
+        return origin, direction
+
+    def _snap(self, value):
+        inc = self.snap_increment
+        return round(value / inc) * inc
+
+    def _nearest_vert(self, mouse):
+        """World position of the target vertex closest to the mouse on screen, within
+        VERT_SNAP_RADIUS pixels, or None. Among vertices at about the same screen distance
+        the one nearest the camera wins, so the visible corner is picked."""
+        verts = self.snap_verts
+        if not len(verts):
+            return None
+        idx, screen, depth = self._projected_verts()
+        if not len(idx):
+            return None
+        # Cheap box test first, the exact distance only for what is inside it
+        r = VERT_SNAP_RADIUS
+        box = np.nonzero((np.abs(screen[:, 0] - mouse.x) < r) & (np.abs(screen[:, 1] - mouse.y) < r))[0]
+        if not len(box):
+            return None
+        dist = np.hypot(screen[box, 0] - mouse.x, screen[box, 1] - mouse.y)
+        near = dist < r
+        if not near.any():
+            return None
+        # Round the pixel distance so close ties are settled by depth
+        cand = box[near]
+        key = np.lexsort((depth[cand], np.round(dist[near] / 4.0)))
+        return Vector(verts[idx[cand[key[0]]]].tolist())
+
+    def _projected_verts(self):
+        """(indices, screen xy, depth) of the snap vertices in front of the camera. Kept until
+        the view, the region size or the vertices change, so mouse moves don't re-project."""
+        persp = np.array(self.rv3d.perspective_matrix, dtype=np.float32)
+        size = (self.region.width, self.region.height)
+        cached = self._snap_projection
+        if cached is not None and cached[0] is self.snap_verts and cached[1] == size \
+                and np.array_equal(cached[2], persp):
+            return cached[3]
+        verts = self.snap_verts
+        clip = verts @ persp[:3, :3].T + persp[:3, 3]
+        w = verts @ persp[3, :3] + persp[3, 3]
+        idx = np.nonzero(w > 1e-6)[0]
+        ndc = clip[idx, :2] / w[idx, None]
+        screen = (ndc * 0.5 + 0.5) * np.array(size, dtype=np.float32)
+        result = (idx, screen, clip[idx, 2] / w[idx])
+        self._snap_projection = (verts, size, persp, result)
+        return result
+
+    def _mouse_to_plane(self, mouse, snap=False):
+        self.snap_point = None
+        if snap:
+            vert = self._nearest_vert(mouse)
+            if vert is not None:
+                # The vertex dropped straight onto the drawing plane
+                local = self.plane_inv @ vert
+                p = Vector((local.x, local.y))
+                self.snap_point, self.snap_is_vert = vert, True
+                return p
+        origin, direction = self._mouse_ray(mouse)
+        point = intersect_line_plane(origin, origin + direction, self.plane.translation, self.normal)
+        if point is None:
+            return None
+        local = self.plane_inv @ point
+        p = Vector((local.x, local.y))
+        if snap:
+            p = Vector((self._snap(p.x), self._snap(p.y)))
+            self.snap_point, self.snap_is_vert = self.plane @ p.to_3d(), False
+        return p
+
+    def _draw_snap(self, region):
+        """Ctrl snap feedback: a marker on the snapped vertex, or a small patch of grid dots
+        around the snapped grid point (the grid lies in the drawing plane)."""
+        # No try/except here: this runs every redraw, and the user's debugger pauses on any
+        # raised exception. point_shader() picks the right builtin per Blender version
+        # (POINT_UNIFORM_COLOR only exists from 4.5).
+        shader = point_shader()
+        shader.bind()
+        if not self.snap_is_vert and self.phase == 'DRAW':
+            inc = self.snap_increment
+            local = self.plane_inv @ self.snap_point
+            r = range(-SNAP_GRID_DOTS, SNAP_GRID_DOTS + 1)
+            dots = [self.plane @ Vector((local.x + i * inc, local.y + j * inc, 0.0)) for i in r for j in r]
+            shader.uniform_float("color", SNAP_GRID_COLOR)
+            gpu.state.point_size_set(3.0)
+            batch_for_shader(shader, 'POINTS', {"pos": dots}).draw(shader)
+        shader.uniform_float("color", SNAP_VERT_COLOR if self.snap_is_vert else (1.0, 1.0, 1.0, 0.9))
+        gpu.state.point_size_set(10.0 if self.snap_is_vert else 6.0)
+        batch_for_shader(shader, 'POINTS', {"pos": [self.snap_point]}).draw(shader)
+
+    def _add_draw_handler(self):
+        """Draw self._draw_callback() in the 3D view until _remove_draw_handler()."""
+        # The handle lives in the closure too: if the operator is freed without _cleanup
+        # (file load, Blender ending the modal) the callback removes itself instead of
+        # raising ReferenceError on every redraw. Addon reloads are covered by
+        # unregister(), which removes every handle in _draw_handles.
+        handle = []
+
+        def remove():
+            if handle:
+                h = handle.pop()
+                _draw_handles.discard(h)
+                bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+
+        def draw():
+            # repr first: a freed struct reprs as "<bpy_struct, Cutter invalid>" without
+            # raising, so the debugger isn't paused. The except is the fallback.
+            if repr(self).endswith(" invalid>"):
+                return remove()
+            try:
+                self._draw_callback()
+            except ReferenceError:
+                remove()
+
+        handle.append(bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_VIEW'))
+        self._handle = handle[0]
+        _draw_handles.add(self._handle)
+
+    def _remove_draw_handler(self):
+        if self._handle is not None:  # set to None at the top of each invoke()
+            if self._handle in _draw_handles:
+                _draw_handles.discard(self._handle)
+                bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            self._handle = None
+
+
 # --- Operator ---------------------------------------------------------------
 
-class Cutter(bpy.types.Operator):
+class Cutter(SnapMixin, bpy.types.Operator):
     """Draw a shape and boolean it into the selected objects, or the object under the cursor.
 Add mode makes a new object from the shape instead"""
     bl_idname = OP_IDNAME
@@ -275,9 +555,9 @@ Add mode makes a new object from the shape instead"""
     operation: EnumProperty(name="Operation", items=OPERATION_ITEMS, default='DIFFERENCE')  # type: ignore
     shape: EnumProperty(name="Shape", items=SHAPE_ITEMS, default='BOX')  # type: ignore
     align: EnumProperty(name="Align", items=ALIGN_ITEMS, default='VIEW')  # type: ignore
-    solver: EnumProperty(name="Solver", items=SOLVER_ITEMS, default='FAST')  # type: ignore
+    solver: EnumProperty(name="Solver", items=BOOLEAN_SOLVER_ITEMS, default='FAST')  # type: ignore
     segments: IntProperty(name="Segments", description="Circle segments", default=32, min=3, max=256)  # type: ignore
-    snap_increment: FloatProperty(name="Snap", description="Grid increment used while holding Ctrl", default=0.1, min=0.0001, soft_max=10.0, subtype='DISTANCE')  # type: ignore
+    snap_increment: FloatProperty(name="Snap", description="Grid increment used while holding Ctrl. A vertex near the cursor is snapped to first", default=1.0, min=0.0001, soft_max=10.0, subtype='DISTANCE')  # type: ignore
     live: BoolProperty(name="Live", description="Show the boolean while drawing. Turn off for heavy meshes. Object Mode only", default=True)  # type: ignore
     apply: BoolProperty(name="Apply", description="Apply the boolean and delete the cutter when done. Always on in Edit Mode", default=False)  # type: ignore
     bevel: BoolProperty(name="Bevel", description="Bevel the corners of the box", default=False)  # type: ignore
@@ -353,15 +633,19 @@ Add mode makes a new object from the shape instead"""
 
         self._create_cutter(context)
         self._write_cutter_mesh(self._fixed_profile, self.z_range(self._fixed_profile))
+        if self._bevel_overlaps(self._fixed_profile):
+            ensure_weld_modifier(self.cutter)  # the modal is done: merge where the bevels meet
 
         for obj in context.selected_objects:
             obj.select_set(False)
         if self.apply and not is_add:
             self._apply(context)
-        if self.cutter is not None:
+        if self.cutter is not None and is_add:
             self.cutter.select_set(True)
             context.view_layer.objects.active = self.cutter
         else:
+            # The cut objects stay selected, so the next cut goes into them again, not into the
+            # new cutter (cuts only go into the selection). Select a cutter to cut it.
             for target in self.targets:
                 target.select_set(True)
             context.view_layer.objects.active = self.targets[0]
@@ -381,6 +665,8 @@ Add mode makes a new object from the shape instead"""
         bpy.ops.object.mode_set(mode='OBJECT')
         self._create_cutter(context)
         self._write_cutter_mesh(profile, z_range)
+        if self._bevel_overlaps(profile):
+            ensure_weld_modifier(self.cutter)
         self._apply(context)
         for obj in context.selected_objects:
             obj.select_set(False)
@@ -467,6 +753,18 @@ Add mode makes a new object from the shape instead"""
         return [center + Vector((hx * math.cos(i * math.tau / seg), hy * math.sin(i * math.tau / seg)))
                 for i in range(seg)]
 
+    def _bevel_radius(self, hx, hy):
+        return self.bevel_width * 2.0 * min(hx, hy)
+
+    def _bevel_overlaps(self, profile):
+        """True when the box bevels reach each other (full width), so their ends meet."""
+        if self.shape != 'BOX' or not self.bevel or not profile:
+            return False
+        xs = [p.x for p in profile]
+        ys = [p.y for p in profile]
+        hx, hy = (max(xs) - min(xs)) * 0.5, (max(ys) - min(ys)) * 0.5
+        return self._bevel_radius(hx, hy) >= min(hx, hy) - 1e-6
+
     def _box(self, center, hx, hy):
         bevel = self.bevel_width if self.bevel else 0.0
         return box_points(center, hx, hy, bevel, self.bevel_segments, self.bevel_profile)
@@ -474,6 +772,8 @@ Add mode makes a new object from the shape instead"""
     # -- setup --
 
     def invoke(self, context, event):
+        self._handle = None
+        self._snap_projection = None
         self.region = context.region
         self.rv3d = context.region_data
         if self.region is None or self.rv3d is None:
@@ -482,11 +782,7 @@ Add mode makes a new object from the shape instead"""
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         self.press_mouse = mouse.copy()
         cutter_collection = bpy.data.collections.get("Cutters")
-        depsgraph = context.evaluated_depsgraph_get()
-
-        origin = region_2d_to_origin_3d(self.region, self.rv3d, mouse)
-        direction = region_2d_to_vector_3d(self.region, self.rv3d, mouse)
-        hit = _ray_cast(context, depsgraph, origin, direction, cutter_collection)
+        self.plane, hit = start_plane(context, self.region, self.rv3d, mouse, self.align)
 
         if context.mode == 'EDIT_MESH':
             # Edit Mode cuts the meshes being edited, the active one first (it is the mirror object)
@@ -494,8 +790,8 @@ Add mode makes a new object from the shape instead"""
             active = context.edit_object
             self.targets = [active] + [o for o in edit_objects if o != active]
         else:
-            selected = [o for o in context.selected_objects if _is_cut_target(o, cutter_collection)]
-            self.targets = selected or ([hit[3]] if hit else [])
+            # Only the selection is cut (cutters too); with nothing selected, the mesh under the cursor
+            self.targets = _selected_targets(context) or ([hit[3]] if hit else [])
         self.on_floor = False  # set below when nothing is under the cursor
         self.adjusting = None  # "bevel_width" (B) or "bevel_profile" (P) while the mouse sets it
         self.click_to_finish = False
@@ -503,42 +799,25 @@ Add mode makes a new object from the shape instead"""
         self.mirror_object = hit[3] if hit and hit[3] in self.targets else (self.targets[0] if self.targets else None)
         self.mirror_pivot = self.mirror_object.name if self.mirror_object else ""
 
-        view_rot = self.rv3d.view_rotation
-        view_right = view_rot @ Vector((1.0, 0.0, 0.0))
-        view_up = view_rot @ Vector((0.0, 1.0, 0.0))
-
-        if hit:
-            loc, normal, index, obj, matrix = hit
-            if normal.dot(direction) > 0.0:
-                normal = -normal
-            # View: the object axis that looks most like screen right, so the box lines up with
-            # the object instead of sitting skewed on the face
-            x_axis = _closest_axis(obj.matrix_world, normal, view_right)
-            if self.align == 'EDGE':
-                edge_dir = _closest_edge_direction(obj, depsgraph, matrix, index, loc)
-                if edge_dir is not None:
-                    x_axis = edge_dir
-            self.plane = _plane_matrix(loc, normal, x_axis, view_up)
-        else:
+        if hit is None:
             # Nothing under the cursor: always Add a new mesh, built up from the grid floor
-            # (world Z = 0). The plane origin is the world origin so Ctrl snaps to the grid.
             self.on_floor = True
             self.operation = 'ADD'
-            up = Vector((0.0, 0.0, 1.0))
-            point = intersect_line_plane(origin, origin + direction, Vector(), up) if abs(direction.z) > 0.1 else None
-            if point is not None and (point - origin).dot(direction) > 0.0:
-                self.plane = _plane_matrix(Vector(), up, Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)))
-            else:
-                # Looking along the floor: a view aligned plane through the targets or the 3D cursor
-                if self.targets:
-                    center = sum((o.matrix_world.translation for o in self.targets), Vector()) / len(self.targets)
-                else:
-                    center = context.scene.cursor.location.copy()
-                closest = intersect_line_plane(origin, origin + direction, center, -direction) or center
-                self.plane = _plane_matrix(closest, -direction, view_right, view_up)
+        elif self.operation != 'ADD':
+            # Fast or Manifold to suit what is cut, switched on the tool so the header shows it
+            solver = pick_boolean_solver(context, self.targets, self.solver)
+            if solver != self.solver:
+                self.solver = solver
+                props = _tool_props(context)
+                if props is not None:
+                    props.solver = solver
 
         self.plane_inv = self.plane.inverted_safe()
         self.normal = self.plane.col[2].to_3d().normalized()
+
+        self.snap_verts = _snap_vertices(context, _snap_targets(context, hit, cutter_collection))
+        self.snap_point = None  # world position of the current snap, drawn as a marker
+        self.snap_is_vert = False
 
         self.phase = 'DRAW'
         self.start = self._mouse_to_plane(mouse, event.ctrl) or Vector((0.0, 0.0))
@@ -558,31 +837,7 @@ Add mode makes a new object from the shape instead"""
         # Before any handler is added: if this fails, nothing is left running
         self._update_status(context)
 
-        # The handle lives in the closure too: if the operator is freed without _cleanup
-        # (file load, Blender ending the modal) the callback removes itself instead of
-        # raising ReferenceError on every redraw. Addon reloads are covered by
-        # unregister(), which removes every handle in _draw_handles.
-        handle = []
-
-        def remove():
-            if handle:
-                h = handle.pop()
-                _draw_handles.discard(h)
-                bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
-
-        def draw():
-            # repr first: a freed struct reprs as "<bpy_struct, Cutter invalid>" without
-            # raising, so the debugger isn't paused. The except is the fallback.
-            if repr(self).endswith(" invalid>"):
-                return remove()
-            try:
-                self._draw_callback()
-            except ReferenceError:
-                remove()
-
-        handle.append(bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_VIEW'))
-        self._handle = handle[0]
-        _draw_handles.add(self._handle)
+        self._add_draw_handler()
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -597,30 +852,20 @@ Add mode makes a new object from the shape instead"""
 
     # -- geometry --
 
-    def _mouse_ray(self, mouse):
-        origin = region_2d_to_origin_3d(self.region, self.rv3d, mouse)
-        direction = region_2d_to_vector_3d(self.region, self.rv3d, mouse)
-        return origin, direction
-
     def _near_point(self, mouse, point):
         """True when the mouse is within NGON_CLOSE_RADIUS pixels of a plane point."""
         screen = location_3d_to_region_2d(self.region, self.rv3d, self.plane @ point.to_3d())
         return screen is not None and (mouse - screen).length < NGON_CLOSE_RADIUS
 
-    def _snap(self, value):
-        inc = self.snap_increment
-        return round(value / inc) * inc
-
-    def _mouse_to_plane(self, mouse, snap=False):
-        origin, direction = self._mouse_ray(mouse)
-        point = intersect_line_plane(origin, origin + direction, self.plane.translation, self.normal)
-        if point is None:
-            return None
-        local = self.plane_inv @ point
-        p = Vector((local.x, local.y))
-        if snap:
-            p = Vector((self._snap(p.x), self._snap(p.y)))
-        return p
+    def _snap_depth(self, mouse, depth):
+        """Ctrl while extruding: a vertex near the mouse sets the depth to its height above
+        the plane, otherwise the depth snaps to the grid increment."""
+        vert = self._nearest_vert(mouse)
+        if vert is not None:
+            self.snap_point, self.snap_is_vert = vert, True
+            return (self.plane_inv @ vert).z
+        self.snap_point = None
+        return self._snap(depth)
 
     def _setup_depth_input(self):
         """Pick how the mouse drives depth. Looking (almost) straight down the normal, e.g. an
@@ -739,8 +984,8 @@ Add mode makes a new object from the shape instead"""
         matrix = self._cutter_matrix(center)
 
         if self.shape == 'CIRCLE':
-            # Non destructive, for cutters and Add: a side profile spun by a Screw modifier, so segments stay editable.
-            # Ellipses use the object's Y scale.
+            # Non destructive, for cutters and Add: a side profile spun by a Screw modifier, so
+            # segments stay editable. Ellipses use the object's Y scale.
             rx = max(abs(p.x - center.x) for p in profile)
             ry = max(abs(p.y - center.y) for p in profile)
             z0, z1 = z_range
@@ -749,11 +994,22 @@ Add mode makes a new object from the shape instead"""
             ensure_screw_modifier(self.cutter, self.segments)
             if rx > 1e-9:
                 matrix = matrix @ Matrix.Diagonal((1.0, ry / rx, 1.0, 1.0))
+        elif self.shape == 'BOX' and self.bevel:
+            # Non destructive bevel: a plain box with a Bevel modifier on its four side edges
+            hx = max(abs(p.x - center.x) for p in profile)
+            hy = max(abs(p.y - center.y) for p in profile)
+            local = box_points(Vector((0.0, 0.0)), hx, hy)
+            verts, faces = build_prism(local, z_range[0], z_range[1])
+            mesh.from_pydata(verts, [], faces)
+            _set_side_bevel_weights(mesh, len(local))
+            ensure_bevel_modifier(self.cutter, self._bevel_radius(hx, hy), self.bevel_segments, self.bevel_profile)
         else:
             local = [p - center for p in profile]
             verts, faces = build_prism(local, z_range[0], z_range[1])
             mesh.from_pydata(verts, [], faces)
 
+        if self.shape != 'BOX' or not self.bevel:
+            remove_modifiers(self.cutter, 'BEVEL')
         mesh.update()
         self.cutter.matrix_world = matrix
         self._update_mirror_modifier()
@@ -871,11 +1127,7 @@ Add mode makes a new object from the shape instead"""
         return {'CANCELLED'}
 
     def _cleanup(self, context):
-        if getattr(self, "_handle", None) is not None:
-            if self._handle in _draw_handles:
-                _draw_handles.discard(self._handle)
-                bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
-            self._handle = None
+        self._remove_draw_handler()
         self._batches = None
         context.workspace.status_text_set(None)
         if context.area:
@@ -1073,12 +1325,16 @@ Add mode makes a new object from the shape instead"""
             bpy.ops.keyops.cutter_tool_options('INVOKE_DEFAULT')
             return {'RUNNING_MODAL'}
 
-        elif event.type == 'MOUSEMOVE':
+        elif event.type == 'MOUSEMOVE' or (event.type in CTRL_KEYS and event.value in {'PRESS', 'RELEASE'}):
+            # Pressing or letting go of Ctrl snaps (or unsnaps) right away, without moving the mouse
+            had_snap = self.snap_point
             if self.phase == 'DRAW':
                 p = self._mouse_to_plane(mouse, event.ctrl)
                 if p is not None and p != self.current:
                     self.current = p
                     changed = True
+                if had_snap != self.snap_point:
+                    self.region.tag_redraw()
                 if (mouse - self.press_mouse).length >= CLICK_DRAG_THRESHOLD:
                     self.has_dragged = True
             else:
@@ -1091,7 +1347,11 @@ Add mode makes a new object from the shape instead"""
                 if d is not None:
                     depth = d - self.depth_ref
                     if event.ctrl:
-                        depth = self._snap(depth)
+                        depth = self._snap_depth(mouse, depth)
+                    else:
+                        self.snap_point = None
+                    if had_snap != self.snap_point:
+                        self.region.tag_redraw()
                     if self.operation == 'ADD':
                         # Add goes either way: out of the surface or into it, never flat
                         if abs(depth) < MIN_DEPTH:
@@ -1300,10 +1560,7 @@ Add mode makes a new object from the shape instead"""
             self._build_point_batch()
 
     def _build_point_batch(self):
-        try:
-            shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
-        except (ValueError, TypeError):
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        shader = point_shader()
         self._batches["point_shader"] = shader
         self._batches["point_batch"] = batch_for_shader(shader, 'POINTS', {"pos": self._batches["points"]})
 
@@ -1350,6 +1607,88 @@ Add mode makes a new object from the shape instead"""
             gpu.state.point_size_set(7.0)
             batches["point_batch"].draw(shader)
 
+        if self.snap_point is not None:
+            self._draw_snap(region)
+
+        gpu.state.blend_set('NONE')
+
+
+# --- Snap preview (hold Ctrl before clicking) -------------------------------
+
+class CutterSnapPreview(SnapMixin, bpy.types.Operator):
+    """While Ctrl is held with the Cutter active, show where a cut would start: the snapped
+    vertex, or the snapped grid point with the grid around it. Ctrl + click then starts the
+    cut from that point (the Cutter snaps its start the same way)"""
+    bl_idname = "keyops.cutter_snap_preview"
+    bl_label = "Cutter Snap Preview"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return Cutter.poll(context)
+
+    def invoke(self, context, event):
+        self._handle = None
+        self._snap_projection = None
+        props = _tool_props(context)
+        self.region = context.region
+        self.rv3d = context.region_data
+        if props is None or self.region is None or self.rv3d is None:
+            return {'CANCELLED'}
+        self.align = props.align
+        self.snap_increment = props.snap_increment
+        self.phase = 'DRAW'
+        self.snap_point = None
+        self.snap_is_vert = False
+        self.snap_key = None  # which objects' vertices are in snap_verts
+        self.snap_cache = {}  # vertices per object, read once while Ctrl is held
+        self.snap_verts = _snap_vertices(context, [])
+        self._update(context, event)
+        self._add_draw_handler()
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def _update(self, context, event):
+        mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+        self.plane, hit = start_plane(context, self.region, self.rv3d, mouse, self.align)
+        self.plane_inv = self.plane.inverted_safe()
+        self.normal = self.plane.col[2].to_3d().normalized()
+        # The same objects the Cutter snaps to, so the click lands where the preview shows
+        objects = _snap_targets(context, hit, bpy.data.collections.get("Cutters"))
+        key = tuple(o.as_pointer() for o in objects)
+        if key != self.snap_key:  # vertices are read once per object, not every mouse move
+            self.snap_key = key
+            self.snap_verts = _snap_vertices(context, objects, self.snap_cache)
+        self._mouse_to_plane(mouse, snap=True)
+        self.region.tag_redraw()
+
+    def modal(self, context, event):
+        # Letting go of one Ctrl key while the other is still held keeps the preview
+        if (event.type in CTRL_KEYS and event.value == 'RELEASE' and not event.ctrl) or event.type == 'ESC':
+            return self._finish({'FINISHED'})
+        if event.type in CTRL_KEYS:
+            return {'RUNNING_MODAL'}  # the other Ctrl key would start a second preview
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            # Ctrl + click goes on to the tool's own keymap, which starts the Cutter
+            return self._finish({'FINISHED', 'PASS_THROUGH'})
+        if event.type == 'MOUSEMOVE':
+            if not event.ctrl:  # Ctrl was let go outside the 3D view
+                return self._finish({'FINISHED'})
+            self._update(context, event)
+        return {'PASS_THROUGH'}
+
+    def _finish(self, result):
+        self._remove_draw_handler()
+        self.region.tag_redraw()
+        return result
+
+    def _draw_callback(self):
+        region = bpy.context.region
+        if region is None or region.as_pointer() != self.region.as_pointer() or self.snap_point is None:
+            return
+        gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('NONE')
+        self._draw_snap(region)
         gpu.state.blend_set('NONE')
 
 
@@ -1535,6 +1874,8 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
         (OP_IDNAME, {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
         (OP_IDNAME, {"type": 'LEFTMOUSE', "value": 'PRESS', "shift": True}, None),
         (OP_IDNAME, {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True}, None),
+        (CutterSnapPreview.bl_idname, {"type": 'LEFT_CTRL', "value": 'PRESS', "any": True}, None),
+        (CutterSnapPreview.bl_idname, {"type": 'RIGHT_CTRL', "value": 'PRESS', "any": True}, None),
         (CutterToolOptions.bl_idname, {"type": 'D', "value": 'PRESS'}, None),
     )
 
@@ -1578,7 +1919,7 @@ class WorkSpaceCutterEdit(bpy.types.WorkSpaceTool):
     draw_settings = WorkSpaceCutter.draw_settings
 
 
-classes = (Cutter, CutterSetOperation, CutterSetSegments, KEYOPS_MT_cutter_operation, CutterToolOptions)
+classes = (Cutter, CutterSnapPreview, CutterSetOperation, CutterSetSegments, KEYOPS_MT_cutter_operation, CutterToolOptions)
 
 # Draw handles of running Cutter operators, so a reload mid-cut can't leave one behind
 _draw_handles = set()

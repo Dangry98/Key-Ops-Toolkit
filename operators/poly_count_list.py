@@ -7,6 +7,7 @@ import bpy, time
 from bpy.types import PropertyGroup
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, PointerProperty, IntProperty)
 from ..utils.pref_utils import get_icon, clear_registered_keymaps
+from ..utils.pref_utils import feature_on
 from bpy.app.handlers import persistent
 from ..utils.pref_utils import get_keyops_prefs
 
@@ -494,7 +495,7 @@ class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return get_keyops_prefs().enable_polycount_list
+        return feature_on("polycount_list")
 
     def draw_header(self, context):
         layout = self.layout

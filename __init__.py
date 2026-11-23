@@ -15,6 +15,8 @@
 #
 # ***** END GPL LICENSE BLOCK *****
 
+import traceback
+
 import bpy
 
 from . import features, pie_menus, properties
@@ -26,13 +28,31 @@ from .operators import (
     flatten, legacy_shortcuts, looptools_menu, material_index, maya_navigation, maya_pivot, mesh_cleanup,
     modi_key, offset_extrude_edge, optional_keys, origin_to_selection, outliner_options,
     parent_used_objects, poly_count_list, quick_bake_name, quick_export, resample_edges, select_similar,
-    set_flow, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
+    set_cylinder_sides, set_flow, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
     uv_tools, viewport_menu,
 )
 from .operators.xray_select import register_xray_select, unregister_xray_select
 from .tools import cutter_tool, fast_loop_cut, merge_tool
 from .ui import toolkit_paneL_ui, welcome
-from .utils.pref_utils import KeyOpsPrefsMock, get_keyops_prefs, unregister_icons
+from .utils.pref_utils import get_keyops_prefs, unregister_icons
+
+
+def register_module(module):
+    """Register one module. If it fails, say which one and carry on, so one broken
+    feature never takes the rest of the add-on (tools, panels, menus) down with it."""
+    try:
+        module.register()
+    except Exception:
+        print(f"Key Ops: could not register {module.__name__}")
+        traceback.print_exc()
+
+
+def unregister_module(module):
+    try:
+        module.unregister()
+    except Exception:
+        print(f"Key Ops: could not unregister {module.__name__}")
+        traceback.print_exc()
 
 
 def register():
@@ -41,154 +61,138 @@ def register():
     bpy.utils.register_class(KeyOpsPreferences)
 
     # Toolbar tools
-    merge_tool.register()
-    fast_loop_cut.register()
-    cutter_tool.register()
+    register_module(merge_tool)
+    register_module(fast_loop_cut)
+    register_module(cutter_tool)
 
     # Modeling
-    fast_merge.register()
-    auto_delete.register()
-    atri_op.register()
-    looptools_menu.register()
-    uv_tools.register()
+    register_module(fast_merge)
+    register_module(auto_delete)
+    register_module(atri_op)
+    register_module(looptools_menu)
+    register_module(uv_tools)
 
     # Object Toolkit (N-panel) and the operators it uses
-    toolkit_panel.register()
-    extract_geometry.register()
-    subobject_modes.register()
-    edge_trim.register()
-    resample_edges.register()
-    mesh_cleanup.register()
-    set_flow.register()
-    fast_mirror.register()
-    snap_to_floor.register()
-    parent_used_objects.register()
-    extrude_edge_along_normals.register()
-    offset_extrude_edge.register()
-    smart_apply_scale.register()
-    select_similar.register()
-    modi_key.register()
-    material_index.register()
+    register_module(toolkit_panel)
+    register_module(extract_geometry)
+    register_module(subobject_modes)
+    register_module(edge_trim)
+    register_module(resample_edges)
+    register_module(set_cylinder_sides)
+    register_module(mesh_cleanup)
+    register_module(set_flow)
+    register_module(fast_mirror)
+    register_module(snap_to_floor)
+    register_module(parent_used_objects)
+    register_module(extrude_edge_along_normals)
+    register_module(offset_extrude_edge)
+    register_module(smart_apply_scale)
+    register_module(select_similar)
+    register_module(modi_key)
+    register_module(material_index)
 
     # Industry standard
-    maya_navigation.register()
-    maya_pivot.register()
-    double_click_select_island.register()
-    toggle_retopology.register()
+    register_module(maya_navigation)
+    register_module(maya_pivot)
+    register_module(double_click_select_island)
+    register_module(toggle_retopology)
 
     # Game art
-    quick_export.register()
-    quick_bake_name.register()
-    auto_lod.register()
-    cad_decimate.register()
-    poly_count_list.register()
+    register_module(quick_export)
+    register_module(quick_bake_name)
+    register_module(auto_lod)
+    register_module(cad_decimate)
+    register_module(poly_count_list)
 
     # Interface
-    viewport_menu.register()
-    outliner_options.register()
-    optional_keys.register()
-    legacy_shortcuts.register()
+    register_module(viewport_menu)
+    register_module(outliner_options)
+    register_module(optional_keys)
+    register_module(legacy_shortcuts)
     register_xray_select()
 
     # Pie menus and the operators they call
-    add_mesh.register()
-    add_modifier.register()
-    fast_solidify.register()
-    origin_to_selection.register()
-    flatten.register()
-    pies.register()
-    pie_menus.register()
+    register_module(add_mesh)
+    register_module(add_modifier)
+    register_module(fast_solidify)
+    register_module(origin_to_selection)
+    register_module(flatten)
+    register_module(pies)
+    register_module(pie_menus)
 
     # Panels and the welcome screen
-    toolkit_paneL_ui.register()
-    welcome.register()
+    register_module(toolkit_paneL_ui)
+    register_module(welcome)
 
-    if prefs_ready():
-        finish_register()
-    else:
-        # Enabled from the command line: the preferences exist once Blender has started
-        bpy.app.timers.register(finish_register_when_ready, first_interval=0.1)
-
-
-def prefs_ready():
-    return not isinstance(get_keyops_prefs(), KeyOpsPrefsMock)
-
-
-def finish_register():
-    pie_menus.load_from_disk()     # pies are saved in pie_menus.json in the add-on's user folder
-    features.migrate()             # new install: no shortcuts until the welcome screen. Upgrade: keep everything
-    features.apply_all()           # turn each feature on or off to match its switch in the preferences
-    pie_menus.sync_keymaps()
-    welcome.schedule_welcome()
-
-
-def finish_register_when_ready():
-    if not prefs_ready():
-        return 0.2  # check again shortly
-    finish_register()
-    return None
+    # The preferences only exist once the add-on is enabled in Preferences. With Blender's
+    # --addons command line flag they don't yet: tools, panels and menus still work, with no shortcuts.
+    if get_keyops_prefs() is not None:
+        pie_menus.load_from_disk()  # pies are saved in pie_menus.json in the add-on's user folder
+        features.migrate()          # new install: no shortcuts until the welcome screen. Upgrade: keep everything
+        pie_menus.sync_keymaps()
+        welcome.schedule_welcome()
+    features.apply_all()            # turn each feature on or off to match its switch in the preferences
 
 
 def unregister():
-    if bpy.app.timers.is_registered(finish_register_when_ready):
-        bpy.app.timers.unregister(finish_register_when_ready)
     toggle_retopology.reset_retopo_themes_on_unregister_addon()
     features.switch_all_off()
 
-    welcome.unregister()
-    toolkit_paneL_ui.unregister()
+    unregister_module(welcome)
+    unregister_module(toolkit_paneL_ui)
 
-    pie_menus.unregister()
-    pies.unregister()
-    flatten.unregister()
-    origin_to_selection.unregister()
-    fast_solidify.unregister()
-    add_modifier.unregister()
-    add_mesh.unregister()
+    unregister_module(pie_menus)
+    unregister_module(pies)
+    unregister_module(flatten)
+    unregister_module(origin_to_selection)
+    unregister_module(fast_solidify)
+    unregister_module(add_modifier)
+    unregister_module(add_mesh)
 
     unregister_xray_select()
-    legacy_shortcuts.unregister()
-    optional_keys.unregister()
-    outliner_options.unregister()
-    viewport_menu.unregister()
+    unregister_module(legacy_shortcuts)
+    unregister_module(optional_keys)
+    unregister_module(outliner_options)
+    unregister_module(viewport_menu)
 
-    poly_count_list.unregister()
-    cad_decimate.unregister()
-    auto_lod.unregister()
-    quick_bake_name.unregister()
-    quick_export.unregister()
+    unregister_module(poly_count_list)
+    unregister_module(cad_decimate)
+    unregister_module(auto_lod)
+    unregister_module(quick_bake_name)
+    unregister_module(quick_export)
 
-    toggle_retopology.unregister()
-    double_click_select_island.unregister()
-    maya_pivot.unregister()
-    maya_navigation.unregister()
+    unregister_module(toggle_retopology)
+    unregister_module(double_click_select_island)
+    unregister_module(maya_pivot)
+    unregister_module(maya_navigation)
 
-    material_index.unregister()
-    modi_key.unregister()
-    select_similar.unregister()
-    smart_apply_scale.unregister()
-    offset_extrude_edge.unregister()
-    extrude_edge_along_normals.unregister()
-    parent_used_objects.unregister()
-    snap_to_floor.unregister()
-    fast_mirror.unregister()
-    set_flow.unregister()
-    mesh_cleanup.unregister()
-    resample_edges.unregister()
-    edge_trim.unregister()
-    subobject_modes.unregister()
-    extract_geometry.unregister()
-    toolkit_panel.unregister()
+    unregister_module(material_index)
+    unregister_module(modi_key)
+    unregister_module(select_similar)
+    unregister_module(smart_apply_scale)
+    unregister_module(offset_extrude_edge)
+    unregister_module(extrude_edge_along_normals)
+    unregister_module(parent_used_objects)
+    unregister_module(snap_to_floor)
+    unregister_module(fast_mirror)
+    unregister_module(set_flow)
+    unregister_module(mesh_cleanup)
+    unregister_module(set_cylinder_sides)
+    unregister_module(resample_edges)
+    unregister_module(edge_trim)
+    unregister_module(subobject_modes)
+    unregister_module(extract_geometry)
+    unregister_module(toolkit_panel)
 
-    uv_tools.unregister()
-    looptools_menu.unregister()
-    atri_op.unregister()
-    auto_delete.unregister()
-    fast_merge.unregister()
+    unregister_module(uv_tools)
+    unregister_module(looptools_menu)
+    unregister_module(atri_op)
+    unregister_module(auto_delete)
+    unregister_module(fast_merge)
 
-    cutter_tool.unregister()
-    fast_loop_cut.unregister()
-    merge_tool.unregister()
+    unregister_module(cutter_tool)
+    unregister_module(fast_loop_cut)
+    unregister_module(merge_tool)
 
     unregister_icons()
     bpy.utils.unregister_class(KeyOpsPreferences)

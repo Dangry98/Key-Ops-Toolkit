@@ -363,7 +363,7 @@ class Scanner:
          "is 'tampering with sensitive user data'"),
         ("REQUIRED", "keymap-tamper", r"\bkeyconfigs\.(import|export|new|remove)\b|bpy\.ops\.preferences\.keyconfig_|keymap_restore|keyitem_restore",
          "keyconfig import/export/restore manipulates the user's keymap"),
-        ("BLOCKER", "prefs-tamper", r"\b(context|C|bpy\.context)\.preferences\.(view|inputs|edit|system|filepaths|themes|keymap|experimental|apps)\.\w+\s*=(?!=)",
+        ("BLOCKER", "prefs-tamper", r"\b(context|C|bpy\.context)\.preferences\.(view|inputs|edit|system|filepaths|themes|keymap|experimental|apps)(\[[^\]]*\])?(\.\w+(\[[^\]]*\])?)*\.\w+\s*=(?!=)",
          "writes Blender user preferences. Changing users' preferences is treated like keymap tampering - "
          "make it an explicit, reversible user action or remove it"),
         ("REQUIRED", "prefs-tamper", r"bpy\.ops\.wm\.save_userpref|bpy\.ops\.preferences\.(reset_default_theme|theme_install)|save_preferences",
@@ -399,6 +399,27 @@ class Scanner:
         ("INFO", "debug", r"^\s*if\s+__name__\s*==\s*['\"]__main__['\"]",
          "development entry point; moderators ask to remove debug/dev code"),
     ]
+
+    PREF_ALIAS_RX = re.compile(
+        r"^\s*(\w+)\s*=\s*(bpy\.)?(context|C)\.preferences\.(view|inputs|edit|system|filepaths|themes|keymap|experimental|apps)\b[^=\n]*$")
+
+    def check_pref_aliases(self, rel, lines):
+        """`theme = bpy.context.preferences.themes[0].view_3d` then `theme.edge_width = 3`:
+        a write to the user's preferences through a local name, which the line rules miss."""
+        aliases = {}
+        for i, line in enumerate(lines, 1):
+            code = re.sub(r"(?<!['\"])#.*$", "", line)
+            m = self.PREF_ALIAS_RX.match(code)
+            if m:
+                aliases[m.group(1)] = i
+                continue
+            for name in aliases:
+                if re.search(rf"(?<![\w.]){re.escape(name)}(\.\w+|\[[^\]]*\])+\s*=(?!=)", code):
+                    self.add("BLOCKER", "prefs-tamper",
+                             f"writes Blender user preferences through '{name}' (set from context.preferences on "
+                             f"line {aliases[name]}). Changing users' preferences or theme is treated like keymap "
+                             "tampering - remove it or make it an explicit, reversible user action", rel, i, line)
+                    break
 
     def check_code(self):
         compiled = [(s, r, re.compile(p, re.M), msg) for s, r, p, msg in self.LINE_RULES]
@@ -451,6 +472,7 @@ class Scanner:
                             agg.setdefault((rule, rel), [sev, msg, 0, i])[2] += 1
                             continue
                         self.add(sev, rule, msg, rel, i, line)
+            self.check_pref_aliases(rel, lines)
             self.check_ast(rel, text)
         for (rule, rel), (sev, msg, n, first) in agg.items():
             self.add(sev, rule, f"{msg} ({n} occurrence{'s' if n != 1 else ''} in this file)", rel, first)

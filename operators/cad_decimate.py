@@ -1,17 +1,10 @@
 import bpy.types
 import os
 import time
-import importlib.util
 from ..utils.pref_utils import get_keyops_prefs, get_icon
+from ..utils.pref_utils import feature_on
 import tempfile
 
-
-def pyfqmr_available():
-    # find_spec instead of try/import, so a missing wheel never raises
-    return importlib.util.find_spec("pyfqmr") is not None
-
-
-PYFQMR_MISSING = "pyfqmr is not installed. Reinstall the extension so Blender installs its bundled wheels"
 
 totall_tris = 0
 
@@ -24,9 +17,6 @@ class CADDecimate(bpy.types.Operator):
     totall_time = 0
 
     def execute(self, context):
-        if context.scene.keyops.deceimate_type == 'PYFQMR' and not pyfqmr_available():
-            self.report({'ERROR'}, PYFQMR_MISSING)
-            return {'CANCELLED'}
         totall_time = time.time()
         if bpy.context.scene.keyops.fast_mode == False:    
             export_time = time.time()
@@ -286,80 +276,6 @@ def weld_decimate():
           f"{best_tris:,} ({weld.merge_threshold if weld else 0:.6f}) -> decimate {target:,}")
 
 
-def _mesh_from_arrays(name, verts, tris):
-    import numpy as np
-    me = bpy.data.meshes.new(name)
-    me.vertices.add(len(verts))
-    me.vertices.foreach_set("co", np.ascontiguousarray(verts, np.float32).ravel())
-    me.loops.add(len(tris) * 3)
-    me.loops.foreach_set("vertex_index", np.ascontiguousarray(tris, np.int32).ravel())
-    me.polygons.add(len(tris))
-    me.polygons.foreach_set("loop_start", np.arange(0, len(tris) * 3, 3, dtype=np.int32))
-    me.update(calc_edges=True)
-    me.validate(verbose=False, clean_customdata=False)
-    return me
-
-
-def pyfqmr_decimate():
-    """Quadric decimation with the bundled pyfqmr wheel. About 4x faster than the
-    Decimate modifier on 10M tris. Applies the modifier stack, drops UVs."""
-    import numpy as np
-    import pyfqmr
-
-    obj = bpy.context.view_layer.objects.active
-    dg = bpy.context.evaluated_depsgraph_get()
-    ob_eval = obj.evaluated_get(dg)
-    src = ob_eval.to_mesh()
-    src.calc_loop_triangles()
-    verts = np.empty(len(src.vertices) * 3, np.float32)
-    src.vertices.foreach_get("co", verts)
-    tris = np.empty(len(src.loop_triangles) * 3, np.int32)
-    src.loop_triangles.foreach_get("vertices", tris)
-    smooth = len(src.polygons) > 0 and src.polygons[0].use_smooth
-    ob_eval.to_mesh_clear()
-
-    source_tris = len(tris) // 3
-    target = _target_tris(source_tris)
-    if target >= source_tris or source_tris == 0:
-        return
-
-    simplifier = pyfqmr.Simplify()
-    simplifier.setMesh(verts.reshape(-1, 3).astype(np.float64), tris.reshape(-1, 3))
-    # pyfqmr can stall above the target on long sliver triangles (common in CAD). Extra
-    # iterations then only burn time, so cap them and let Decimate finish the rest.
-    simplifier.simplify_mesh(target_count=max(target, 4), aggressiveness=7, max_iterations=40,
-                             preserve_border=False, verbose=False)
-    new_verts, new_tris, _normals = simplifier.getMesh()
-
-    me = _mesh_from_arrays(obj.data.name if obj.type == 'MESH' else obj.name, new_verts, new_tris)
-    for mat in getattr(obj.data, "materials", []):
-        me.materials.append(mat)
-    if smooth:
-        me.shade_smooth()
-
-    if obj.type == 'MESH':
-        old = obj.data
-        obj.modifiers.clear()      # already baked into the result
-        obj.data = me
-        if old.users == 0:
-            bpy.data.meshes.remove(old)
-    else:
-        new_obj = bpy.data.objects.new(obj.name, me)
-        new_obj.matrix_world = obj.matrix_world.copy()
-        for col in obj.users_collection:
-            col.objects.link(new_obj)
-        bpy.data.objects.remove(obj)
-        new_obj.select_set(True)
-        bpy.context.view_layer.objects.active = new_obj
-        obj = new_obj
-
-    if len(new_tris) > target * 1.02:
-        decimate = obj.modifiers.new(name="Decimate", type='DECIMATE')
-        decimate.ratio = target / len(new_tris)
-    print(f"pyfqmr '{obj.name}': {source_tris:,} -> {len(new_tris):,}"
-          + (f" -> decimate {target:,}" if len(new_tris) > target * 1.02 else ""))
-
-
 class ImportCADDecimate(bpy.types.Operator):
     bl_idname = "keyops.import_cad_decimate"
     bl_label = "Import CAD Decimate"
@@ -390,14 +306,8 @@ class ImportCADDecimate(bpy.types.Operator):
 
         preserv_uv = bpy.context.scene.keyops.preserv_uvs
 
-        if bpy.context.scene.keyops.deceimate_type == 'PYFQMR' and not pyfqmr_available():
-            self.report({'ERROR'}, PYFQMR_MISSING)
-            return {'CANCELLED'}
-
         if bpy.context.scene.keyops.deceimate_type == 'DECIMATE':
             self.decimate_type = high_quality_decimate
-        elif bpy.context.scene.keyops.deceimate_type == 'PYFQMR':
-            self.decimate_type = pyfqmr_decimate
         elif bpy.context.scene.keyops.deceimate_type == 'WELD_DECIMATE':
             self.decimate_type = weld_decimate
         elif bpy.context.scene.keyops.deceimate_type == 'WELD':
@@ -491,19 +401,17 @@ def draw_cad_decimate_panel(self, context, draw_header=False):
         layout = self.layout
         box = layout.box()
 
-        if get_keyops_prefs().enable_cad_decimate:
+        if feature_on("cad_decimate"):
             if draw_header:
                 box.label(text="CAD Decimate", icon_value=get_icon("mod_decim"))
             decimate_type = context.scene.keyops.deceimate_type
             box.prop(context.scene.keyops, "deceimate_type", text="")
-            if decimate_type == 'PYFQMR' and not pyfqmr_available():
-                box.label(text="pyfqmr not installed, reinstall extension", icon='ERROR')
             if decimate_type != 'DECIMATE':
                 box.label(text="Does not preserv UVs", icon='ERROR')
             box.prop(context.scene.keyops, "fast_mode", text="Enable Fast Mode", toggle=True)
             col = box.column(align=True)
             row = col.row(align=True)
-            if decimate_type in {'DECIMATE', 'PYFQMR', 'WELD_DECIMATE'}:
+            if decimate_type in {'DECIMATE', 'WELD_DECIMATE'}:
                 row.prop(context.scene.keyops, "procent_or_amount", text="Procent or Amount", expand=True)
                 row = col.row(align=True)
                 if bpy.context.scene.keyops.procent_or_amount == 'PROCENT':

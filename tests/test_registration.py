@@ -90,8 +90,31 @@ def run():
     p.enable_polycount_list = True
     check("polycount handler back when on", any("poly_count" in h for h in keyops_handlers()), str(keyops_handlers()))
 
+    # ---- Essentials: tools, panels and menus work, no shortcuts
     F.apply_style("ESSENTIALS")
     check("essentials: no live shortcuts", F.live_shortcut_count() == 0, str(F.live_shortcut_count()))
+    tools = [sys.modules[MOD + ".tools." + m] for m in ("merge_tool", "cutter_tool", "fast_loop_cut")]
+    tool_classes = [t.WorkSpaceMergeTool for t in tools[:1]] + [tools[1].WorkSpaceCutter, tools[2].WorkSpaceFastLoopCut]
+    check("essentials: toolbar tools are in the toolbar", all(hasattr(c, "_bl_tool") for c in tool_classes))
+    panel = getattr(bpy.types, "KEYOPS_PT_new_toolkit_panel", None)
+    check("essentials: Toolkit panel registered", panel is not None)
+    check("essentials: Toolkit panel shows", panel is not None and bool(panel.poll(bpy.context)))
+
+    # ---- no preferences yet (enabled from the command line): Essentials still on, no shortcuts
+    PU = sys.modules[MOD + ".utils.pref_utils"]
+    real_get, real_prefs = PU.get_keyops_prefs, F.prefs
+    PU.get_keyops_prefs = lambda: None
+    F.prefs = lambda: None
+    try:
+        F.apply_all()
+        check("no prefs: tools stay in the toolbar", all(hasattr(c, "_bl_tool") for c in tool_classes))
+        check("no prefs: Toolkit panel shows", bool(panel.poll(bpy.context)))
+        check("no prefs: feature_on treats switches as on", PU.feature_on("toolkit_panel") is True)
+        check("no prefs: no shortcuts", F.live_shortcut_count() == 0, str(F.live_shortcut_count()))
+    finally:
+        PU.get_keyops_prefs, F.prefs = real_get, real_prefs
+        F.apply_all()
+    check("prefs back: switches read from preferences again", PU.feature_on("auto_delete") == p.enable_auto_delete)
 
     for attempt in (1, 2):
         addon_utils.disable(MOD, default_set=True)

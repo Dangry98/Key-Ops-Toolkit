@@ -81,10 +81,26 @@ Never `taskkill /IM blender.exe` (user has their own sessions); kill by PID.
 - Edit `node_groups.blend` only in the oldest installed Blender; keep group names and
   `Socket_N` identifiers.
 - Check C operators with `name in dir(bpy.ops.<mod>)`, not `hasattr`.
+- `POINT_UNIFORM_COLOR` / `POINT_FLAT_COLOR` builtin shaders only exist from 4.5: use
+  `utils/draw_utils.point_shader()`. `tests/test_ui_draw.py` draws every panel/menu against the
+  running Blender's API; run the suite with `-Version 4.2.3` as well as 5.4. Draw callbacks, modal
+  handlers and status bars never run in `-b`: add `-Gui` (tests/gui_modal_smoke.py, real window,
+  simulated events, fails on any traceback). `MOUSE_MMB_SCROLL` icon arrived in 4.3: pass icons
+  that may be missing through `utils.utilities.safe_icon()` (it maps known stand-ins).
 - Changes touching keymaps, prefs, handlers, networking, packaging: run the
   `extension-review` skill before release.
 
-## 5. Output
+## 5. Never mention other add-ons
+
+Never name any third-party add-on anywhere: code, comments, docstrings, UI text, `docs/`,
+README, manifest, commit messages, PR titles or descriptions, issues. No comparisons ("like
+<other add-on>"), no integrations, no links. Describe what Key Ops does on its own terms instead.
+Only name one when the user has approved that exact mention. Approved so far: PolyQuilt in
+`docs/industry-standard.html`, and the existing "based on" credit comments for borrowed code
+(GPL). If a commit message would need a name, write "WIP" instead. Before every commit, check
+the diff and the message for add-on names.
+
+## 6. Output
 
 Report results in a few lines: what changed (paths), reload/docs/test status, anything not
 verified. No file dumps, no recap of the plan.

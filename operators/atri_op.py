@@ -1,5 +1,6 @@
 import bpy.types
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 
 def update_float_value(self, context):
     wm = bpy.context.window_manager
@@ -14,7 +15,7 @@ def update_integer_value(self, context):
     bpy.ops.mesh.attribute_set('EXEC_DEFAULT', True, value_int=wm.integer_value)
 
 def draw_custom_button(self, context):
-    if not get_keyops_prefs().enable_atri_op:
+    if not feature_on("atri_op"):
         return
     wm = bpy.context.window_manager
 

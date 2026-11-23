@@ -1,6 +1,7 @@
 import bpy.types
 from bpy.types import Operator
 from ..utils.pref_utils import clear_registered_keymaps
+from ..utils.pref_utils import feature_on
 import time
 from ..utils.pref_utils import get_keyops_prefs
 
@@ -51,7 +52,7 @@ class ModiKey(Operator):
         # On the Scene tab, let the Polycount List keyboard navigation have W/S
         if context.space_data.context == 'SCENE':
             from .poly_count_list import POLYCOUNT_OT_walk
-            if get_keyops_prefs().enable_polycount_list and POLYCOUNT_OT_walk.poll(context):
+            if feature_on("polycount_list") and POLYCOUNT_OT_walk.poll(context):
                 return False
         return True
 

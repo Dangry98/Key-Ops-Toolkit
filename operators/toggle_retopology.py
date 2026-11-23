@@ -1,5 +1,6 @@
 import bpy
 from ..utils.pref_utils import get_keyops_prefs, get_icon
+from ..utils.pref_utils import feature_on
 from ..utils.pref_utils import clear_registered_keymaps
 from ..utils.utilities import get_edit_mesh_tool_defs, get_tool_icon_value, get_tool_display_name
 
@@ -18,10 +19,11 @@ def register_toggle_retopology_keymaps():
     registered_toggle_retopology_keymaps.append((km, kmi))
 
 def reset_retopo_themes_on_unregister_addon():
-    if bpy.context.preferences.use_preferences_save == True:
-        prefs = get_keyops_prefs()
-        if prefs.enable_toggle_retopology:
-            load_theme_colors_from_prefs()
+    # The saved theme colours live in the preferences, so without them there is nothing to restore
+    if get_keyops_prefs() is None or not bpy.context.preferences.use_preferences_save:
+        return
+    if feature_on("toggle_retopology"):
+        load_theme_colors_from_prefs()
 
 def save_current_snap_settings_to_prefs():
     prefs = get_keyops_prefs()  
@@ -53,7 +55,7 @@ def save_current_theme_colors_to_prefs():
 
     #if the regualre none backup settings does match the current theme settings, then use the backup settings since it then it might been overwriten by mistake
     if prefs.savede_colors_theme_settings_string_backup2 != prefs.savede_colors_theme_settings_string and prefs.savede_colors_theme_settings_string_backup2 != "":
-        prefs.savede_colors_theme_settings_string = prefs.savede_colors_theme_settings_string_backup2 
+        prefs.savede_colors_theme_settings_string = prefs.savede_colors_theme_settings_string_backup2
         theme_wrong = True
     else:
         prefs.savede_colors_theme_settings_string_backup2 = prefs.savede_colors_theme_settings_string
@@ -74,7 +76,7 @@ def load_theme_colors_from_prefs(use_cache=False):
         if not prefs.savede_colors_theme_settings_string:
             # print("Keyops Failed to load retopo theme color from addon prefrences")
             return
-        
+
         theme_settings = prefs.savede_colors_theme_settings_string.split(",")
 
     if theme_settings:
@@ -176,7 +178,7 @@ class ToggleRetopology(bpy.types.Operator):
 
             if retopology_overlay_color == "custom_color":
                 retopology_overlay_color = prefs.toggle_retopology_custom_color
-                retopology_overlay_face_alpha = (retopology_overlay_color[0], retopology_overlay_color[1], retopology_overlay_color[2], prefs.toggle_retopology_face_alpha) 
+                retopology_overlay_face_alpha = (retopology_overlay_color[0], retopology_overlay_color[1], retopology_overlay_color[2], prefs.toggle_retopology_face_alpha)
             elif retopology_overlay_color == "maya":
                 retopology_overlay_color = (0.0, 0.6, 1.0, 0.65)
                 retopology_overlay_face_alpha = (retopology_overlay_color[0], retopology_overlay_color[1], retopology_overlay_color[2], 0.8)
@@ -189,7 +191,7 @@ class ToggleRetopology(bpy.types.Operator):
 
             theme.edge_width = prefs.toggle_retopology_edge_width
             theme.face_retopology = retopology_overlay_color
-            theme.face_select = retopology_overlay_face_alpha 
+            theme.face_select = retopology_overlay_face_alpha
             theme.edge_select = (0.98, 0.98, 0.98)
             theme.vertex_select = (0.98, 0.98, 0.98)
 
@@ -260,7 +262,7 @@ class ToggleRetopology(bpy.types.Operator):
 
 def draw_retopology_panel(self, context, draw_header=False):
     prefs = get_keyops_prefs()
-    if prefs.enable_toggle_retopology == False:
+    if not feature_on("toggle_retopology"):
         return
     global theme_wrong
     global check_theme_once
@@ -273,7 +275,7 @@ def draw_retopology_panel(self, context, draw_header=False):
         prefs.savede_colors_theme_settings_string = f"{theme.edge_width},{','.join(map(str, theme.face_retopology))},{','.join(map(str, theme.face_select))},{','.join(map(str, theme.edge_select))},{','.join(map(str, theme.vertex_select))},{','.join(map(str, theme.edge_mode_select))},{','.join(map(str, theme.face_mode_select))}"
 
         if prefs.savede_colors_theme_settings_string_backup2 != prefs.savede_colors_theme_settings_string and prefs.savede_colors_theme_settings_string_backup2 != "":
-            prefs.savede_colors_theme_settings_string = prefs.savede_colors_theme_settings_string_backup2 
+            prefs.savede_colors_theme_settings_string = prefs.savede_colors_theme_settings_string_backup2
             theme_wrong = True
         check_theme_once = True
 
@@ -284,23 +286,20 @@ def draw_retopology_panel(self, context, draw_header=False):
     overlay = bpy.context.space_data.overlay
     if theme_wrong:
         row = layout.row(align=True)
-        row.scale_y =1.35
+        row.scale_y = 1.35
         row.operator("keyops.toggle_retopology", text="Reset Theme to Backup", icon="ERROR").type = "exit"
         row = layout.row(align=True)
         row.label(text="Theme settings are wrong")
+    elif overlay.show_retopology == True:
+        row = layout.row(align=True)
+        row.scale_y = 1.35
+        row.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
     else:
-        if overlay.show_retopology == True:
-            row = layout.row(align=True)
-         
-            row.scale_y = 1.35
-            row.operator("keyops.toggle_retopology", text="Exit Retopology", icon="CANCEL").type = ""
-        else:
-            row = layout.row(align=True)
-        
-            row.scale_y = 1.35
-            row.scale_x = 1.15
-            row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
-            row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
+        row = layout.row(align=True)
+        row.scale_y = 1.35
+        row.scale_x = 1.15
+        row.operator("keyops.toggle_retopology", text="Toggle Retopology").type = ""
+        row.popover(panel="RETOPOLOGY_PT_Settings", text="", icon="PREFERENCES")
     row = layout.row()
 
     row.operator("keyops.toggle_retopology", text="New Retopology at Active", icon="ADD").type = "new_target"

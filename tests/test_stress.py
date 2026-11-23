@@ -241,9 +241,9 @@ def test_marking_chain(PM, MC):
     check("marking preview: selecting a sub-menu item shows its menu beside it", names == ["Chain Top", "Chain Sub"]
           and any(e.index >= MC.SUB_STRIDE and e.text == "Deep" for e in sc.els) and len(sc.centres) == 2, str(names))
     deep = next(e for e in sc.els if e.text == "Deep")
-    MC._focus_chain_item(p, deep.index)
-    check("marking preview: clicking an item of the sub-menu edits that menu, both stay shown",
-          p.pies[p.active_pie].uid == sub.uid and p.pie_slot == 0 and len(MC.build(sub, p).centres) == 2)
+    check("marking preview: the preview never switches to the sub-menu: only its button above does",
+          not hasattr(MC, "_edit_chain_item") and not hasattr(MC, "_focus_chain_item")
+          and p.pies[p.active_pie].uid == top.uid and MC.chain_item(deep.index)[0].uid == sub.uid)
     p.active_pie = list(p.pies).index(top)
     top.items[2].kind = PM.O  # no longer opens it: the sub-menu goes away
     MC.build(top, p)

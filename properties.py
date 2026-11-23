@@ -152,11 +152,31 @@ class AutoLODProperties(bpy.types.PropertyGroup):
     add_weighted_normals: BoolProperty(default=True)  # type: ignore
 
 
+def _get_correct_uvs(self):
+    return self.id_data.tool_settings.use_transform_correct_face_attributes
+
+
+def _set_correct_uvs(self, value):
+    # Turning Preserve UVs on also turns on Keep Connected, so UV islands don't tear apart
+    tool_settings = self.id_data.tool_settings
+    tool_settings.use_transform_correct_face_attributes = value
+    if value:
+        tool_settings.use_transform_correct_keep_connected = True
+
+
 # ---------------------------------------------------------------------------
 # Main property group
 # ---------------------------------------------------------------------------
 
 class KeyOpsSceneProperties(PropertyGroup):
+    # Blender's "Correct Face Attributes" transform option, plus Keep Connected when turned on.
+    # Not stored: get/set read and write the scene's tool settings directly.
+    correct_uvs: BoolProperty(
+        name="Preserve UVs",
+        description="Keep UVs in place while moving geometry (Correct Face Attributes). "
+                    "Turning it on also turns on Keep Connected",
+        get=_get_correct_uvs, set=_set_correct_uvs)  # type: ignore
+
     # --- Nested groups ------------------------------------------------------
     polycount_props: PointerProperty(type=PolyCountProperties)  # type: ignore
     auto_lod_props: PointerProperty(type=AutoLODProperties)  # type: ignore
@@ -245,7 +265,6 @@ class KeyOpsSceneProperties(PropertyGroup):
     export_selected_only: BoolProperty(name="Export Selected Only",default=True,description="Export Selected Only")  # type: ignore
     deceimate_type: EnumProperty(name="deceimate_type",  # type: ignore
         items=[('DECIMATE', 'High Quality (Slow)', 'Decimate modifier. Best result and keeps UVs, but slow on huge meshes'),
-            ('PYFQMR', 'High Quality - pyfqmr (Faster)', 'Quadric decimation with the bundled pyfqmr library, about 4x faster than the Decimate modifier with slightly lower quality. Applies modifiers, does not preserv UVs'),
             ('WELD_DECIMATE', 'Medium Quality - Weld + Decimate', 'Weld (Connected) with an automatic, detail-safe distance does the cheap part of the reduction, then Decimate makes the final step to the target. Best for extremely dense meshes. Does not preserv UVs'),
             ('WELD', 'Low Quality (Fast)', 'Weld modifier only, does not preserv UVs'),
             ('CONNECT', 'Lowest Quality (Fastest)', 'Weld (Connected) only, very fast! But does not preserv UVs')],

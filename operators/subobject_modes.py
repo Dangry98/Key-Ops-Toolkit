@@ -1,8 +1,8 @@
-"""Border and Element modes for the Edit Toolkit, next to Vertex, Edge and Face.
+"""Element mode for the Edit Toolkit, next to Vertex, Edge and Face.
 
-They work as selection modes rather than one-off commands: while Border is on, picking an edge on an open
-border picks the whole border; while Element is on, picking any part of a mesh island picks the whole island
-(and deselecting a part, or Ctrl+clicking it, deselects the island). Turning a mode on also converts what is selected already.
+It works as a selection mode rather than a one-off command: while Element is on, picking any part of a mesh
+island picks the whole island (and deselecting a part, or Ctrl+clicking it, deselects the island). Turning the
+mode on also converts what is selected already.
 The mode ends when you pick Vertex, Edge or Face, change the select mode another way, or leave Edit Mode.
 """
 
@@ -12,7 +12,7 @@ from bpy.props import EnumProperty
 
 MODES = ("VERT", "EDGE", "FACE")
 
-# module state: the active extra mode ("NONE", "BORDER" or "ELEMENT") and whether its watcher runs
+# module state: the active extra mode ("NONE" or "ELEMENT") and whether its watcher runs
 state = {"mode": "NONE", "running": False}
 
 
@@ -26,19 +26,6 @@ def _edit_meshes(context):
 
 
 # ---------------------------------------------------------------- selection growing
-def _border_loop(edge):
-    """All edges of the open border `edge` lies on (walks from boundary edge to boundary edge)."""
-    loop, todo = {edge}, [edge]
-    while todo:
-        e = todo.pop()
-        for v in e.verts:
-            for nxt in v.link_edges:
-                if nxt not in loop and nxt.is_boundary:
-                    loop.add(nxt)
-                    todo.append(nxt)
-    return loop
-
-
 def _island(vert):
     """All vertices connected to `vert` by edges."""
     seen, todo = {vert}, [vert]
@@ -63,84 +50,79 @@ def _set_verts(bm, verts, value):
                 f.select = value
 
 
-def snapshot(bm, mode):
-    """What a mode compares against: selected edges for Border, selected vertices for Element, plus counts so
-    edits that add or remove geometry (extrude, delete...) are not taken for a selection change."""
-    elems = bm.edges if mode == "BORDER" else bm.verts
-    return (len(bm.verts), len(bm.edges), len(bm.faces)), {e.index for e in elems if e.select}
+_KINDS = ((bmesh.types.BMVert, "v"), (bmesh.types.BMEdge, "e"), (bmesh.types.BMFace, "f"))
 
 
-def grow(bm, mode, before):
-    """Grow what was newly picked to a whole border/island, and shrink what was unpicked the same way.
+def _key(elem):
+    for cls, kind in _KINDS:
+        if isinstance(elem, cls):
+            return (kind, elem.index)
+    return None
+
+
+def _vert_of(bm, key):
+    kind, i = key
+    if kind == "v":
+        return bm.verts[i]
+    return (bm.edges if kind == "e" else bm.faces)[i].verts[0]
+
+
+def snapshot(bm):
+    """What the mode compares against: selected vertices, edges and faces (in Face mode, deselecting one face can
+    leave all its vertices selected), the active element, plus counts so edits that add or remove geometry
+    (extrude, delete...) are not taken for a selection change."""
+    counts = (len(bm.verts), len(bm.edges), len(bm.faces))
+    active = _key(bm.select_history.active) if bm.select_history.active else None
+    sel = {("v", e.index) for e in bm.verts if e.select}
+    sel |= {("e", e.index) for e in bm.edges if e.select}
+    sel |= {("f", e.index) for e in bm.faces if e.select}
+    return counts, sel, active
+
+
+def grow(bm, before, click=False, deselect_only=False):
+    """Grow what was newly picked to a whole island, and shrink what was unpicked the same way.
+    `click`: a mouse pick happened, so the active element counts as picked even if it was selected already.
+    `deselect_only`: a Ctrl+click deselect, so only shrink.
+    Picks win over removals, so clicking part of an already selected island keeps the whole of it.
     Returns the new snapshot and whether anything changed."""
-    counts, old = before
-    now = snapshot(bm, mode)
+    counts, old, _old_active = before
+    now = snapshot(bm)
     if now[0] != counts:  # the geometry changed: nothing to grow, start over from here
         return now, False
-    added, removed = now[1] - old, old - now[1]
+    sel, active = now[1], now[2]
+    added, removed = sel - old, old - sel
     if not added and not removed:
         return now, False
-    if mode == "BORDER":
-        for f in bm.faces:  # first: deselecting a face also deselects its edges
-            if f.select:
-                f.select = False
-        bm.edges.ensure_lookup_table()
-        for i in removed:
-            e = bm.edges[i]
-            if e.is_boundary:
-                for le in _border_loop(e):
-                    le.select = False
-        for i in added:
-            e = bm.edges[i]
-            if e.is_boundary and e.select:
-                for le in _border_loop(e):
-                    le.select = True
-        for v in bm.verts:  # vertices follow their edges (setting False would deselect edges, so only when bare)
-            if v.select != any(e.select for e in v.link_edges):
-                v.select = not v.select
-    else:
-        bm.verts.ensure_lookup_table()
-        done = set()
-        for i in removed:
-            v = bm.verts[i]
-            if v not in done:
-                isl = _island(v)
-                done |= isl
-                _set_verts(bm, isl, False)
-        for i in added:
-            v = bm.verts[i]
-            if v not in done and v.select:
-                isl = _island(v)
-                done |= isl
-                _set_verts(bm, isl, True)
-    return snapshot(bm, mode), True
+    picked = set() if deselect_only else set(added)
+    if click and not deselect_only and active in sel:
+        picked.add(active)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    on = set()
+    for key in picked:
+        v = _vert_of(bm, key)
+        if v not in on:
+            on |= _island(v)
+    off = set()
+    for key in removed:
+        v = _vert_of(bm, key)
+        if v not in on and v not in off:
+            off |= _island(v)
+    _set_verts(bm, off, False)
+    _set_verts(bm, on, True)
+    return snapshot(bm), True
 
 
-def convert(bm, mode):
-    """Turn the current selection into whole borders / islands when a mode is switched on."""
-    if mode == "BORDER":
-        edges = {e for e in bm.edges if e.select}
-        faces = [f for f in bm.faces if f.select]
-        if faces:  # a selected region: its outline, like Select Boundary Loop
-            outline = {e for f in faces for e in f.edges if sum(1 for lf in e.link_faces if lf.select) == 1}
-            edges = outline
-        keep = set()
-        for e in edges:
-            keep |= _border_loop(e) if e.is_boundary else {e}
-        for f in bm.faces:
-            f.select = False
-        for v in bm.verts:
-            v.select = False
-        for e in keep:
-            e.select = True  # selects its two vertices too
-    else:
-        picked = [v for v in bm.verts if v.select]
-        done = set()
-        for v in picked:
-            if v not in done:
-                isl = _island(v)
-                done |= isl
-                _set_verts(bm, isl, True)
+def convert(bm):
+    """Turn the current selection into whole islands when the mode is switched on."""
+    picked = [v for v in bm.verts if v.select]
+    done = set()
+    for v in picked:
+        if v not in done:
+            isl = _island(v)
+            done |= isl
+            _set_verts(bm, isl, True)
 
 
 # ---------------------------------------------------------------- operators
@@ -154,10 +136,8 @@ class KEYOPS_OT_sub_object_mode(bpy.types.Operator):
         ("VERT", "Vertex", "Select vertices.\nShift: add this mode. Ctrl: convert the selection"),
         ("EDGE", "Edge", "Select edges.\nShift: add this mode. Ctrl: convert the selection"),
         ("FACE", "Face", "Select faces.\nShift: add this mode. Ctrl: convert the selection"),
-        ("BORDER", "Border", "Border mode: picking an edge on an open border picks the whole border.\n"
-                             "Click again to turn it off"),
         ("ELEMENT", "Element", "Element mode: picking any part of a mesh island picks the whole island.\n"
-                               "Click again to turn it off"))) # type: ignore
+                               "Ctrl+click deselects an island. Click again to turn it off"))) # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -180,11 +160,9 @@ class KEYOPS_OT_sub_object_mode(bpy.types.Operator):
         if active_mode() == self.mode:  # clicking the lit button turns it off
             state["mode"] = "NONE"
             return {'FINISHED'}
-        if self.mode == "BORDER":
-            bpy.ops.mesh.select_mode(type='EDGE')
         for obj in _edit_meshes(context):
             bm = bmesh.from_edit_mesh(obj.data)
-            convert(bm, self.mode)
+            convert(bm)
             bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
         state["mode"] = self.mode
         if not state["running"] and context.window and not bpy.app.background:
@@ -193,23 +171,22 @@ class KEYOPS_OT_sub_object_mode(bpy.types.Operator):
 
 
 class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
-    """Keeps Border/Element mode working: grows each new pick to its whole border or island."""
+    """Keeps Element mode working: grows each new pick to its whole island."""
     bl_idname = "keyops.sub_object_watch"
-    bl_label = "Border/Element Mode"
+    bl_label = "Element Mode"
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
         self.select_mode = tuple(context.tool_settings.mesh_select_mode)
-        self.mode = state["mode"]
         self.snaps = self._snapshots(context)
-        self.pending = False
+        self.pending = self.click = self.deselect = False
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         state["running"] = True
         return {'RUNNING_MODAL'}
 
     def _snapshots(self, context):
-        return {o.name: snapshot(bmesh.from_edit_mesh(o.data), self.mode) for o in _edit_meshes(context)}
+        return {o.name: snapshot(bmesh.from_edit_mesh(o.data)) for o in _edit_meshes(context)}
 
     def _finish(self, context):
         state["running"] = False
@@ -223,12 +200,7 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
         """The mode is over: switched off, another mode was picked, or we left Edit Mode."""
         if state["mode"] == "NONE" or context.mode != 'EDIT_MESH':
             return True
-        sel = tuple(context.tool_settings.mesh_select_mode)
-        if state["mode"] != self.mode:  # switched straight from Border to Element or back
-            self.mode, self.select_mode = state["mode"], sel
-            self.snaps = self._snapshots(context)
-            return False
-        return sel != self.select_mode
+        return tuple(context.tool_settings.mesh_select_mode) != self.select_mode
 
     def update(self, context):
         changed = False
@@ -236,18 +208,18 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
             bm = bmesh.from_edit_mesh(obj.data)
             before = self.snaps.get(obj.name)
             if before is None:
-                self.snaps[obj.name] = snapshot(bm, self.mode)
+                self.snaps[obj.name] = snapshot(bm)
                 continue
-            self.snaps[obj.name], did = grow(bm, self.mode, before)
+            self.snaps[obj.name], did = grow(bm, before, self.click, self.deselect)
             if did:
                 bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
                 changed = True
         if changed:
-            bpy.ops.ed.undo_push(message="Select " + self.mode.title())
+            bpy.ops.ed.undo_push(message="Select Element")
 
     def _ctrl_deselect(self, context, event):
         """Ctrl+click deselects what's under the mouse (Blender's own Ctrl+click picks a shortest path, which
-        would add to the selection); the mode then deselects its whole island or border."""
+        would add to the selection); the mode then deselects its whole island."""
         for area in context.window.screen.areas:
             if area.type != 'VIEW_3D':
                 continue
@@ -266,25 +238,27 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
             return self._finish(context)
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and event.ctrl \
                 and not (event.shift or event.alt or event.oskey) and self._ctrl_deselect(context, event):
-            self.pending = True
+            self.pending, self.deselect = True, True
             return {'RUNNING_MODAL'}
         if event.type in {'LEFTMOUSE', 'RIGHTMOUSE'}:  # a pick happens on this event: look on the next one
             self.pending = True
+            if event.value == 'PRESS' and not self.deselect:
+                self.click = True
             return {'PASS_THROUGH'}
         if self.pending and event.type in {'TIMER', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
-            self.pending = False
             self.update(context)
+            self.pending = self.click = self.deselect = False
         return {'PASS_THROUGH'}
 
 
 def draw_mode_row(layout, context):
-    """Vertex, Edge, Face, Border, Element as one row of mode buttons."""
+    """Vertex, Edge, Face, Element as one centered row of mode buttons."""
     sel = context.tool_settings.mesh_select_mode
     extra = active_mode()
     row = layout.row(align=True)
+    row.alignment = 'CENTER'
     for mode, on, icon in (("VERT", sel[0], 'VERTEXSEL'), ("EDGE", sel[1], 'EDGESEL'), ("FACE", sel[2], 'FACESEL')):
         row.operator("keyops.sub_object_mode", text="", icon=icon, depress=bool(on) and extra == "NONE").mode = mode
-    row.operator("keyops.sub_object_mode", text="", icon='MESH_CAPSULE', depress=extra == "BORDER").mode = "BORDER"
     row.operator("keyops.sub_object_mode", text="", icon='SNAP_VOLUME', depress=extra == "ELEMENT").mode = "ELEMENT"
     return row
 

@@ -24,7 +24,7 @@ const NAV = [
   { page: "pie-menus.html", title: "Pie Menus", items: [
     ["add-objects-pie", "Add Objects Pie"], ["add-modifier-pie", "Add Modifier Pie"], ["cursor-pie", "Cursor Pie"],
     ["flatten-pie", "Flatten Pie"], ["workspace-pie", "Workspace Pie"], ["view-camera-pie", "View Camera Pie"],
-    ["utility-pie", "Utility Pie"], ["uv-pies", "UV Pies"], ["q-menu", "Q Menu"],
+    ["utility-pie", "Utility Pie"], ["uv-pies", "UV Pies"], ["q-menu", "Q Menu"], ["poll", "Poll"], ["sidebar-panels", "Sidebar Panels"], ["draw-as", "Draw As"],
   ]},
   { page: "toolkit.html", title: "Toolkit Panel", items: [
     ["toolkit-panel", "Toolkit Panel"], ["object-toolkit", "Object Toolkit"], ["edit-toolkit", "Edit Toolkit"],

@@ -7,25 +7,18 @@ from .. import __package__ as base_package
 def get_addon_name():
     return base_package
 
-class KeyOpsPrefsMock:
-    def __getattr__(self, name):
-        return False
-
 def get_keyops_prefs():
-    if not hasattr(bpy.context, "preferences"):
-        return KeyOpsPrefsMock()
+    """Key Ops' add-on preferences, or None while they don't exist yet (enabled from the command line,
+    before Blender has finished starting)."""
+    addon = bpy.context.preferences.addons.get(base_package)
+    return addon.preferences if addon else None
 
-    addons = bpy.context.preferences.addons
 
-    if base_package in addons:
-        return addons[base_package].preferences
-
-    addon_id = base_package.split(".")[-1]
-    for name, addon in addons.items():
-        if name == addon_id or name.endswith(f".{addon_id}"):
-            return addon.preferences
-
-    return KeyOpsPrefsMock()
+def feature_on(feature_id):
+    """Whether a feature's switch is on. Without preferences everything counts as on, so tools,
+    panels and menus never disappear because the preferences weren't there yet."""
+    prefs = get_keyops_prefs()
+    return prefs is None or getattr(prefs, f"enable_{feature_id}")
 
 def unregister_keymaps(keymaps):
     for km, kmi in keymaps:
@@ -70,6 +63,7 @@ def _keymap_item_to_display_item(km, kmi):
     return item
 
 
+# The following code is based on the MACHIN3 addon: MACHIN3tools
 def draw_keymap(key_config, name, key_list, layout):
     drawn = []
     index = 0

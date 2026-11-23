@@ -2,6 +2,7 @@ import bpy
 from bpy.types import Menu
 from ..utils.utilities import operator_exists
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 
 # Native LoopTools replacements land one by one during the 5.3/5.4 alphas
 # (e.g. 5.3 alpha has no Curve or Gstretch yet), so only draw the ones this build has.
@@ -24,7 +25,7 @@ class VIEW3D_MT_edit_mesh_looptools_menu(Menu):
                 layout.operator(idname, text=text)
 
 def menu_func(self, context):
-    if not get_keyops_prefs().enable_looptools_menu:
+    if not feature_on("looptools_menu"):
         return
     self.layout.menu("VIEW3D_MT_edit_mesh_looptools_menu")
     self.layout.separator()

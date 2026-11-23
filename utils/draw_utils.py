@@ -6,6 +6,18 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d, region_2d_to_locat
 from gpu_extras.batch import batch_for_shader
 
 
+def point_shader():
+    """Builtin shader for drawing POINTS with one color.
+
+    POINT_UNIFORM_COLOR only exists from Blender 4.5; older versions draw points with
+    UNIFORM_COLOR. Gated by version instead of try/except, because this runs every redraw
+    and a debugger would pause on the raised exception.
+    """
+    if bpy.app.version >= (4, 5, 0):
+        return gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
+    return gpu.shader.from_builtin('UNIFORM_COLOR')
+
+
 def draw_points(coords, color, point_size=6.0, shader=None):
     """Draw points using GPU with custom size."""
     if not coords:
@@ -13,13 +25,7 @@ def draw_points(coords, color, point_size=6.0, shader=None):
     coords = coords if isinstance(coords, list) else [coords]
 
     if shader is None:
-        try:
-            shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
-        except (ValueError, TypeError):
-            try:
-                shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            except (ValueError, TypeError):
-                return
+        shader = point_shader()
     batch = batch_for_shader(shader, 'POINTS', {"pos": coords})
     shader.uniform_float("color", color)
     gpu.state.point_size_set(point_size)

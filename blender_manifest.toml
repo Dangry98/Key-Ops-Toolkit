@@ -8,10 +8,12 @@ maintainer = "Dan-Gry"
 type = "add-on"
 
 website = "https://dangry98.github.io/Key-Ops-Toolkit/"
+support = "https://github.com/Dangry98/Key-Ops-Toolkit/issues"
 
 tags = ["Modeling", "Mesh", "Object", "UV", "3D View"]
 
 blender_version_min = "4.2.0"
+
 
 license = [
   "SPDX:GPL-3.0-or-later",
@@ -19,22 +21,6 @@ license = [
 
 copyright = [
   "2023-2026 Dan-Gry",
-  "2020 Kramer84 (pyfqmr, MIT, bundled wheel for CAD Decimate)",
-]
-
-# pyfqmr (Fast Quadric Mesh Reduction) for the CAD Decimate "pyfqmr" mode.
-# Unmodified wheels from PyPI, for the Python 3.11 and 3.13 builds of Blender.
-wheels = [
-  "./wheels/pyfqmr-0.5.0-cp311-cp311-macosx_10_9_x86_64.whl",
-  "./wheels/pyfqmr-0.5.0-cp311-cp311-macosx_11_0_arm64.whl",
-  "./wheels/pyfqmr-0.5.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-  "./wheels/pyfqmr-0.5.0-cp311-cp311-win_amd64.whl",
-  "./wheels/pyfqmr-0.5.0-cp311-cp311-win_arm64.whl",
-  "./wheels/pyfqmr-0.5.0-cp313-cp313-macosx_10_13_x86_64.whl",
-  "./wheels/pyfqmr-0.5.0-cp313-cp313-macosx_11_0_arm64.whl",
-  "./wheels/pyfqmr-0.5.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-  "./wheels/pyfqmr-0.5.0-cp313-cp313-win_amd64.whl",
-  "./wheels/pyfqmr-0.5.0-cp313-cp313-win_arm64.whl",
 ]
 
 [permissions]
@@ -53,4 +39,9 @@ paths_exclude_pattern = [
   "/tests/",
   "/scripts/",
   "/CLAUDE.local.md",
+  "/.tmp",
+  "/.gitignore",
+  "/local/",
+  ".favorites.json",
+  "/tools/icons/*.py",
 ]

@@ -1,4 +1,5 @@
 import bpy.types
+import numpy as np
 from mathutils import Vector, Matrix
 from bpy.types import Menu
 from ..utils.utilities import force_show_obj
@@ -203,6 +204,12 @@ BOOLEAN_OPERATION_ITEMS = (
     ('INTERSECT', 'Intersect', ''),
     ('SLICE', 'Slice', ''),
 )
+# Shared with the Cutter tool. Fast and Manifold switch to suit the mesh, see pick_boolean_solver.
+BOOLEAN_SOLVER_ITEMS = (
+    ('FAST', 'Fast', ''),
+    ('EXACT', 'Exact', ''),
+    ('MANIFOLD', 'Manifold', ''),
+)
 
 class AddBooleanModifier(bpy.types.Operator):
     bl_description = "Add a boolean modifier"
@@ -212,11 +219,7 @@ class AddBooleanModifier(bpy.types.Operator):
 
     # Backward compatibility for existing keymaps/UI that set .type directly.
     type: bpy.props.EnumProperty(name="Type", description="", items=BOOLEAN_OPERATION_ITEMS, default='DIFFERENCE') #type:ignore
-    solver: bpy.props.EnumProperty(name="Solver", description="", items=(
-            ('EXACT', 'Exact', ''),
-            ('FAST', 'Fast', ''),
-            ('MANIFOLD', 'Manifold', '')),
-            default='FAST') #type:ignore
+    solver: bpy.props.EnumProperty(name="Solver", description="", items=BOOLEAN_SOLVER_ITEMS, default='FAST') #type:ignore
     parant: bpy.props.BoolProperty(name="Parent Boolean", description="", default=False) #type:ignore
     apply: bpy.props.BoolProperty(name="Apply", description="", default=False) #type:ignore
 
@@ -250,6 +253,9 @@ class AddBooleanModifier(bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 2 Mesh Objects")
             return {'CANCELLED'}
 
+        if not self.properties.is_property_set("solver"):
+            # Not chosen by the caller: Manifold for closed meshes, else Fast. Shown in the redo panel.
+            self.solver = pick_boolean_solver(context, [active] + cutters, self.solver)
         solver, warning = resolve_boolean_solver(self.solver)
         if warning:
             self.report({'WARNING'}, warning)
@@ -270,6 +276,36 @@ class AddBooleanModifier(bpy.types.Operator):
 # --- Shared boolean helpers -------------------------------------------------
 # Used by AddBooleanModifier and the Cutter tool (tools/cutter_tool.py), so
 # improvements to how booleans are set up land in both places.
+
+def is_manifold(obj, depsgraph):
+    """True when the mesh, with its modifiers, is closed: every edge borders exactly two faces,
+    so no holes, open borders or loose edges. About 0.05 s for a million faces, 0.2 s for five."""
+    mesh = obj.evaluated_get(depsgraph).data
+    corners, edges = len(mesh.loops), len(mesh.edges)
+    if not corners or corners != 2 * edges:  # quick no: a closed mesh has two corners per edge
+        return False
+    # The edge of every face corner. Reading the attribute into a C int buffer is a straight copy,
+    # mesh.loops "edge_index" goes element by element and is about a hundred times slower.
+    edge_of_corner = np.empty(corners, dtype=np.intc)
+    attribute = mesh.attributes.get(".corner_edge")
+    if attribute is not None:
+        attribute.data.foreach_get("value", edge_of_corner)
+    else:
+        mesh.loops.foreach_get("edge_index", edge_of_corner)
+    faces_per_edge = np.bincount(edge_of_corner, minlength=edges)
+    return bool((faces_per_edge == 2).all())
+
+
+def pick_boolean_solver(context, objects, solver):
+    """Switch between Fast and Manifold to suit the meshes: Manifold (fast and robust) when every
+    object is a closed manifold mesh and this Blender has it, Fast otherwise. Exact is left as
+    the user chose it. Objects without faces yet are skipped."""
+    if solver not in {'FAST', 'MANIFOLD'} or BLENDER_VERSION < (4, 5):
+        return solver
+    depsgraph = context.evaluated_depsgraph_get()
+    meshes = [obj for obj in objects if obj.type == 'MESH' and obj.data.polygons]
+    return 'MANIFOLD' if meshes and all(is_manifold(obj, depsgraph) for obj in meshes) else 'FAST'
+
 
 def resolve_boolean_solver(solver):
     """Map a solver name to what this Blender version supports. Returns (solver, warning or None)."""
@@ -718,15 +754,58 @@ class AddModifier(bpy.types.Operator):
                     if obj != lattice_ob:
                         obj.select_set(False) 
             print("Execution time: ", time.time() - exec_time)
-        return {'FINISHED'} 
-    
+        return {'FINISHED'}
+
+
+ACTIVE_MODIFIER_ACTIONS = (
+    ('APPLY', "Apply", "Apply the active modifier"),
+    ('REMOVE', "Remove", "Remove the active modifier"),
+    ('DUPLICATE', "Duplicate", "Duplicate the active modifier"),
+    ('MOVE_UP', "Move Up", "Move the active modifier up the stack"),
+    ('MOVE_DOWN', "Move Down", "Move the active modifier down the stack"),
+)
+
+
+class ActiveModifier(bpy.types.Operator):
+    bl_idname = "keyops.active_modifier"
+    bl_label = "Active Modifier"
+    bl_description = "Apply, remove, duplicate or move the active object's active modifier"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    action: bpy.props.EnumProperty(name="Action", items=ACTIVE_MODIFIER_ACTIONS) #type:ignore
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return context.mode == 'OBJECT' and obj is not None and obj.modifiers.active is not None
+
+    @classmethod
+    def description(cls, context, properties):
+        return next(desc for ident, _name, desc in ACTIVE_MODIFIER_ACTIONS if ident == properties.action)
+
+    def execute(self, context):
+        obj = context.active_object
+        name = obj.modifiers.active.name
+        # Blender's own modifier operators, given the name: without it they only work from a modifier panel
+        ops = {'APPLY': bpy.ops.object.modifier_apply, 'REMOVE': bpy.ops.object.modifier_remove,
+               'DUPLICATE': bpy.ops.object.modifier_copy, 'MOVE_UP': bpy.ops.object.modifier_move_up,
+               'MOVE_DOWN': bpy.ops.object.modifier_move_down}
+        with context.temp_override(object=obj, active_object=obj):
+            result = ops[self.action](modifier=name)
+        if self.action == 'DUPLICATE' and 'FINISHED' in result:
+            obj.modifiers.active = obj.modifiers[obj.modifiers.find(name) + 1]
+        return result
+
+
 def register():
     bpy.utils.register_class(FastBevel)
     bpy.utils.register_class(FastArray)
+    bpy.utils.register_class(ActiveModifier)
     bpy.utils.register_class(AddModifierPie)
 
 def unregister():
     bpy.utils.unregister_class(AddModifierPie)
+    bpy.utils.unregister_class(ActiveModifier)
     bpy.utils.unregister_class(FastBevel)
     bpy.utils.unregister_class(FastArray)
 

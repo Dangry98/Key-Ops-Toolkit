@@ -18,18 +18,25 @@
 .PARAMETER Blender
     Full path to a blender.exe.
 
+.PARAMETER Gui
+    Also run tests/gui_modal_smoke.py in a real Blender window (not -b) with simulated events: every modal
+    tool, pie and menu is opened, moved and cancelled, so draw callbacks and status bars really run.
+    Fails on any Python traceback in that log. A window opens and closes by itself.
+
 .PARAMETER Tests
     Test files to run, relative to the repo. Default: tests/test_registration.py tests/test_redesign.py.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts/test.ps1
     powershell -ExecutionPolicy Bypass -File scripts/test.ps1 -Version 4.2.3 -Tests tests/test_registration.py
+    powershell -ExecutionPolicy Bypass -File scripts/test.ps1 -Version 4.2.3 -Gui
 #>
 param(
     [string]$Version = "5.4",
     [string]$Blender = "",
-    [string[]]$Tests = @("tests/test_registration.py", "tests/test_redesign.py"),
-    [switch]$Full
+    [string[]]$Tests = @("tests/test_registration.py", "tests/test_redesign.py", "tests/test_menu_drawing.py", "tests/test_ui_draw.py", "tests/test_kit_coverage.py"),
+    [switch]$Full,
+    [switch]$Gui
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +107,26 @@ foreach ($t in $Tests) {
     $status = if ($code -eq 0 -and $fail -eq 0) { "OK  " } else { "FAIL" }
     if ($status -eq "FAIL") { $failed++ }
     Write-Output "$status $t  pass=$pass fail=$fail exit=$code"
+}
+
+if ($Gui) {
+    $t = "tests/gui_modal_smoke.py"
+    $log = Join-Path $work "gui_modal_smoke.py.log"
+    $code = Invoke-Blender @("--factory-startup", "--enable-event-simulate", "--python", (Join-Path $repo $t)) $log
+    $lines = Get-Content $log
+    $pass = @($lines | Where-Object { $_ -match '^PASS ' }).Count
+    $fail = @($lines | Where-Object { $_ -match '^FAIL ' }).Count
+    $tracebacks = @($lines | Where-Object { $_ -match 'Traceback' }).Count
+    $done = @($lines | Where-Object { $_ -match '^ALLDONE' }).Count
+    if ($Full) {
+        $lines
+    } else {
+        $lines | Where-Object { $_ -match '^FAIL |^SKIP |Traceback|Error|^  File ' } | Select-Object -First 40
+    }
+    $ok = ($code -eq 0 -and $fail -eq 0 -and $tracebacks -eq 0 -and $done -eq 1)
+    $status = if ($ok) { "OK  " } else { "FAIL" }
+    if (-not $ok) { $failed++ }
+    Write-Output "$status $t  pass=$pass fail=$fail tracebacks=$tracebacks exit=$code"
 }
 
 Write-Output "logs: $work"

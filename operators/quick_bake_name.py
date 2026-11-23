@@ -15,6 +15,7 @@ import random
 import string
 
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 from ..utils.utilities import force_show_obj
 
  
@@ -327,7 +328,7 @@ class HideShowLowHigh(bpy.types.Operator):
 
 def draw_quick_bake_name(self, context, draw_header=False):   
     prefs = get_keyops_prefs()
-    if prefs.enable_quick_bake_name:
+    if feature_on("quick_bake_name"):
         def draw_toggle_viewport(context, group, layout):
             row = layout.row(align=True)
             row.label(text=group.lower())
@@ -377,7 +378,7 @@ class QuickBakeNamePanel(bpy.types.Panel):
     def poll(cls, context):
         prefs = get_keyops_prefs()
 
-        if context.mode == "OBJECT" and prefs.enable_quick_bake_name:
+        if context.mode == "OBJECT" and feature_on("quick_bake_name"):
             return True
         
     def draw_header(self, context):

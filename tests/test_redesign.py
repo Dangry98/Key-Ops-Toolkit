@@ -63,7 +63,7 @@ def run():
 
     # ---- fresh install (before the welcome screen)
     check("fresh install binds zero shortcuts", F.live_shortcut_count() == 0, str(F.live_shortcut_count()))
-    check("fresh install: pies listed but none active", len(p.pies) == 9 and PM.live_count() == 0,
+    check("fresh install: pies listed but none active", len(p.pies) == 15 and PM.live_count() == 0,
           f"{len(p.pies)} pies, {PM.live_count()} keys")
     feats, keys, repl = F.stats(p)
     check("fresh install still turns UI features on", feats >= 10, f"{feats} features")
@@ -99,6 +99,10 @@ def run():
     pie_keys = {(km.name, kmi.type, kmi.shift, kmi.alt) for km, kmi in PM._pie_keymaps}
     check("Blender+ enables Add Objects pie on Shift Alt A", ("3D View Generic", "A", True, True) in pie_keys, str(pie_keys))
     check("viewport pies also win in Object Mode", ("Object Mode", "A", True, True) in pie_keys)
+    mig = PM._migrate_pies_12_to_13({"pies": [{"preset": "add_modifier", "editor": "Window"},
+                                              {"preset": "add_modifier", "editor": "Sculpt"}]})["pies"]
+    check("old Add Modifier menus move from every editor to the 3D Viewport, hand-picked places stay",
+          mig[0]["editor"] == "3D View Generic" and mig[1]["editor"] == "Sculpt", str(mig))
     check("Blender+ does not take Shift S", not any(k[1] == "S" and k[2] for k in pie_keys))
     names = {(km, kmi.type) for km, kmi in active_addon_items()}
     check("Blender+ does NOT take Delete", ("Mesh", "DEL") not in names)
@@ -157,7 +161,7 @@ def run():
     bpy.ops.keyops.pie_set_icon(icon="MONKEY", slot=0)
     check("icon palette sets the slot icon", it.icon == "MONKEY")
     cats = {c for c in PM._ICON_CAT.values()}
-    check("icon palette has category tabs", {"OBJECTS", "MODIFIERS", "EDITING", "VIEW", "ARROWS", "KEYS"} <= cats, str(sorted(cats)))
+    check("icon palette has category tabs", {"OBJECTS", "MODIFIERS", "EDITING", "VIEW", "KEYS"} <= cats and "ARROWS" not in cats, str(sorted(cats)))
     check("Modifier icons land in the Modifiers tab", PM._ICON_CAT.get("MOD_ARRAY") == "MODIFIERS" and PM._ICON_CAT.get("MESH_CUBE") == "OBJECTS")
     bpy.context.window_manager.keyops_icon_category = "MODIFIERS"
     check("the category tabs switch the palette category", bpy.context.window_manager.keyops_icon_category == "MODIFIERS")
@@ -319,18 +323,30 @@ def run():
     blender_view = ["view3d.view_axis"] * 6 + ["view3d.view_camera", "view3d.view_selected"]
     check("View pie matches Blender's View pie slot for slot", [i.idname for i in view.items] == blender_view and view.key == "SPACE")
 
-    # ---- Q Menu preset: a popup menu whose items pick themselves with Show If
-    check("Q Menu is only added from Add Preset", not any(x.preset == "q_menu" for x in p.pies))
-    bpy.ops.keyops.pie_add(preset="q_menu")
-    qm = p.pies[-1]
-    bad_ops = [i.idname for i in qm.items if i.kind == PM.O
+    # ---- Q Menu presets: popup menus whose items pick themselves with Show If
+    qm = next((x for x in p.pies if x.preset == "q_menu"), None)
+    check("Q Menu is in the list on new installs, switched off", qm is not None and not qm.enabled)
+    subs = [PM.find_pie(i.idname) for i in qm.items if i.kind == PM.SUB]
+    check("Q Menu: one column, its sections as popup-menu submenus",
+          not any(i.kind in (PM.BREAK, PM.LABEL) for i in qm.items) and len(subs) == 5
+          and all(s is not None and s.menu_type == "MENU" and s.preset.startswith("q_") and not s.enabled for s in subs),
+          str([s and s.preset for s in subs]))
+    check("Q Menu submenus are not offered in Add Preset", all(PM.PRESET_BY_ID[s.preset].get("sub") for s in subs))
+    check("submenus open on hover inside popup menus", hasattr(bpy.types, "KEYOPS_MT_pie_submenu"))
+    bpy.ops.keyops.pie_add(preset="q_menu_columns")
+    qc = p.pies[-1]
+    check("Q Menu (Columns): headings and four columns", qc.menu_type == "MENU"
+          and sum(1 for i in qc.items if i.kind == PM.BREAK) == 3 and sum(1 for i in qc.items if i.kind == PM.LABEL) == 6)
+    every = [i for m in [qm, qc, *subs] for i in m.items]
+    bad_ops = [i.idname for i in every if i.kind == PM.O
                and i.idname.partition(".")[2] not in dir(getattr(bpy.ops, i.idname.partition(".")[0]))]
-    bad_icons = [i.icon for i in qm.items if i.icon and i.icon not in PM._ICONS]
+    bad_icons = [i.icon for i in every if i.icon and PM._icon(i.icon) == "NONE"]
     check("Q Menu: popup menu on Q, every item has a Show If", qm.menu_type == "MENU" and qm.key == "Q"
-          and all(i.show_if for i in qm.items), str([i.label for i in qm.items if not i.show_if]))
+          and all(i.show_if for i in every), str([i.label for i in every if not i.show_if]))
     check("Q Menu: every operator and icon exists", not bad_ops and not bad_icons, f"{bad_ops} {bad_icons}")
+    check("Q Menu: no Cutter Tool", not any("cutter" in i.idname or i.label == "Cutter Tool" for i in every))
     bad_tests = []
-    for i in qm.items:
+    for i in every:
         try:
             PM.safe_test(i.show_if, bpy.context)
         except Exception as e:  # noqa: BLE001
@@ -338,12 +354,82 @@ def run():
     check("Q Menu: every Show If test reads", not bad_tests, str(bad_tests))
     check("tests can use len(), mods and sel", PM.safe_test("len(mods) >= 0 and sel >= 0 and len(C.selected_objects) == sel",
                                                          bpy.context))
-    sub = next(i for i in qm.items if i.kind == PM.SUB)
-    check("Q Menu: More Modifiers opens the Add Modifier pie", PM.find_pie(sub.idname) is not None
-          and PM.find_pie(sub.idname).preset == "add_modifier")
-    shown = [(n, i) for n, i in enumerate(qm.items) if PM.item_visible(bpy.context, i, qm.uid)]
-    check("hidden items never leave an empty column", all(PM.layout_groups(shown)))
-    p.pies.remove(list(p.pies).index(qm))
+    more = next(i for s in subs for i in s.items if i.kind == PM.SUB)
+    check("Q Menu: More Modifiers opens the Add Modifier pie", PM.find_pie(more.idname) is not None
+          and PM.find_pie(more.idname).preset == "add_modifier")
+    # only the Object section shown: the columns before it must not leave empty columns
+    shown = [(n, i) for n, i in enumerate(qc.items) if i.kind == PM.BREAK or i.label == "Object"]
+    check("hidden items never leave an empty column", len(PM.layout_tree(list(qc.items), shown)) == 1)
+    check("Q Menu: no expanded settings, popup menus can't lay them out",
+          not any(i.setting_style == "EXPAND" for i in every))
+    p.pies.remove(list(p.pies).index(qc))
+
+    # ---- submenus that belong to a menu: one entry in the list, edited from inside it
+    # (adding menus moves them in memory: look them up by id each time)
+    at = lambda uid: next(i for i, x in enumerate(p.pies) if x.uid == uid)
+    get = lambda uid: p.pies[at(uid)]
+    q_uid, sub_uids = qm.uid, [x.uid for x in subs]
+    n_before = len(p.pies)
+    check("Q Menu's submenus belong to it and aren't listed on their own",
+          all(get(u).owner == q_uid and not PM.listed(get(u)) for u in sub_uids) and PM.listed(get(q_uid))
+          and len(PM.menu_family(p, get(q_uid))) == 6)
+    check("a submenu knows the menu above it", [x.uid for x in PM.owner_chain(p, get(sub_uids[0]))] == [q_uid])
+    p.active_pie = at(q_uid)
+    bpy.ops.keyops.submenu_add()
+    added_uid = p.pies[p.active_pie].uid
+    check("Add Submenu: a popup menu owned by this menu, a button that opens it, and you're in it",
+          get(added_uid).owner == q_uid and get(added_uid).menu_type == "MENU" and not PM.listed(get(added_uid))
+          and any(i.kind == PM.SUB and i.idname == added_uid for i in get(q_uid).items))
+    bpy.ops.keyops.submenu_add()  # a submenu of the new submenu: two levels deep
+    deep_uid = p.pies[p.active_pie].uid
+    check("submenus can have submenus", [x.uid for x in PM.owner_chain(p, get(deep_uid))] == [q_uid, added_uid])
+    pie_uid = next((x.uid for x in p.pies if x.menu_type == "PIE" and PM.listed(x)), None)
+    if pie_uid is not None:
+        p.active_pie = at(pie_uid)
+        bpy.ops.keyops.submenu_add()
+        subpie_uid = p.pies[p.active_pie].uid
+        check("Add Sub-pie: in a pie menu it makes another pie with 8 empty directions, opened from the pie",
+              get(subpie_uid).menu_type == "PIE" and get(subpie_uid).owner == pie_uid and len(get(subpie_uid).items) == 8
+              and any(i.kind == PM.SUB and i.idname == subpie_uid for i in get(pie_uid).items))
+        bpy.ops.keyops.pie_remove()  # the sub-pie is active: gone again, with its button, so the counts below hold
+    p.active_pie = at(q_uid)
+    bpy.ops.keyops.pie_duplicate()
+    copy_uid = p.pies[p.active_pie].uid
+    family = PM.menu_family(p, get(copy_uid))
+    copied = {x.uid for x in family}
+    check("Duplicate copies the menu with its own submenus", len(family) == 8 and copy_uid != q_uid
+          and PM.listed(get(copy_uid)) and all(x.owner in copied for x in family[1:]), str(len(family)))
+    targets = [i.idname for x in family for i in x.items if i.kind == PM.SUB
+               and PM.find_pie(i.idname) is not None and PM.find_pie(i.idname).preset != "add_modifier"]
+    check("the copy's submenu buttons open the copies, never the original's submenus",
+          targets and all(u in copied for u in targets), str(targets))
+    bpy.ops.keyops.pie_remove()
+    check("Delete takes the menu's own submenus along", len(p.pies) == n_before + 2 and PM.find_pie(q_uid) is not None,
+          f"{len(p.pies)} vs {n_before + 2}")
+    p.active_pie = at(added_uid)
+    bpy.ops.keyops.pie_remove()
+    check("deleting a submenu goes back to the menu it belonged to, and its button there goes too",
+          p.pies[p.active_pie].uid == q_uid and len(p.pies) == n_before and PM.find_pie(deep_uid) is None
+          and all(PM.find_pie(i.idname) is not None for i in get(q_uid).items if i.kind == PM.SUB))
+    bpy.ops.mesh.primitive_cube_add()
+    ob = bpy.context.active_object
+    ob.modifiers.new("A", 'BEVEL')
+    ob.modifiers.active = ob.modifiers.new("B", 'BOOLEAN')
+    check("tests see the active modifier", PM.safe_test(
+        "'BOOLEAN' in mods and obj.modifiers.active.type == 'BOOLEAN'", bpy.context))
+    data, prop = PM._resolve(bpy.context, "object.modifiers.active.show_viewport")
+    check("Q Menu settings reach the active modifier", data == ob.modifiers["B"] and prop == "show_viewport")
+    bpy.ops.keyops.active_modifier(action='DUPLICATE')
+    bpy.ops.keyops.active_modifier(action='MOVE_UP')
+    # the copy's name differs between Blender versions ("B.001", or "Boolean" in 4.2)
+    names = [m.name for m in ob.modifiers]
+    check("Active Modifier: duplicate and move up", len(names) == 3 and names[0] == "A" and names[2] == "B"
+          and ob.modifiers.active == ob.modifiers[1], str(names))
+    bpy.ops.keyops.active_modifier(action='REMOVE')
+    ob.modifiers.active = ob.modifiers["A"]
+    bpy.ops.keyops.active_modifier(action='APPLY')
+    check("Active Modifier: remove and apply", [m.name for m in ob.modifiers] == ["B"], str([m.name for m in ob.modifiers]))
+    bpy.data.objects.remove(ob)
     bpy.ops.keyops.pie_add(menu_type="MENU")
     menu = p.pies[-1]
     p.active_pie = len(p.pies) - 1
@@ -366,6 +452,15 @@ def run():
     newest = bpy.context.object
     check("running a macro runs every step", len(bpy.data.objects) == n_obj + 1 and abs(newest.location.x - 3) < 1e-4,
           f"{len(bpy.data.objects) - n_obj} new, x={newest.location.x:.2f}")
+    bpy.ops.keyops.menu_item_insert(kind="MACRO", at_end=True)
+    added = menu.items[-1]
+    check("the Add menu offers Macro: a macro item with one step to fill in",
+          added.kind == "MACRO" and added.label == "Macro" and len(added.steps) == 1)
+    added.steps[0].idname = "mesh.select_all"
+    check("macro steps show Blender's operator name", PM.step_name(added.steps[0]) not in ("", "mesh.select_all"),
+          PM.step_name(added.steps[0]))
+    bpy.ops.keyops.menu_item_remove(slot=len(menu.items) - 1)
+    p.pie_slot = 0
     check("commands from the Info editor are understood",
           PM.parse_command("bpy.ops.mesh.primitive_monkey_add(size=2, location=(0, 0, 1))")
           == ("mesh.primitive_monkey_add", "size=2, location=(0, 0, 1)"))
@@ -437,6 +532,21 @@ def run():
     PM.load_from_disk()
     check("schema 2 files upgrade to the current schema", json.load(open(pie_file))["schema"] == PM.PIE_SCHEMA
           and all(x.key_event == "PRESS" and x.only_mode == "ANY" for x in p.pies))
+    # schema 8: a Q Menu saved from the first, multi-column version comes back as the one-column menu
+    v8 = json.load(open(pie_file))
+    v8["schema"] = 8
+    old_q = next(x for x in v8["data"]["pies"] if x.get("preset") == "q_menu")
+    old_q.update(enabled=True, key="W", alt=True)
+    old_q["items"] = [{"kind": "LABEL", "label": "Cut"}, {"kind": "OPERATOR", "label": "Cutter Tool",
+                       "idname": "wm.tool_set_by_id"}, {"kind": "BREAK"}]
+    json.dump(v8, open(pie_file, "w"))
+    PM.load_from_disk()
+    q = next(x for x in p.pies if x.preset == "q_menu")
+    check("an old Q Menu is rebuilt as one column, key and on/off kept",
+          not any(i.kind in ("BREAK", "LABEL") or i.label == "Cutter Tool" for i in q.items)
+          and any(i.kind == "SUBMENU" for i in q.items) and q.enabled and q.key == "W" and q.alt,
+          str([(i.kind, i.label) for i in q.items][:4]))
+    q.enabled = False
 
     # ---- Python, Blender panel and label items, your own values, duplicate, two-key shortcuts
     bpy.ops.keyops.pie_add(menu_type="MENU")
@@ -527,12 +637,15 @@ def run():
     PM.loaded_from_disk = False
     with F.suspended():
         p.enable_auto_delete = True   # an explicitly saved 0.2 setting
-    # Blender 5.4 dropped IDProperty access on add-on preferences, so raw 0.2 pie switches
-    # can't be saved (or read back by features._saved_value) there. Only test the carry-over before 5.4.
-    raw_props = bpy.app.version < (5, 4, 0)
-    if raw_props:
+    # Newer Blender builds (seen in 5.2.2 and 5.4) dropped IDProperty access on add-on preferences,
+    # so raw 0.2 pie switches can't be saved (or read back by features._saved_value) there.
+    # Only test the carry-over where Blender still allows it.
+    try:
         p["enable_cursor_pie"] = 0        # a 0.2 user who had switched the Cursor pie off
         p["enable_workspace_pie"] = 1     # ...and the Workspace pie on
+        raw_props = True
+    except TypeError:
+        raw_props = False
     F.migrate()
     F.apply_all()
     PM = sys.modules[MOD].pie_menus

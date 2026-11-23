@@ -13,10 +13,10 @@ import time
 import blf
 import bpy
 import gpu
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 from gpu_extras.batch import batch_for_shader
 
-SHOW_DELAY = 0.0  # drawn as soon as the key goes down, like Maya (a flick picks without waiting for it)
+SHOW_DELAY = 0.2  # drawn after the key is held this long, like Maya (a flick picks without waiting for it)
 TAP_TIME = 0.25    # a press shorter than this, without moving, leaves the menu open to click
 # compass direction of each 45 degree sector, counter-clockwise from the right
 SECTORS = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")
@@ -241,6 +241,9 @@ class MenuState:
         if region is None or region.as_pointer() != self.region_ptr:
             return
         look = _look()
+        # like Maya: not drawn until the key has been held a moment (flicks pick before that, unseen)
+        if not self.click_mode and time.time() - self.start < getattr(look, "marking_delay", SHOW_DELAY):
+            return
         _smooth = look.marking_antialias
         colours = marking_colours(look)
         _item_c, _high_c, _text_c, _high_text_c, border, line_c, centre_c = colours
@@ -433,6 +436,8 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
 
     pie: StringProperty() # type: ignore
     key: StringProperty() # type: ignore  # releasing this key picks
+    # a Hold key: a quick tap without moving does what the key normally does in Blender
+    tap_key: BoolProperty(options={'SKIP_SAVE', 'HIDDEN'}) # type: ignore
 
     # ---- running
     def invoke(self, context, event):
@@ -457,8 +462,20 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
     def _finish(self, context):
         close_all()
 
+    def _sub_pie(self, pie, index):
+        """The pie this item opens (a sub-pie), or None when it does something else."""
+        item = pie.items[index]
+        target = _pm().find_pie(item.idname) if item.kind == _pm().SUB else None
+        return target if target is not None and target.menu_type == "PIE" else None
+
     def _pick(self, context):
         pie, index, _dist = self.st._active(context)
+        target = self._sub_pie(pie, index) if pie is not None and index is not None else None
+        if target is not None and len(self.st.levels) < 8:
+            # a sub-pie opens right here, in this marking menu: the key is up now, so click to pick in it
+            self.st.levels.append(Level(target, self.st.mx, self.st.my))
+            self.st.click_mode = True
+            return {'RUNNING_MODAL'}
         self._finish(context)
         if pie is not None and index is not None:
             try:
@@ -483,18 +500,27 @@ class WM_OT_keyops_marking_menu(bpy.types.Operator):
                 st.moved = True
             # moving past an item that opens another pie: open it here and keep going
             if index is not None and dist > st._radius(pie):
-                item = pie.items[index]
-                target = _pm().find_pie(item.idname) if item.kind == _pm().SUB else None
-                if target is not None and target.menu_type == "PIE" and len(st.levels) < 8:
+                target = self._sub_pie(pie, index)
+                if target is not None and len(st.levels) < 8:
                     st.levels.append(Level(target, st.mx, st.my))
             return {'RUNNING_MODAL'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             self._finish(context)
             return {'CANCELLED'}
         if event.type == st.key and event.value == 'RELEASE' and not st.click_mode:
-            _pie, index, _dist = st._active(context)
+            # a fast flick can release before any mouse move reached the menu: read the mouse from the release
+            st.mx, st.my = event.mouse_x, event.mouse_y
+            _pie, index, dist = st._active(context)
             if index is not None:
                 return self._pick(context)
+            if dist > 3 * st._scale():
+                st.moved = True
+            if not st.moved and time.time() - st.start < TAP_TIME and self.tap_key:
+                pie = _pm().find_pie(st.levels[0].uid)
+                self._finish(context)
+                if pie is not None:
+                    _pm().run_tapped_key(context, st.key, pie.ctrl, pie.shift, pie.alt)
+                return {'FINISHED'}
             if not st.moved and time.time() - st.start < TAP_TIME:
                 st.click_mode = True  # a quick tap: stay open, click to pick
                 return {'RUNNING_MODAL'}
@@ -571,6 +597,7 @@ def draw_look_settings(prefs, layout):
     flags.prop(prefs, "marking_use_theme")
     flags.prop(prefs, "marking_antialias")
     flags.prop(prefs, "marking_shadow")
+    layout.prop(prefs, "marking_delay")
     if not prefs.marking_use_theme:  # the theme decides the colours while it's used
         grid = layout.column(align=True).grid_flow(columns=2, even_columns=True, align=True)
         for name in ("item", "highlight", "text", "highlight_text", "border", "line", "center"):

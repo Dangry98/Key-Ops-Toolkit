@@ -1,4 +1,5 @@
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 import bpy
 from bpy.app.handlers import persistent
 from ..utils.utilities import BLENDER_VERSION
@@ -101,7 +102,7 @@ def selection_option_handler():
     return 0.1
 
 def draw_options_in_outliner(self, context):
-    if not get_keyops_prefs().enable_outliner_options:
+    if not feature_on("outliner_options"):
         return
     layout = self.layout
     layout.label(text="Selection")

@@ -95,17 +95,48 @@ def _text_h():
 
 # ---------------------------------------------------------------- drawing primitives
 
-def _shader():
-    return gpu.shader.from_builtin('UNIFORM_COLOR')
+# Shapes don't go to the GPU one by one: a run of fills (or of lines of one width) is gathered and drawn as
+# one batch, which keeps a big menu cheap to redraw. The order on screen stays the same: anything else that
+# draws (text, icons, another kind of shape) sends the gathered run first (_flush).
+_queue = {"kind": None, "width": 1.0, "pos": [], "col": [], "idx": []}
 
 
-def _fill(verts, indices, color):
+def _flush():
+    q = _queue
+    if not q["pos"]:
+        q["kind"] = None
+        return
     gpu.state.blend_set('ALPHA')  # blf.draw turns blending off when it's done
-    sh = _shader()
-    batch = batch_for_shader(sh, 'TRIS', {"pos": verts}, indices=indices)
-    sh.bind()
-    sh.uniform_float("color", color)
+    if q["kind"] == "fill":
+        sh = gpu.shader.from_builtin('SMOOTH_COLOR')
+        batch = batch_for_shader(sh, 'TRIS', {"pos": q["pos"], "color": q["col"]}, indices=q["idx"])
+        sh.bind()
+    else:
+        region = bpy.context.region
+        sh = gpu.shader.from_builtin('POLYLINE_FLAT_COLOR')
+        batch = batch_for_shader(sh, 'LINES', {"pos": q["pos"], "color": q["col"]})
+        sh.bind()
+        sh.uniform_float("viewportSize", (region.width, region.height))
+        sh.uniform_float("lineWidth", q["width"])
     batch.draw(sh)
+    q["kind"] = None
+    q["pos"], q["col"], q["idx"] = [], [], []
+
+
+def _queue_for(kind, width=1.0):
+    q = _queue
+    if q["kind"] != kind or (kind == "line" and q["width"] != width):
+        _flush()
+        q["kind"], q["width"] = kind, width
+    return q
+
+
+def _fill(verts, indices, color, colors=None):
+    q = _queue_for("fill")
+    base = len(q["pos"])
+    q["pos"].extend(verts)
+    q["col"].extend(colors if colors is not None else [tuple(color)] * len(verts))
+    q["idx"].extend((a + base, b + base, c + base) for a, b, c in indices)
 
 
 def _rect(x, y, w, h, color):
@@ -118,50 +149,65 @@ def _corner_radii(r, join):
             0 if {"L", "T"} & join else r, 0 if {"L", "B"} & join else r)
 
 
+_arcs = {}  # (start angle, segments) -> the quarter circle's (cos, sin) steps, worked out once
+
+
+def _arc(a0, seg):
+    got = _arcs.get((a0, seg))
+    if got is None:
+        got = _arcs[(a0, seg)] = [(math.cos(math.radians(a0 + 90 * k / seg)), math.sin(math.radians(a0 + 90 * k / seg)))
+                                  for k in range(seg + 1)]
+    return got
+
+
 def _outline_pts(x, y, w, h, r, seg=8):
     if isinstance(r, tuple):
         lim = min(w / 2, h / 2)
         pts = []
         for (cx, cy, a0), rr in zip(((x + w, y, -90), (x + w, y + h, 0), (x, y + h, 90), (x, y, 180)), r):
             rr = max(0.0, min(rr, lim))
-            ox = -rr if cx > x else rr
-            oy = rr if cy == y else -rr
             if rr <= 0.01:
                 pts.append((cx, cy))
                 continue
-            for k in range(seg + 1):
-                a = math.radians(a0 + 90 * k / seg)
-                pts.append((cx + ox + rr * math.cos(a), cy + oy + rr * math.sin(a)))
+            ox = cx + (-rr if cx > x else rr)
+            oy = cy + (rr if cy == y else -rr)
+            pts.extend([(ox + rr * c, oy + rr * s) for c, s in _arc(a0, seg)])
         return pts
     r = max(0.0, min(r, w / 2, h / 2))
     if r <= 0.01:
         return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
     pts = []
     for cx, cy, a0 in ((x + w - r, y + r, -90), (x + w - r, y + h - r, 0), (x + r, y + h - r, 90), (x + r, y + r, 180)):
-        for k in range(seg + 1):
-            a = math.radians(a0 + 90 * k / seg)
-            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        pts.extend([(cx + r * c, cy + r * s) for c, s in _arc(a0, seg)])
     return pts
+
+
+_fans = {}  # point count -> the triangle fan indices around a centre vertex
+
+
+def _fan(n):
+    got = _fans.get(n)
+    if got is None:
+        got = _fans[n] = [(0, i, i % n + 1) for i in range(1, n + 1)]
+    return got
 
 
 def _line(pts, color, width=1.0, closed=False):
     pts = list(pts) + ([pts[0]] if closed else [])
     if len(pts) < 2:
         return
-    region = bpy.context.region
-    gpu.state.blend_set('ALPHA')
-    sh = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
-    batch = batch_for_shader(sh, 'LINE_STRIP', {"pos": pts})
-    sh.bind()
-    sh.uniform_float("viewportSize", (region.width, region.height))
-    sh.uniform_float("lineWidth", width)
-    sh.uniform_float("color", color)
-    batch.draw(sh)
+    q = _queue_for("line", width)
+    col = tuple(color)
+    pos = q["pos"]
+    for k in range(len(pts) - 1):  # a strip as separate segments, so runs of lines share one batch
+        pos.append(pts[k])
+        pos.append(pts[k + 1])
+    q["col"].extend([col] * (2 * (len(pts) - 1)))
 
 
 def _round_fill(x, y, w, h, r, color):
     pts = _outline_pts(x, y, w, h, r)
-    _fill([(x + w / 2, y + h / 2)] + pts, [(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)], color)
+    _fill([(x + w / 2, y + h / 2)] + pts, _fan(len(pts)), color)
 
 
 def _round_fill_grad(x, y, w, h, r, top, bottom):
@@ -170,12 +216,7 @@ def _round_fill_grad(x, y, w, h, r, top, bottom):
     mix = lambda f: tuple(bottom[k] + (top[k] - bottom[k]) * f for k in range(4))
     verts = [(x + w / 2, y + h / 2)] + pts
     cols = [mix(0.5)] + [mix(min(1.0, max(0.0, (py - y) / max(h, 1)))) for _px, py in pts]
-    gpu.state.blend_set('ALPHA')
-    sh = gpu.shader.from_builtin('SMOOTH_COLOR')
-    batch = batch_for_shader(sh, 'TRIS', {"pos": verts, "color": cols},
-                             indices=[(0, i, i % len(pts) + 1) for i in range(1, len(pts) + 1)])
-    sh.bind()
-    batch.draw(sh)
+    _fill(verts, _fan(len(pts)), None, colors=cols)
 
 
 def _shade(c, amount):
@@ -243,6 +284,7 @@ def _circle(cx, cy, r, color, seg=40):
 
 
 def _text(x, y, text, color):
+    _flush()
     blf.color(0, *color)
     blf.position(0, round(x), round(y), 0)
     blf.draw(0, text)
@@ -327,8 +369,11 @@ def _capture_icons(fb, vp, names, x0, ytop, u, bg):
         else:
             room = np.where(d >= 0, 1.0 - bgc, bgc)
             a = np.clip((np.abs(d) / np.maximum(room, 1e-3)).max(axis=2), 0.0, 1.0)
-            o[..., 3] = a
             o[..., :3] = np.clip(bgc + d / np.maximum(a, 1e-3)[..., None], 0.0, 1.0)
+            # Blender draws a coloured icon in a label slightly see-through: picked up as is, it would show the
+            # button under it and look washed out. Its most solid pixel is solid in a real button.
+            peak = float(a.max())
+            o[..., 3] = np.clip(a / peak, 0.0, 1.0) if peak > 0.05 else a
         found[name] = ((c * u) / w, y0 / h, ((c + 1) * u) / w, (y0 + u) / h, mono)
     data = gpu.types.Buffer('FLOAT', int(w) * int(h) * 4, out.ravel().tolist())
     tex = gpu.types.GPUTexture((int(w), int(h)), format='RGBA16F', data=data)
@@ -355,16 +400,18 @@ def draw_icon(name, cx, cy, tint, alpha=1.0):
 
 
 def _add_icon(cx, cy, tint, alpha=1.0):
+    # a crisp plus (rectangles on whole pixels, so it never looks blurry); hovered, the zone outline frames it
     s = ui_scale()
-    size = 14 * s
-    col = (tint[0], tint[1], tint[2], tint[3] * alpha * 0.55)
-    x, y = round(cx - size / 2) + 0.5, round(cy - size / 2) + 0.5
-    pts = _outline_pts(x, y, size, size, 3 * s)
-    for k in range(0, len(pts), 2):  # dashed
-        _line(pts[k:k + 2], col, 1.0)
-    p = 3.5 * s
-    _line([(cx - p, cy), (cx + p, cy)], col, 1.2 * s)
-    _line([(cx, cy - p), (cx, cy + p)], col, 1.2 * s)
+    size = round(14 * s)
+    a = tint[3] * alpha
+    x, y = round(cx - size / 2), round(cy - size / 2)
+    t = max(1, round(1.4 * s))       # stroke
+    arm = round(8 * s) // 2 * 2 + t  # odd/even matched to the stroke, so the plus sits centred
+    mx, my = x + (size - t) // 2, y + (size - t) // 2
+    col = (tint[0], tint[1], tint[2], a * 0.7)
+    _rect(x + (size - arm) // 2, my, arm, t, col)
+    _rect(mx, y + (size - arm) // 2, t, (arm - t) // 2, col)  # the vertical bar in two halves, not over the middle
+    _rect(mx, my + t, t, (arm - t) // 2, col)
 
 
 def _tcol(el, c):
@@ -380,6 +427,7 @@ def _tcol(el, c):
 def flush_icons():
     """Draw the queued icons. Text drawn between texture draws can leave the wrong texture bound,
     so all icons are drawn here, one after another, after the shapes and text of a layer."""
+    _flush()
     gpu.state.blend_set('ALPHA')
     sh = gpu.shader.from_builtin('IMAGE_COLOR')
     for tex, x, y, size, (u0, v0, u1, v1), colour in _icon_queue:
@@ -397,7 +445,7 @@ def flush_icons():
 class El:
     """One drawn thing: an item (index), its rectangle and how it's drawn."""
     __slots__ = ("index", "x", "y", "w", "h", "kind", "text", "icon", "num", "key", "sub", "style", "icon_rect", "col",
-                 "emboss", "active", "depress", "dim", "join", "show", "segs", "value", "frac")
+                 "emboss", "active", "depress", "dim", "join", "show", "segs", "value", "frac", "look")
 
     def __init__(self, index, x, y, w, h, kind="item", text="", icon="", **kw):
         self.index, self.x, self.y, self.w, self.h = index, x, y, w, h
@@ -417,6 +465,7 @@ class El:
         self.segs = kw.get("segs")  # an expanded setting: its choices [(text, icon, chosen)], drawn as one row
         self.value = kw.get("value", "")  # a setting's current value, as its field shows it
         self.frac = kw.get("frac", 0.5)   # how full a slider is
+        self.look = kw.get("look", "BUTTON")  # popup menus: how the real menu draws it (pie_menus.popup_menu_look)
 
     def contains(self, mx, my, pad=0):
         return self.x - pad <= mx <= self.x + self.w + pad and self.y - pad <= my <= self.y + self.h + pad
@@ -448,6 +497,7 @@ class Scene:
         self.show_markers = False  # group tags and End Group / Next Column markers: while the mouse is on the menu
         self.centres = []    # marking chains: (x, y, is the edited menu) of every menu shown
         self.links = []      # marking chains: lines from a sub-menu item to its menu
+        self.subs = []       # popup menus: each menu shown (the edited one, its open submenus), own frame each
 
     def hit(self, mx, my):
         for el in reversed(self.els):
@@ -457,9 +507,12 @@ class Scene:
                 return el
         return None
 
-    def offset(self, dx, dy):
-        for el in self.els:
-            el.moved(dx, dy)
+    def offset(self, dx, dy, els=True):
+        if els:
+            for el in self.els:
+                el.moved(dx, dy)
+        for sub in self.subs:  # their items are in self.els (moved above); move their frames and titles
+            sub.offset(dx, dy, els=False)
         self.cx += dx
         self.cy += dy
         self.centres = [(x + dx, y + dy, a) for x, y, a in self.centres]
@@ -484,7 +537,8 @@ ADD_ICON = "+ADD"  # the icon spot a hovered item shows when it has no icon yet:
 
 
 def _look(item):
-    return dict(emboss=item.emboss, active=getattr(item, "active", True), depress=getattr(item, "depress", False))
+    return dict(emboss=item.emboss, active=getattr(item, "active", True) and getattr(item, "enabled", True),
+                depress=getattr(item, "depress", False))
 
 
 def _hovered(text, icon, default, hover):
@@ -550,6 +604,13 @@ def _field(item):
         return ({"SLIDER": "SLIDER", "BUTTON": "BUTTON", "EXPAND": "BUTTON"}.get(st, "CHECK"), "", 0.5)
     rna, value = found
     kind = rna.type
+    if st in ("SEARCH", "ID"):  # a field showing the picked item's name
+        return ("DROPDOWN", getattr(value, "name", "") if value is not None else "", 0.5)
+    if st == "MENU" and kind == 'ENUM' and not rna.is_enum_flag:
+        name = next((e.name for e in rna.enum_items if e.identifier == value), "")
+        return ("DROPDOWN", name, 0.5)
+    if st in ("LIST", "COLOR", "RAMP", "CURVE", "PALETTE", "ICONS", "VALUE", "TABS", "POPOVER"):
+        return ("BUTTON", "", 0.5)  # the real one only exists in Blender: a placeholder button
     if kind in ('INT', 'FLOAT') and not getattr(rna, "array_length", 0):
         slider = st == "SLIDER" or rna.subtype in ('PERCENTAGE', 'FACTOR')
         return ("SLIDER" if slider else "NUMBER", _value_text(rna, value), _slider_frac(rna, value))
@@ -580,7 +641,7 @@ def _clip(text, w):
 
 def _segments(item):
     """An expanded choice setting's buttons: [(text, icon, chosen)], or None."""
-    if getattr(item, "setting_style", "AUTO") != "EXPAND":
+    if getattr(item, "setting_style", "AUTO") not in ("EXPAND", "TABS"):
         return None
     found = _setting(item)
     if found is None or found[0].type != 'ENUM':
@@ -604,6 +665,8 @@ def _item_texts(item):
         icon = PM.item_icon(item, PM.TYPE_ICON.get(target.menu_type, 'NONE') if target else 'NONE')
     elif item.kind == PM.SCRIPT:
         default, icon = item.label or "Python", PM.item_icon(item, 'SCRIPT')
+    elif item.kind == PM.DRAW:  # its real look only exists when it runs: a placeholder in the preview
+        default, icon = item.label or "Draw Code", PM.item_icon(item, 'CONSOLE')
     elif item.kind == PM.MACRO:
         default, icon = item.label or "Macro", PM.item_icon(item)
     elif item.kind == PM.P:
@@ -672,6 +735,12 @@ def build_blender_pie(pie, hover=None):
         vx, vy = DIR_VEC[d]
         fx = 0.0 if vx > 0.01 else (-1.0 if vx < -0.01 else -0.5)
         fy = 0.0 if vy > 0.99 else (-1.0 if vy < -0.99 else -0.5)
+        group = PM.inline_target(item)
+        if group is not None:  # several buttons in this direction (pie_menus._draw_inline_group)
+            _pie_group(sc, i, item, group, vx, vy, fx, fy, R, u)
+            aligned |= d in ("N", "S", "E", "W")
+            diagonal |= d not in ("N", "S", "E", "W")
+            continue
         empty = PM._is_empty(item)
         text, icon, default = texts[i]
         styled = not empty and item.kind != PM.LABEL and _styled(item)
@@ -727,6 +796,57 @@ def build_blender_pie(pie, hover=None):
     return sc
 
 
+def _pie_group(sc, i, item, group, vx, vy, fx, fy, R, u):
+    """A pie direction holding a group of buttons: a box (or a plain column or row) of the group menu's items,
+    every one of them selecting the pie's item i when clicked (the group's own buttons are edited in it)."""
+    PM = _pm()
+    rows = []
+    for it in group.items:
+        if it.kind in PM.LAYOUT_KINDS:
+            continue
+        if PM._is_empty(it):
+            rows.append(("", "", True))
+            continue
+        text, icon, _d = _item_texts(it)
+        rows.append((text, icon, False))
+    if not rows:
+        rows.append(("Empty group", "", False))
+    widths = [(_text_w(t) + math.ceil(u * (1.5 + (0.25 if ic else 0.0)))) if t else u for t, ic, _sep in rows]
+    horizontal = item.group_type in ("ROW", "SPLIT")
+    framed = item.group_type in ("BOX", "PANEL")
+    pad = int(0.4 * u) if framed else 0
+    head = u if item.label.strip() else 0
+    if horizontal:
+        inner_w, inner_h = sum(widths), u
+    else:
+        inner_w, inner_h = max(widths), sum(int(0.5 * u) if sep else u for _t, _ic, sep in rows)
+    w, h = int(inner_w + 2 * pad), int(inner_h + 2 * pad + head)
+    x = int(vx * R + fx * w)
+    y = int(vy * R + fy * h)
+    if framed:
+        sc.boxes.append((x, y, w, h))
+    if head:
+        sc.els.append(El(i, x + pad, y + h - pad - u, w - 2 * pad, u, kind="label", text=item.label, style="LABEL",
+                         icon=PM.item_icon(item, '') if item.icon else ""))
+    cx, cy = x + pad, y + h - pad - head
+    look = _look(item)
+    for n, ((text, icon, sep), rw) in enumerate(zip(rows, widths)):
+        if sep:
+            cy -= int(0.5 * u)
+            continue
+        if horizontal:
+            el = El(i, cx, cy - u, rw, u, kind="item", text=text, icon=icon, style="BUTTON", **look)
+            cx += rw
+        else:
+            el = El(i, cx, cy - u, inner_w, u, kind="item", text=text, icon=icon, style="BUTTON", **look)
+            cy -= u
+        if item.align and n > 0:
+            el.join.add("L" if horizontal else "T")
+        if item.align and n < len(rows) - 1:
+            el.join.add("R" if horizontal else "B")
+        sc.els.append(el)
+
+
 def _pie_extras(sc, pie, u, s, R):
     """A Blender pie's extra items (after its 8 directions): a box of buttons on top of its top item, which
     joins them in a column (pie_menus.draw_pie_items)."""
@@ -741,7 +861,11 @@ def _pie_extras(sc, pie, u, s, R):
         text, icon, _d = _item_texts(it) if not empty else ("Empty", "", "")
         w = _text_w(text) + math.ceil(u * (1.5 + (0.25 if icon else 0.0))) if text else u
         rows.append((i, text, icon, w, empty, it))
-    top = next((e for e in sc.els if e.index == PM.ORDER.index("N")), None)
+    top_i = PM.ORDER.index("N")
+    top = next((e for e in sc.els if e.index == top_i), None)
+    if top is not None and top_i < len(pie.items) and PM.inline_target(pie.items[top_i]) is not None:
+        top = None  # a group up there: the extras go above it, it keeps its own look
+        R = max([e.y + e.h for e in sc.els if e.index == top_i] + [R]) + int(0.2 * u)
     width = max([w for *_a, w, _e, _it in rows] + [top.w if top else 0])
     width = int(width + 0.8 * u)  # the box's padding
     y = R
@@ -787,12 +911,21 @@ def build_marking(pie):
     return sc
 
 
+def _menu_value(rna, value):
+    """A setting's value as a popup menu field shows it: numbers as their field does, choices by name."""
+    if rna.type == 'ENUM':
+        chosen = value if isinstance(value, set) else {value}
+        return ", ".join(e.name for e in rna.enum_items if e.identifier in chosen)
+    return _value_text(rna, value) or str(value)
+
+
 def _menu_item_w(text, icon, u):
     return _text_w(text) + (u if icon else 0) + u * (0.2 + 0.4 + 0.6)
 
 
-def build_menu(pie, hover=None):
-    """A popup menu (Blender's menu look), a popup panel, a dialog or a sidebar panel."""
+def build_menu(pie, hover=None, sub=False):
+    """A popup menu (Blender's menu look), a popup panel, a dialog or a sidebar panel.
+    sub: shown as a submenu (opened from another menu's item): no title, like Blender's submenus."""
     PM = _pm()
     s, u = ui_scale(), unit()
     items = list(pie.items)
@@ -856,7 +989,7 @@ def build_menu(pie, hover=None):
     gap = 0 if as_menu else int(u * 0.4)
 
     title_h = 0
-    if pie.menu_type != "PANEL":
+    if pie.menu_type != "PANEL" and not sub:
         title_h = u + (int(0.3 * u) if as_menu else int(0.2 * u))
         sc.title = pie.name
     else:
@@ -919,14 +1052,26 @@ def build_menu(pie, hover=None):
                 w = avail * it.width / total_w
                 text, icon, default = texts[i]
                 dim = False
+                # what the real popup menu draws for it (pie_menus.popup_menu_look decides for both)
+                look = PM.popup_menu_look(it) if kind == "item" else "BUTTON"
+                if look == "SUBMENU" and it.kind == PM.P:
+                    icon = "" if PM.item_icon(it) == 'NONE' else PM.item_icon(it)  # a choice: only its own icon
+                elif look == "CHECKBOX":
+                    icon = ""  # a checkbox instead of an icon
+                elif look == "FIELD":  # a number, text or several-choice setting: "Label: value", like Blender
+                    found = PM.setting_rna(it)
+                    if found is not None:
+                        value = _menu_value(*found)
+                        text = f"{text}: {value}" if text else value
+                        default = f"{default}: {value}" if default else value
                 if kind == "empty":
                     text = "Empty"
                 elif kind == "item":
                     text, icon, dim = _hovered(text, icon, default, i == hover)
                 style = "MENU" if as_menu else _panel_style(it)
                 el = El(i, int(xx), y - rh, int(w), rh, kind=kind, text=text, icon=icon, key="" if dim else keys[i],
-                        sub=it.kind == PM.SUB, style=style + ("_ALERT" if it.alert else ""), col=c, dim=dim,
-                        **_look(it))
+                        sub=look == "SUBMENU", style=style + ("_ALERT" if it.alert else ""), col=c, dim=dim,
+                        look=look, **_look(it))
                 if icon and kind == "item":
                     el.icon_rect = (int(xx), y - rh, u + int(0.3 * u), rh)
                 sc.els.append(el)
@@ -1238,10 +1383,162 @@ def build(pie, prefs, hover=None):
         if getattr(prefs, "pie_style", "BLENDER") == "MARKING":
             return build_marking_chain(pie, prefs)
         return build_blender_pie(pie, hover)
+    if pie.menu_type == "MENU":
+        return build_menu_chain(pie, prefs, hover)
     return build_menu(pie, hover)
 
 
+def _menu_sub_target(p, index):
+    """The popup menu that item opens as a submenu, or None."""
+    PM = _pm()
+    if p is None or index is None or not 0 <= index < len(p.items):
+        return None
+    it = p.items[index]
+    if it.kind != PM.SUB or PM.popup_menu_look(it) != "SUBMENU":
+        return None
+    return PM.find_pie(it.idname)
+
+
+def menu_chain(pie, prefs, hover=None):
+    """The popup menus the preview shows: the edited one, the menus above it it was opened from, and the
+    submenu open beside it. A submenu opens when the mouse is on the item that opens it (or that item is
+    selected), and stays open until the mouse is on another item that opens one: moving over empty space,
+    clicking or dragging never swaps it back to the selected item's submenu."""
+    global _chain, _chain_slot, _choice
+    PM = _pm()
+    if pie.uid not in _chain:
+        _chain, _choice = [pie.uid], None
+    pos = _chain.index(pie.uid)
+    slot = (pie.uid, prefs.pie_slot)
+    if hover is not None:
+        opener = (pos, hover) if hover < SUB_STRIDE else (hover // SUB_STRIDE - 1, hover % SUB_STRIDE)
+    elif slot != _chain_slot:  # the selection changed: open the submenu of the newly selected item
+        opener = (pos, prefs.pie_slot)
+    else:
+        opener = None
+    _chain_slot = slot
+    if opener is not None and 0 <= opener[0] < len(_chain):
+        op = PM.find_pie(_chain[opener[0]])
+        t = _menu_sub_target(op, opener[1])
+        if t is not None and t.uid not in _chain[:opener[0] + 1]:
+            _chain, _choice = _chain[:opener[0] + 1] + [t.uid], None
+        elif t is None and opener[0] >= pos and _choice_rna(op, opener[1]) is not None:
+            # a several-choice setting: its choices open beside it, as Blender's menu shows them
+            _chain, _choice = _chain[:opener[0] + 1], opener
+    pies = []
+    for n, uid in enumerate(_chain):  # each one must still be opened by an item of the one before
+        p = PM.find_pie(uid)
+        if p is None or (n and not any(getattr(_menu_sub_target(pies[-1], i), "uid", None) == uid
+                                       for i in range(len(pies[-1].items)))):
+            _chain = _chain[:n]
+            break
+        pies.append(p)
+    if pie.uid not in _chain:
+        _chain, pies, _choice = [pie.uid], [pie], None
+    if _choice is not None and (_choice[0] != len(pies) - 1 or _choice_rna(pies[-1], _choice[1]) is None):
+        _choice = None  # its menu closed, or the item is no longer a several-choice setting
+    return pies
+
+
+def close_submenus_after(pie):
+    """A click on an item that opens no submenu closes the submenus open after its menu."""
+    global _chain, _choice
+    if pie is not None and pie.uid in _chain:
+        n = _chain.index(pie.uid)
+        _chain = _chain[:n + 1]
+        if _choice is not None and _choice[0] >= n:
+            _choice = None
+
+
+def _choice_rna(p, index):
+    """(rna, value) of a several-choice setting that opens its choices as a submenu, or None."""
+    PM = _pm()
+    if p is None or index is None or not 0 <= index < len(p.items):
+        return None
+    it = p.items[index]
+    if it.kind != PM.P or PM.popup_menu_look(it) != "SUBMENU":
+        return None
+    found = PM.setting_rna(it)
+    return found if found is not None and found[0].type == 'ENUM' and not found[0].is_enum_flag else None
+
+
+def build_choices(rna, value, base, hover=None):
+    """The choices of a several-choice setting, shown as a submenu like Blender's: the current one marked.
+    Only shown: they are Blender's own, not items of the menu, so there is nothing to edit on them."""
+    s, u = ui_scale(), unit()
+    _font()
+    sc = Scene("MENU")
+    pad = int(0.25 * u)
+    choices = [e for e in rna.enum_items]
+    any_icon = any(e.icon != 'NONE' for e in choices)
+    colw = int(max([9 * u] + [_menu_item_w(e.name, any_icon, u) for e in choices]))
+    y = -pad
+    for j, e in enumerate(choices):
+        el = El(base + j, pad, y - u, colw, u, kind="item", text=e.name,
+                icon="" if e.icon == 'NONE' else e.icon, style="MENU", look="BUTTON",
+                depress=e.identifier == value)
+        sc.els.append(el)
+        y -= u
+    h = -y + pad
+    w = pad * 2 + colw
+    sc.frame = (0, -h, w, h)
+    sc.panel_header = (0, 0, w, 0)
+    sc.w, sc.h = w, h
+    sc.offset(-w / 2, h / 2)
+    return sc
+
+
+def build_menu_chain(pie, prefs, hover=None):
+    """A popup menu with its open submenu beside it (and theirs), as Blender shows them. The edited menu's
+    items keep their index; the other menus' items get (position in the chain + 1) * SUB_STRIDE + index."""
+    pies = menu_chain(pie, prefs, hover)
+    if len(pies) == 1 and _choice is None:
+        return build_menu(pie, hover)
+    u = unit()
+    active = pies.index(pie)
+    out = Scene("MENU")
+    prev, prev_k = None, 0
+    for k, p in enumerate(pies):
+        base = 0 if k == active else (k + 1) * SUB_STRIDE
+        h = hover - base if hover is not None and (hover < SUB_STRIDE) == (base == 0) and \
+            (base == 0 or hover // SUB_STRIDE == k + 1) else None
+        sc = build_menu(p, h, sub=k > 0)
+        if prev is not None and prev.frame and sc.frame:
+            # beside the item that opens it: its top row level with that item, its left edge on the menu's right
+            pbase = 0 if prev_k == active else (prev_k + 1) * SUB_STRIDE
+            opener = next((e for e in prev.els if e.kind == "item"
+                           and getattr(_menu_sub_target(pies[prev_k], e.index - pbase), "uid", None) == p.uid), None)
+            px, py, pw, ph = prev.frame
+            fx, fy, fw, fh = sc.frame
+            top = (opener.y + opener.h + int(0.25 * u)) if opener is not None else py + ph
+            sc.offset(px + pw - int(0.1 * u) - fx, top - (fy + fh))
+        for e in sc.els:
+            e.index += base
+        out.els.extend(sc.els)
+        out.subs.append(sc)
+        prev, prev_k = sc, k
+    found = _choice_rna(pies[-1], _choice[1]) if _choice is not None else None
+    if found is not None and prev is not None and prev.frame:
+        # the choices of a setting in the last menu, beside it (their indices are past every menu's)
+        pbase = 0 if prev_k == active else (prev_k + 1) * SUB_STRIDE
+        sc = build_choices(found[0], found[1], (len(pies) + 1) * SUB_STRIDE)
+        opener = next((e for e in prev.els if e.kind == "item" and e.index == pbase + _choice[1]), None)
+        px, py, pw, ph = prev.frame
+        fx, fy, fw, fh = sc.frame
+        top = (opener.y + opener.h + int(0.25 * u)) if opener is not None else py + ph
+        sc.offset(px + pw - int(0.1 * u) - fx, top - (fy + fh))
+        out.els.extend(sc.els)
+        out.subs.append(sc)
+    first = out.subs[0]
+    edited = out.subs[active]
+    out.frame, out.title_rect = edited.frame, None  # the edited menu: where the layout markers show
+    out.w, out.h, out.cx, out.cy = first.w, first.h, first.cx, first.cy
+    return out
+
+
 SUB_STRIDE = 1000  # items of the other menus shown beside the edited one: (position in the chain + 1) * this + index
+_chain_slot = None  # (menu, selected item) menu_chain last saw: the selection opens a submenu only when it changes
+_choice = None      # (position in the chain, item index): a several-choice setting showing its choices beside it
 _chain = []        # the marking menu being edited and the sub-menus opened from it in the preview (uids)
 
 
@@ -1355,15 +1652,6 @@ def icons_needed(pie):
 
 # ---------------------------------------------------------------- drawing a scene
 
-def _arc_dir(sc, mouse):
-    if mouse is None:
-        return None
-    dx, dy = mouse[0] - sc.cx, mouse[1] - sc.cy
-    if math.hypot(dx, dy) < sc.threshold:
-        return None
-    return math.atan2(dy, dx)
-
-
 def draw_scene(sc, st, prefs):
     th = _theme()
     s, u = ui_scale(), unit()
@@ -1377,13 +1665,80 @@ def draw_scene(sc, st, prefs):
         _draw_blender_pie(sc, st, th, s, u, hover, src, selected, accent)
     elif sc.kind == "MARKING":
         _draw_marking(sc, st, hover, src, selected, accent, s)
+    elif sc.subs:  # a popup menu with its submenus open beside it
+        for sub in sc.subs:
+            _draw_menu(sub, st, th, s, u, hover, src, selected, accent)
     else:
         _draw_menu(sc, st, th, s, u, hover, src, selected, accent)
     flush_icons()
+    if not drag:
+        _draw_hover_zone(sc, st, accent, s, u)
     if drag:
         _draw_drop(sc, st, accent, s, u)
         _draw_ghost(sc, st, th, s, u)
         flush_icons()
+    _flush()
+
+
+def _zone_rect(st, el, zone):
+    """The part of an item a click there acts on: its icon spot, or the rest (its label). (x, y, w, h)"""
+    u, s = unit(), ui_scale()
+    if st.scene is not None and st.scene.kind == "BLENDER_PIE" and el.icon:
+        icon = (el.x + 0.3 * u - 2 * s, el.y + 2 * s, 20 * s + 0.2 * u, el.h - 4 * s)
+    elif el.icon_rect:
+        icon = el.icon_rect
+    else:
+        icon = None
+    if icon is not None:  # kept inside the button, so the outline never pokes out above or below it
+        y0, y1 = max(icon[1], el.y + 2 * s), min(icon[1] + icon[3], el.y + el.h - 2 * s)
+        x0, x1 = max(icon[0], el.x + 2 * s), min(icon[0] + icon[2], el.x + el.w - 2 * s)
+        x0, y0, x1, y1 = math.ceil(x0), math.ceil(y0), math.floor(x1), math.floor(y1)  # whole pixels: an even outline
+        icon = (x0, y0, x1 - x0, y1 - y0)
+    if zone == "icon":
+        return icon
+    if icon is None:
+        return (el.x, el.y, el.w, el.h)
+    left = icon[0] + icon[2]
+    return (left, el.y + 2 * s, el.x + el.w - left - 2 * s, el.h - 4 * s)
+
+
+def _draw_hover_zone(sc, st, accent, s, u):
+    """While the mouse is on an item: a soft outline around the part a click acts on, so it's clear the
+    icon and the label can each be clicked (the hint under the preview says what a click does)."""
+    if st.hover is None or not st.hover_zone:
+        return
+    el = next((e for e in sc.els if e.index == st.hover and e.kind == "item"), None)
+    if el is None:
+        return
+    rect = _zone_rect(st, el, st.hover_zone)
+    if rect is None or rect[2] <= 0 or rect[3] <= 0:
+        return
+    x, y, w, h = rect
+    r = min(h / 2, 0.3 * u)
+    _round_fill(x, y, w, h, r, accent[:3] + (0.12,))
+    _line(_outline_pts(x + 0.5, y + 0.5, w - 1, h - 1, r), accent[:3] + (0.85,), 1.0 * s, closed=True)
+
+
+def hover_hint(region):
+    """What a click does where the mouse is in the preview, for the line under it ("" when it's elsewhere)."""
+    st = _canvases.get(region.as_pointer()) if region is not None else None
+    if st is None or st.hover is None or st.drag:
+        return ""
+    el = next((e for e in st.scene.els if e.index == st.hover), None) if st.scene else None
+    if el is None:
+        return ""
+    if el.index >= SUB_STRIDE:
+        if chain_item(el.index) is None:
+            return "The setting's choices, as the menu shows them"
+        sub = chain_item(el.index)[0]
+        return f"Part of \"{sub.name}\": to edit it, click its button in the Submenus row above"
+    if el.kind != "item":
+        return "Click to select it. Drag to move it. Right-click for more"
+    if st.hover_zone == "icon":
+        return "Click: change the icon"
+    if el.index == _prefs().pie_slot:
+        return "Click: change what it does (its operator, menu or setting). Drag to move it. Right-click for more"
+    return "Click: select it, its settings show beside. Click again: change what it does. Right-click for more"
 
 
 def _pie_item(el, wcol, u, s, hovered, alpha=1.0, dashed=False):
@@ -1497,23 +1852,52 @@ def _button_content(el, tcol, u, s, align="CENTER"):
     if el.icon and el.text:
         draw_icon(el.icon, el.x + 0.2 * u + 8 * s + 2 * s, el.y + el.h / 2, tcol)
         tx0 = el.x + 0.2 * u + 16 * s + 2 * s + 0.4 * u
+        text = _clip(el.text, el.x + el.w - tx0 - 0.3 * u)  # Blender cuts text that doesn't fit with "..."
         if align == "CENTER":  # Blender centres a button's text on the button, the icon stays on the left
-            tw = _text_w(el.text)
+            tw = _text_w(text)
             tx0 = max(tx0, el.x + (el.w - tw) / 2)
-        tx, ty = _text_in(tx0, el.y, el.x + el.w - tx0, el.h, el.text, tcol, "LEFT")
+        tx, ty = _text_in(tx0, el.y, el.x + el.w - tx0, el.h, text, tcol, "LEFT")
     elif el.icon:
         draw_icon(el.icon, el.x + el.w / 2, el.y + el.h / 2, tcol)
         return
     else:
-        tx, ty = _text_in(el.x + 0.4 * u, el.y, el.w - 0.8 * u, el.h, el.text, tcol, align)
-    if el.key:
+        text = _clip(el.text, el.w - 0.8 * u)
+        tx, ty = _text_in(el.x + 0.4 * u, el.y, el.w - 0.8 * u, el.h, text, tcol, align)
+    if el.key and text == el.text:
         _underline(tx, ty, el.text, el.key, tcol)
+
+
+def _ring(x, y, w, h, r, t, color, seg=8):
+    """A rounded frame t pixels thick, drawn as filled triangles so its corners stay clean (a wide polyline
+    leaves spikes where its short arc segments meet), with 1px smooth lines on both edges for anti-aliasing."""
+    r = max(0.0, min(r, w / 2, h / 2))
+    t = max(0.5, min(t, w / 2, h / 2))
+    outer, inner = [], []
+    for cx, cy, a0, sx, sy in ((x + w - r, y + r, -90, -1, 1), (x + w - r, y + h - r, 0, -1, -1),
+                               (x + r, y + h - r, 90, 1, -1), (x + r, y + r, 180, 1, 1)):
+        push = max(0.0, t - r)  # a corner tighter than the frame: the inner corner is square, moved inward
+        icx, icy, ir = cx + sx * push, cy + sy * push, max(0.0, r - t)
+        for k in range(seg + 1):
+            a = math.radians(a0 + 90 * k / seg)
+            c, sn = math.cos(a), math.sin(a)
+            outer.append((cx + r * c, cy + r * sn))
+            inner.append((icx + ir * c, icy + ir * sn))
+    n = len(outer)
+    verts = outer + inner
+    idx = []
+    for i in range(n):
+        j = (i + 1) % n
+        idx += [(i, j, n + j), (i, n + j, n + i)]
+    _fill(verts, idx, color)
+    soft = color[:3] + (color[3] * 0.6,)
+    _line(outer, soft, 1.0, closed=True)
+    _line(inner, soft, 1.0, closed=True)
 
 
 def _selection(el, accent, s, u, r=None):
     px = 2 * s
     rr = (r if r is not None else 0.25 * u) + px
-    _line(_outline_pts(el.x - px, el.y - px, el.w + 2 * px, el.h + 2 * px, rr), accent, 2.0 * s, closed=True)
+    _ring(el.x - 1.5 * px, el.y - 1.5 * px, el.w + 3 * px, el.h + 3 * px, rr + 0.5 * px, px, accent)
 
 
 def _draw_blender_pie(sc, st, th, s, u, hover, src, selected, accent):
@@ -1536,13 +1920,7 @@ def _draw_blender_pie(sc, st, th, s, u, hover, src, selected, accent):
     # centre ring (ui_draw_pie_center)
     r0, r1 = sc.threshold, sc.threshold + 7 * s
     _disk(sc.cx, sc.cy, r0, r1, 0.0, 2 * math.pi, _rgba(wcol.inner))
-    hover_el = next((e for e in sc.els if e.index == hover), None) if hover is not None else None
-    angle = None
-    if st.mouse is not None and (hover_el is not None or st.drag):
-        angle = _arc_dir(sc, st.mouse)
-    if angle is not None:
-        rng = math.pi / 4 if all(sc.dirmask) else math.pi / 2
-        _disk(sc.cx, sc.cy, r0, r1, angle - rng / 2, rng, _rgba(wcol.inner_sel))
+    # no direction highlight in the ring: in the editor it only follows the mouse and distracts
     _circle(sc.cx, sc.cy, r0, _rgba(wcol.outline))
     _circle(sc.cx, sc.cy, r1, _rgba(wcol.outline))
 
@@ -1696,13 +2074,15 @@ def _draw_sidebar(sc, pie, th, s, u, x, y, w, h):
     _rect(tx, y - margin, tab_w, h + 2 * margin, c["tab_back"])
     name = (pie.tab or "Toolkit").strip() or "Toolkit"
     _font(FONT_POINTS)
+    name = _clip(name, h + 2 * margin - 1.2 * u)  # the tab can't be longer than the region
     tw = _text_w(name)
     th_ = tw + 0.8 * u
     ty = y + h - th_ - 0.2 * u + margin
     _round_fill(tx + 2 * s, ty, tab_w - 3 * s, th_, 3 * s, c["tab_active"])
     blf.enable(0, blf.ROTATION)
     blf.rotation(0, -math.pi / 2)  # sidebar tabs read top to bottom
-    _text(tx + tab_w / 2 + 0.3 * u, ty + th_ - 0.4 * u, name, c["title"])
+    # turned a quarter clockwise the glyphs grow to the right of the baseline, so it sits left of the middle
+    _text(tx + (tab_w - _text_h()) / 2 + pixel(), ty + th_ - 0.4 * u, name, c["title"])
     blf.rotation(0, 0)
     blf.disable(0, blf.ROTATION)
     # the panel: header with its arrow and name, then the body
@@ -1716,7 +2096,7 @@ def _draw_sidebar(sc, pie, th, s, u, x, y, w, h):
                   c["title"][:3] + (0.35,))
     cx, cy, k = hx + 0.55 * u, hy + hh / 2, 0.18 * u
     _line([(cx - k, cy + k * 0.5), (cx, cy - k * 0.5), (cx + k, cy + k * 0.5)], c["title"], 1.2 * s)
-    _text_in(hx + 1.1 * u, hy, hw, hh, pie.name, c["title"], "LEFT")
+    _text_in(hx + 1.1 * u, hy, hw, hh, _clip(pie.name, hw - 2.2 * u), c["title"], "LEFT")
 
 
 def _tria_down(x, y, size, color):
@@ -1738,21 +2118,40 @@ def _menu_item(el, wcol, th, u, s, hovered, alpha, any_icon):
         tcol = _rgba(wcol.text, 0.35 * alpha)
     tcol = _tcol(el, tcol)
     x = el.x + 0.2 * u
-    if el.style.startswith("MENU") and el.kind == "item" and _pm().P == _kind(el):
-        # settings show as checkboxes in menus
+    if el.style.startswith("MENU") and el.kind == "item" and getattr(el, "look", "") == "CHECKBOX":
+        # on/off settings show as checkboxes in menus, ticked when on
         bx, by = x + 2 * s, el.y + (el.h - 14 * s) / 2
         opt = th.wcol_option
-        widget_box(bx, by, 14 * s, 14 * s, opt.roundness * 14 * s, _rgba(opt.inner, alpha), _rgba(opt.outline, alpha))
+        item = _item_of(el)
+        found = _pm().setting_rna(item) if item is not None else None
+        on = bool(found and found[1])
+        widget_box(bx, by, 14 * s, 14 * s, opt.roundness * 14 * s, _rgba(opt.inner_sel if on else opt.inner, alpha),
+                   _rgba(opt.outline, alpha))
+        if on:
+            _line([(bx + 3 * s, by + 7 * s), (bx + 6 * s, by + 4 * s), (bx + 11 * s, by + 10 * s)],
+                  _rgba(opt.text_sel, alpha), 1.6 * s)
         tx0 = x + u + 0.2 * u
     else:
         if el.icon:
             draw_icon(el.icon, x + 8 * s + 2 * s, el.y + el.h / 2, tcol, 1.0)
         tx0 = x + ((u + 0.2 * u) if any_icon or el.icon else 0.2 * u)
-    tx, ty = _text_in(tx0, el.y, el.w, el.h, el.text, tcol, "LEFT")
-    if el.key:
+    text = _clip(el.text, el.x + el.w - tx0 - (0.9 * u if el.sub else 0.3 * u))
+    tx, ty = _text_in(tx0, el.y, el.w, el.h, text, tcol, "LEFT")
+    if el.key and text == el.text:
         _underline(tx, ty, el.text, el.key, tcol)
     if el.sub:
         _tria_right(el.x + el.w - 0.6 * u, el.y + el.h / 2, 0.35 * u, tcol)
+
+
+def _item_of(el):
+    """The item an element shows: of the edited menu, or of a menu shown beside it (see SUB_STRIDE)."""
+    if el.index >= SUB_STRIDE:
+        found = chain_item(el.index)
+        if found is None or not 0 <= found[1] < len(found[0].items):
+            return None
+        return found[0].items[found[1]]
+    pie = _cur_pie()
+    return pie.items[el.index] if pie is not None and 0 <= el.index < len(pie.items) else None
 
 
 def _kind(el):
@@ -1772,7 +2171,10 @@ def _panel_item(el, th, u, s, hovered, alpha):
         return
     if el.kind == "label" or style == "LABEL":
         col = _rgba(th.wcol_regular.text, alpha)
-        _button_content(el, col, u, s, align="LEFT") if el.icon else _text_in(el.x + 0.2 * u, el.y, el.w, el.h, el.text, col, "LEFT")
+        if el.icon:
+            _button_content(el, col, u, s, align="LEFT")
+        else:
+            _text_in(el.x + 0.2 * u, el.y, el.w, el.h, _clip(el.text, el.w - 0.4 * u), col, "LEFT")
         return
     j = el.join
     bx0 = el.x + (0 if "L" in j else 1)
@@ -1785,7 +2187,8 @@ def _panel_item(el, th, u, s, hovered, alpha):
         bx, by = el.x + 0.2 * u, el.y + (el.h - size) / 2
         widget_box(bx, by, size, size, opt.roundness * size * 0.5, _rgba(opt.inner_sel if el.depress else opt.inner, alpha),
                    _rgba(opt.outline, alpha), wcol=opt, emboss=True)
-        _text_in(bx + size + 0.3 * u, el.y, el.w, el.h, el.text, _tcol(el, _rgba(opt.text, alpha)), "LEFT")
+        lx = bx + size + 0.3 * u
+        _text_in(lx, el.y, el.w, el.h, _clip(el.text, el.x + el.w - lx - 0.2 * u), _tcol(el, _rgba(opt.text, alpha)), "LEFT")
         return
     if style == "SLIDER":
         ns = th.wcol_numslider
@@ -1934,6 +2337,7 @@ class Canvas:
         self.base_w = None
         self.pan = (0.0, 0.0)     # how far the preview was dragged (empty space or middle mouse)
         self.pan_root = None      # the menu the pan belongs to: another one starts in the middle again
+        self.can_pan = False      # the menu is bigger than the preview: only then can the view be dragged
 
 
 _canvases = {}       # region pointer -> Canvas
@@ -1963,6 +2367,10 @@ def draw_layout(layout, context, pie, prefs):
     st.wanted = True
     st.misses = 0
     st.icons = icons_needed(pie)
+    for uid in _chain:  # the submenus open beside it show their icons too
+        other = _pm().find_pie(uid)
+        if other is not None and other.uid != pie.uid:
+            st.icons += [n for n in icons_needed(other) if n not in st.icons]
     u = unit()
     try:
         sc = build(pie, prefs)
@@ -1981,7 +2389,7 @@ def draw_layout(layout, context, pie, prefs):
         row = col.row(align=True)
         row.alignment = 'LEFT'
         for name in st.icons[r * ICONS_PER_ROW:(r + 1) * ICONS_PER_ROW]:
-            row.label(text="", icon=name)
+            row.label(text="", **_pm().icon_kw(name))
     rest = max(u, need - rows * u)
     # the area's height when only one marker is on screen (both seen: measured instead)
     st.height = int(rows * u + rest + pixel())
@@ -2123,6 +2531,7 @@ def _draw():
     pad = mt + 2
     st.pad = pad + 2
     _rect(x0 - 1, y0 - pad, x1 - x0 + 2, y1 - y0 + 2 * pad, (bg[0], bg[1], bg[2], 1.0))
+    _flush()  # drawn before the scissor and scale below
     prefs = _prefs()
     pie = _cur_pie()
     st.pie = pie
@@ -2130,14 +2539,18 @@ def _draw():
         gpu.state.blend_set('NONE')
         return
     sc = build(pie, prefs, st.hover if not st.drag else None)
-    root = _chain[0] if sc.kind == "MARKING" and _chain else pie.uid
+    root = _chain[0] if sc.kind in ("MARKING", "MENU") and _chain else pie.uid  # a submenu keeps its menu's view
     if st.pan_root != root:
         st.pan, st.pan_root = (0.0, 0.0), root
-    cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
-    sc.offset(cx + st.pan[0], cy + st.pan[1])
     # too wide for the area (a small Preferences window): drawn smaller, clicks are mapped back
     st.last_w = x1 - x0
     st.k = min(1.0, max(0.4, (x1 - x0 - unit()) / max(st.base_w or sc.w, 1.0)))
+    # the view only moves when the menu doesn't fit, e.g. a big marking menu with many submenus open
+    cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
+    # the view stays where it was put while submenus open and close under the mouse (a jump would move the
+    # items away from it); it only goes back to the middle for another menu or a double-click on empty space
+    st.can_pan = st.pan != (0.0, 0.0) or _overflows(sc, st.k, x0, y0, x1, y1, cx, cy)
+    sc.offset(cx + st.pan[0], cy + st.pan[1])
     st.kc = (cx, cy)
     if sc.frame and st.mouse is not None:
         fx, fy, fw, fh = sc.frame
@@ -2176,6 +2589,22 @@ def _draw():
         _running.add(wp)  # claimed now, so only one start is scheduled
         rp = region.as_pointer()
         bpy.app.timers.register(lambda: _start_modal(wp, rp), first_interval=0.01)
+
+
+def _overflows(sc, k, x0, y0, x1, y1, cx, cy):
+    """True when part of the drawn menu (every element, at scale k, centred on cx, cy) falls outside the
+    preview area: it is too big, or an open submenu reaches past an edge."""
+    rects = [(el.x, el.y, el.w, el.h) for el in sc.els]
+    rects += [s.frame for s in sc.subs if s.frame]
+    if sc.frame:
+        rects.append(sc.frame)
+    if not rects:
+        return False
+    left = min(x for x, _y, _w, _h in rects)
+    right = max(x + w for x, _y, w, _h in rects)
+    bottom = min(y for _x, y, _w, _h in rects)
+    top = max(y + h for _x, y, _w, h in rects)
+    return cx + left * k < x0 or cx + right * k > x1 or cy + bottom * k < y0 or cy + top * k > y1
 
 
 def _find(window_ptr, region_ptr):
@@ -2314,26 +2743,12 @@ def _do_drop(st, src):
     PM._changed()
 
 
-def _focus_chain_item(prefs, index):
-    """An item of a sub-menu shown beside the edited one: edit that menu now (the chain stays on screen).
-    Returns the item's index in its own menu, or the index unchanged."""
-    found = chain_item(index)
-    if found is None:
-        return index
-    pie, i = found
-    prefs.active_pie = list(prefs.pies).index(pie)
-    prefs.pie_slot = i
-    return i
-
-
 def _click(context, st, el, zone, win, area, region):
     PM = _pm()
     prefs = _prefs()
-    if el.index >= SUB_STRIDE:  # in a sub-menu beside it: select it there
-        i = _focus_chain_item(prefs, el.index)
-        st.picked = (_cur_pie().uid, i)
-        PM._redraw_all(context)
-        return
+    if st.pie is not None and st.pie.menu_type == "MENU" and _menu_sub_target(st.pie, el.index) is None \
+            and _choice_rna(st.pie, el.index) is None:
+        close_submenus_after(st.pie)
     with context.temp_override(window=win, area=area, region=region):
         # a second click on the same item (the first one only selects it) picks its action
         was_selected = prefs.pie_slot == el.index and st.picked == (st.pie.uid if st.pie else "", el.index)
@@ -2486,25 +2901,34 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
 
         if not inside:
             return {'PASS_THROUGH'}
-        if (event.type == 'MIDDLEMOUSE' and event.value == 'PRESS') or \
-                (event.type == 'LEFTMOUSE' and event.value == 'PRESS' and _item_under(st, mx, my) is None):
+        if st.can_pan and ((event.type == 'MIDDLEMOUSE' and event.value == 'PRESS') or
+                           (event.type == 'LEFTMOUSE' and event.value == 'PRESS' and _item_under(st, mx, my) is None)):
             st.drag = {"pan": True, "start": (rmx, rmy), "from": st.pan, "active": True, "src": None}
             try:
                 context.window.cursor_modal_set('SCROLL_XY')
             except (AttributeError, ReferenceError, TypeError):
                 pass
             return {'RUNNING_MODAL'}
-        if event.type == 'LEFTMOUSE' and event.value == 'DOUBLE_CLICK' and _item_under(st, mx, my) is None:
-            st.pan = (0.0, 0.0)  # double-click the empty space: back to the middle
+        if st.can_pan and event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN'}:
+            # scroll the view: wheel up/down, Shift or Ctrl + wheel sideways, or a trackpad in any direction
+            k = st.k or 1.0
+            if event.type == 'TRACKPADPAN':
+                dx, dy = event.mouse_x - event.mouse_prev_x, event.mouse_y - event.mouse_prev_y
+            else:
+                step = 2.5 * unit() * (1 if event.type == 'WHEELUPMOUSE' else -1)
+                dx, dy = (step, 0.0) if (event.shift or event.ctrl) else (0.0, -step)
+            st.pan = (st.pan[0] + dx / k, st.pan[1] + dy / k)
+            reg.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'HOME' and event.value == 'PRESS':
+            st.pan = (0.0, 0.0)  # Home: back to the middle (only on request, the view never moves by itself)
             reg.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
-            if el.index >= SUB_STRIDE:  # another menu of the chain: a click selects it there
-                _click(context, st, el, "", context.window, area, reg)
-                reg.tag_redraw()
+            if el.index >= SUB_STRIDE:  # a submenu shown beside it: only for looking, its button above edits it
                 return {'RUNNING_MODAL'}
             zone = _zone(st, el, mx, my)
             st.drag = {"src": el.index, "start": (mx, my), "grab": (mx - el.x, my - el.y), "active": False,
@@ -2514,7 +2938,9 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
-            slot = _focus_chain_item(_prefs(), el.index)
+            slot = el.index
+            if slot >= SUB_STRIDE:  # a submenu shown beside it: never switch menus from the preview
+                return {'RUNNING_MODAL'}
             with context.temp_override(window=context.window, area=area, region=reg):
                 bpy.ops.keyops.item_options('INVOKE_DEFAULT', slot=slot)
             reg.tag_redraw()

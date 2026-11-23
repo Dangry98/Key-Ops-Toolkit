@@ -291,13 +291,23 @@ def redraw_all_areas(context=None):
             area.tag_redraw()
 
 
+# Icons added after Blender 4.2, and the closest icon that older versions have
+_ICON_STAND_INS = {
+    'MOUSE_MMB_SCROLL': 'MOUSE_MMB',  # added in 4.3
+    'MESH_QUADSPHERE': 'MESH_UVSPHERE',  # added in 5.3
+}
+
+
 def safe_icon(name, fallback='NONE'):
-    """Return `name` if this Blender has that icon, else `fallback`.
+    """Return `name` if this Blender has that icon, else a close stand-in, else `fallback`.
     An unknown icon raises a TypeError that aborts the whole panel/menu draw."""
     global _available_icons
     if _available_icons is None:
         _available_icons = set(bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"].enum_items.keys())
-    return name if name in _available_icons else fallback
+    if name in _available_icons:
+        return name
+    stand_in = _ICON_STAND_INS.get(name)
+    return stand_in if stand_in in _available_icons else fallback
 
 def set_uv_island_select_mode(context):
     """Switch the UV editor to island selection.

@@ -12,6 +12,8 @@ import bpy
 import numpy as np
 from bpy.props import EnumProperty, FloatProperty, IntProperty
 
+from ..utils.utilities import safe_icon
+
 
 # ---------------------------------------------------------------- chains
 
@@ -356,7 +358,7 @@ class KEYOPS_OT_resample_edges(bpy.types.Operator):
             for icon, text in (('MOUSE_MMB_SCROLL', "Segments"), ('EVENT_SHIFT', "+ Wheel: Smoothing"),
                                ('EVENT_CTRL', "Spacing"), ('EVENT_C', "Curve/Straight"),
                                ('MOUSE_LMB', "Confirm"), ('MOUSE_RMB', "Cancel")):
-                row.label(text=text, icon=icon)
+                row.label(text=text, icon=safe_icon(icon))
         context.workspace.status_text_set(status)
 
     def modal(self, context, event):

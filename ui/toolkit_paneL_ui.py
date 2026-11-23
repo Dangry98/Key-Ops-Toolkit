@@ -1,5 +1,6 @@
 import bpy
 from ..utils.pref_utils import get_icon, get_addon_name
+from ..utils.pref_utils import feature_on
 from ..operators.poly_count_list import draw_polycount_list_ui
 from ..operators.auto_lod import draw_lod_panel
 from ..operators.quick_bake_name import draw_quick_bake_name
@@ -15,10 +16,10 @@ startup = True
 def set_default_panels():
     prefs = get_keyops_prefs()
     wm = bpy.context.window_manager
-    if prefs.enable_toolkit_panel or prefs.enable_quick_bake_name or prefs.enable_toggle_retopology:
+    if feature_on("toolkit_panel") or feature_on("quick_bake_name") or feature_on("toggle_retopology"):
         wm.toolkit_panel_mode |= {'OBJECT'}
 
-    if prefs.enable_toolkit_panel:
+    if feature_on("toolkit_panel"):
         wm.toolkit_panel_mode |= {'MODIFIERS'}
 
         
@@ -27,15 +28,15 @@ def get_toolkit_panel_items(scene, context):
     prefs = get_keyops_prefs()
     
     items = []
-    if prefs.enable_toolkit_panel or prefs.enable_quick_bake_name or prefs.enable_toggle_retopology:
+    if feature_on("toolkit_panel") or feature_on("quick_bake_name") or feature_on("toggle_retopology"):
         items.append(('OBJECT', "", "Show Object panel", get_icon("mesh_cube"), 1))
-    if prefs.enable_toolkit_panel:
+    if feature_on("toolkit_panel"):
         items.append(('MODIFIERS', "", "Show Modifiers panel", get_icon("modifier"), 2))
-    if prefs.enable_auto_lod:
+    if feature_on("auto_lod"):
         items.append(('LOD', "", "Show LOD panel", get_icon("mesh_icosphere2"), 4))
-    if prefs.enable_cad_decimate:
+    if feature_on("cad_decimate"):
         items.append(('CAD_DECIMATE', "", "Show CAD Decimate panel", get_icon("mod_decim"), 8))
-    if prefs.enable_polycount_list:
+    if feature_on("polycount_list"):
         items.append(("POLYCOUNT_LIST", "", "Show Polycount List panel", get_icon("polycount"), 16))
 
     # should deafult to object and modifiers if both are available, otherwise just show the one that is available
@@ -305,11 +306,11 @@ class NewToolkitPanel(bpy.types.Panel):
             prefs = get_keyops_prefs()
             draw_retopology_panel(self, context, draw_header=True)
             if context.mode == 'OBJECT':
-                if prefs.enable_toolkit_panel:
+                if feature_on("toolkit_panel"):
                     draw_object_panel(self, context)
                 draw_quick_bake_name(self, context, draw_header=True)
             elif context.mode == 'EDIT_MESH':
-                if prefs.enable_toolkit_panel:
+                if feature_on("toolkit_panel"):
                     draw_edit_mode_panel(self, context, draw_header=True)
         if modifiers:
             draw_modifier_panel(self, context, draw_header=True)

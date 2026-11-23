@@ -101,7 +101,8 @@ FEATURES = (
     Feature("auto_delete", "Auto Delete", "INDUSTRY",
             "Delete in Edit Mode removes what you selected, with no menu.",
             "industry-standard.html#auto-delete",
-            keys=(_k("Delete", "Mesh", "Context-aware delete", "Delete menu"),), keys_only=True),
+            keys=(_k("Delete", "Mesh", "Context-aware delete", "Delete menu"),
+                  _k("X", "Object Mode", "Delete, confirm optional", "Delete with confirm")), keys_only=True),
     Feature("atri_op", "Attribute Operations", "MODELING",
             "Select and assign face, edge and vertex attributes in Edit Mode.",
             "extras.html#attribute-operations"),
@@ -207,7 +208,7 @@ SUB_SETTINGS = {"legacy_collection_shortcuts"}
 
 # Features that change something in Blender itself while they are on. Each function takes on=True/False.
 SET_ENABLED = {
-    "auto_delete": auto_delete.set_enabled,              # skips Blender's delete confirm popup
+    "auto_delete": auto_delete.set_enabled,              # applies the Object Mode X confirm setting
     "maya_navigation": maya_navigation.set_enabled,      # optional tablet and sculpt keys
     "legacy_shortcuts": legacy_shortcuts.set_enabled,    # optional collection number keys
     "outliner_options": outliner_options.set_enabled,    # selection timer
@@ -260,14 +261,21 @@ def tracked_items(feature_id):
 
 
 def is_enabled(feature_id, p=None):
+    """Whether a feature is on. Before the preferences exist, it's on if the Essentials
+    preset has it (tools, panels and menus), so those never wait for the preferences."""
+    f = FEATURE_BY_ID[feature_id]
     p = p or prefs()
-    return bool(getattr(p, f"enable_{feature_id}", False)) and FEATURE_BY_ID[feature_id].available()
+    if p is None:
+        return style_values("ESSENTIALS", f)[0] and f.available()
+    return getattr(p, f"enable_{feature_id}") and f.available()
 
 
 def keys_active(feature_id, p=None):
+    """Whether a feature's shortcuts are on. Never before the preferences exist."""
     p = p or prefs()
-    return (is_enabled(feature_id, p) and bool(getattr(p, f"keys_{feature_id}", False))
-            and not p.pause_shortcuts)
+    if p is None:
+        return False
+    return is_enabled(feature_id, p) and getattr(p, f"keys_{feature_id}", False) and not p.pause_shortcuts
 
 
 def apply_key_state(feature_id, p=None):

@@ -1,7 +1,7 @@
 import bpy
 from . import marking_menu as MM
 from bpy.props import CollectionProperty, IntProperty, BoolProperty, FloatProperty, FloatVectorProperty, StringProperty, EnumProperty
-from .utils.pref_utils import get_addon_name, _keymap_item_to_display_item
+from .utils.pref_utils import get_addon_name, _keymap_item_to_display_item, get_icon
 from .operators import maya_navigation
 from .operators.auto_delete import update_auto_delete_confirm_delete
 from . import features as F
@@ -148,7 +148,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
     pie_slot: IntProperty(default=0) # type: ignore
     pie_show_more: BoolProperty(name="More Options", default=False) # type: ignore
     pie_show_settings: BoolProperty(name="Pie Settings", default=False) # type: ignore
-    pie_show_values: BoolProperty(name="My Values", default=False) # type: ignore
+    pie_show_values: BoolProperty(name="My Properties", default=False) # type: ignore
     pie_style: EnumProperty(name="Pie Style", default="BLENDER", items=(
         ("BLENDER", "Blender", "Blender's own pie menus: point at a button, release or click to pick it"),
         ("MARKING", "Marking", "Marking menus: flick in a direction and release, even before the menu shows. "
@@ -199,8 +199,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                  unit='TIME_ABSOLUTE', description="How long to hold still before the menu shows. "
                                  "A faster flick picks without showing it") # type: ignore
     pie_show_marking: BoolProperty(name="Marking Menu Look", default=False) # type: ignore
-    pie_customize: BoolProperty(name="Advanced", default=False,
-                                description="The selected item's less used settings: its command, Python, macro steps and when it shows") # type: ignore
+    pie_customize: BoolProperty(name="Type", default=True,
+                                description="What the selected item is and runs: its type, command, Python, macro steps and when it shows") # type: ignore
+    pie_show_op_params: BoolProperty(name="Operator Parameters", default=True,
+                                     description="Settings Key Ops keeps for the selected item's operator") # type: ignore
+    pie_show_drawing: BoolProperty(name="Drawing", default=False,
+                                   description="How the selected item is drawn: emboss, alert, active, depress and its size") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,
                                   description="Switch every Key Ops shortcut off. Features keep working from menus, panels and F3") # type: ignore
     prefs_version: IntProperty(default=0) # type: ignore
@@ -397,7 +401,12 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         sp = row.split(factor=0.45)
         name = sp.row()
         name.active = enabled
-        name.label(text=f.name + ("   (experimental)" if f.experimental else ""))
+        label = f.name + ("   (experimental)" if f.experimental else "")
+        if f.category == "TOOLS":
+            # the toolbar icon, so people know what to look for in the toolbar
+            name.label(text=label, icon_value=get_icon(f"tool_{f.id}"))
+        else:
+            name.label(text=label)
         right = sp.row(align=True)
         right.alignment = 'RIGHT'
         # kept clean at first glance: shortcuts are shown and switched when the card is opened
@@ -450,7 +459,7 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         sub.active = False
         sub.label(text="Key Ops adds shortcuts on top of yours. Turning one off gives Blender's back.")
         sub.label(text="Click a key to rebind it. Menu keys are set in the Custom Menus tab.")
-        row.prop(self, "pause_shortcuts", text="Pause All Shortcuts", toggle=True)
+        row.prop(self, "pause_shortcuts", text="Pause All Shortcuts", toggle=True, icon='PAUSE')
         layout.prop(self, "ui_search", text="", icon='VIEWZOOM')
 
         kc = context.window_manager.keyconfigs.user
@@ -459,18 +468,23 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
         for f in F.visible_features(self):
             if not f.keys or not getattr(self, f"enable_{f.id}") or f.id in NOT_IN_SHORTCUTS:
                 continue
-            items = F.tracked_items(f.id)
-            if q and q not in f.name.lower() and not any(q in (kmi.name or "").lower() or q in kmi.type.lower() for _km, kmi in items):
-                continue
+            # A search that matches the feature name shows all its keys; otherwise only the matching keys.
+            whole = not q or q in f.name.lower()
             rows = []
-            for km, kmi in items:
+            for km, kmi in F.tracked_items(f.id):
                 ukm = kc.keymaps.get(km.name)
                 ukmi = _find_user_item(ukm, kmi) if ukm else None
-                if ukmi:
-                    rows.append((ukm, ukmi))
+                if not ukmi:
+                    continue
+                if not whole and q not in shortcut_name(ukmi).lower() and q not in ukmi.type.lower():
+                    continue
+                rows.append((ukm, ukmi))
+            if not whole and not rows:
+                continue
             groups.append((f, rows))
         if not groups:
-            layout.label(text="No features with shortcuts are on. Turn some on in the Features tab.")
+            layout.label(text="No shortcuts match your search." if q else
+                         "No features with shortcuts are on. Turn some on in the Features tab.")
             return
 
         # two columns, filled top to bottom: the left one first, about half the rows in each

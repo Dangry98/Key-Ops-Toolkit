@@ -1,5 +1,6 @@
 import bpy.types, bmesh
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 from ..utils.pref_utils import clear_registered_keymaps
 
 active_index = 0
@@ -210,7 +211,7 @@ class AssignMaterial(bpy.types.Operator):
 
     
 def menu_material(self, context):
-    if not get_keyops_prefs().enable_material_index:
+    if not feature_on("material_index"):
         return
     if bpy.context.mode == 'OBJECT':
         layout = self.layout
@@ -293,7 +294,7 @@ classes = (
 )
 
 def draw_remove_all_materials(self, context):
-    if not get_keyops_prefs().enable_material_index:
+    if not feature_on("material_index"):
         return
     layout = self.layout
     layout.separator()
@@ -301,7 +302,7 @@ def draw_remove_all_materials(self, context):
     op.all_selected_objects = False
 
 def draw_remove_all_materials_from_selected(self, context):
-    if not get_keyops_prefs().enable_material_index:
+    if not feature_on("material_index"):
         return
     layout = self.layout
     layout.separator()

@@ -1,6 +1,7 @@
-import bpy.types, math, ctypes, mathutils, os
+import bpy.types, math, mathutils
 from mathutils import Matrix
 from ..utils.pref_utils import get_keyops_prefs
+from ..utils.pref_utils import feature_on
 from ..utils.pref_utils import clear_registered_keymaps
 from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 from bpy.types import (GizmoGroup)
@@ -11,7 +12,6 @@ gizmo_location = None
 previuse_gizmo_visibility_states = None
 previuse_ortiation_and_pivot_point = None
 previuse_gizmo_translate_state = None
-OS = os.name
 registered_maya_pivot_keymaps = []
 
 def register_maya_pivot_keymaps():
@@ -35,6 +35,14 @@ def register_maya_pivot_keymaps():
     kmi = km_mesh.keymap_items.new('keyops.pivot_press', 'D', 'RELEASE')
     kmi.properties.type = 'PivotRelease'
     registered_maya_pivot_keymaps.append((km_mesh, kmi))
+
+    # Blender's annotate tool is D + left click, in the Grease Pencil keymap that comes before the
+    # tool keymaps. While the pivot key is held, our own D + click item (on top of Blender's)
+    # places the pivot instead. It only runs while the pivot key is held, so annotate works as
+    # usual otherwise, and Blender's own annotate item is never changed.
+    km_gp = wm.keyconfigs.addon.keymaps.new(name='Grease Pencil', space_type='EMPTY')
+    kmi = km_gp.keymap_items.new('keyops.pivot_click', 'LEFTMOUSE', 'PRESS', key_modifier='D')
+    registered_maya_pivot_keymaps.append((km_gp, kmi))
         
 def toggle_oriantation_and_pivot_point(context, set=False):
     global previuse_ortiation_and_pivot_point
@@ -56,12 +64,13 @@ def reset_pivot(context):
         bpy.ops.wm.tool_set_by_id(name=current_active_tool)
     context.window_manager.show_3d_gizmo = False
 
+pivot_key_held = False  # True while the pivot key is held in Hold mode
+
+
 def reset_grease_pencil_keymap(context):
-    wm = context.window_manager
-    km = wm.keyconfigs.user.keymaps["Grease Pencil"]
-    kmi = km.keymap_items.get("gpencil.annotate")
-    if kmi:
-        kmi.active = True
+    """The pivot key was let go: D + click draws annotations again."""
+    global pivot_key_held
+    pivot_key_held = False
 
 def toggle_deafult_gizmos(context, hide=False):
     global previuse_gizmo_visibility_states
@@ -84,7 +93,7 @@ def toggle_deafult_gizmos(context, hide=False):
 
 def should_show_pivot_gizmo(context):
     prefs = get_keyops_prefs()
-    if not prefs or not prefs.enable_maya_pivot:
+    if not prefs or not feature_on("maya_pivot"):
         return False
     show_gizmo = prefs.maya_pivot_show_gizmo
     wm = context.window_manager
@@ -142,6 +151,27 @@ def edit_mode_pivot_release(context, skip_set_tool=False):
     toggle_deafult_gizmos(context, hide=False)
     reset_grease_pencil_keymap(context)
 
+class PivotClick(bpy.types.Operator):
+    """Left click while the pivot key is held: place the pivot, not an annotation"""
+    bl_idname = "keyops.pivot_click"
+    bl_label = "KeyOps: Pivot Click"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        # Not held: the click goes on to Blender's annotate tool as usual.
+        return pivot_key_held and context.area is not None and context.area.type == 'VIEW_3D'
+
+    def invoke(self, context, event):
+        tool = ToolSelectPanelHelper.tool_active_from_context(context)
+        if tool and tool.idname == 'builtin.cursor':
+            # Edit Mode pivot: the 3D cursor tool is active, place the cursor on the surface.
+            bpy.ops.view3d.cursor3d('INVOKE_DEFAULT', use_depth=True, orientation='GEOM')
+        else:
+            bpy.ops.view3d.select('INVOKE_DEFAULT', deselect_all=True)
+        return {'FINISHED'}
+
+
 class PivotPress(bpy.types.Operator):
     bl_idname = "keyops.pivot_press"
     bl_label = "KeyOps: Pivot Press"
@@ -162,14 +192,9 @@ class PivotPress(bpy.types.Operator):
         prefs = get_keyops_prefs()
         if not prefs:
             return {'FINISHED'}
-        pivot_behavior = prefs.maya_pivot_behavior
-        if pivot_behavior != 'TOGGLE':          
-            wm = context.window_manager
-            km = wm.keyconfigs.user.keymaps.get("Grease Pencil")
-            if km:
-                kmi = km.keymap_items.get("gpencil.annotate")
-                if kmi:
-                    kmi.active = False
+        global pivot_key_held
+        # While held, D + click places the pivot instead of drawing an annotation (PivotClick).
+        pivot_key_held = prefs.maya_pivot_behavior != 'TOGGLE' and self.type == 'PivotPress'
         return self.execute(context)
              
     def execute(self, context):
@@ -297,6 +322,7 @@ class PivotPress(bpy.types.Operator):
         return {'FINISHED'}
 
 def register():
+    bpy.utils.register_class(PivotClick)
     bpy.utils.register_class(PivotPress)
     bpy.utils.register_class(MayaPivotGizmoGroup)
     bpy.utils.register_class(ResetButton)
@@ -310,6 +336,7 @@ def register():
 def unregister():
     clear_registered_keymaps(registered_maya_pivot_keymaps)
     bpy.utils.unregister_class(PivotPress)
+    bpy.utils.unregister_class(PivotClick)
     bpy.utils.unregister_class(MayaPivotGizmoGroup)
     bpy.utils.unregister_class(ResetButton)
     bpy.utils.unregister_class(GizmoMayaPivotTransform)
@@ -324,41 +351,61 @@ class GizmoMayaPivotTransform(bpy.types.Operator):
 
     constraint_axis: bpy.props.StringProperty(default="", options={'HIDDEN'}
     ) # type: ignore
-    def execute(self, context):
-        # Read the property now: the timer below runs after this operator is freed,
-        # and touching self there raises "StructRNA ... has been removed".
+
+    def invoke(self, context, event):
         axis = self.constraint_axis.upper()
+        if axis not in {'X', 'Y', 'Z'}:
+            return {'CANCELLED'}
 
-        def press_r():
-            # keybd_event is Windows only
-            if not hasattr(ctypes, "windll"):
-                return None
-            #press R key with ctypes
-            ctypes.windll.user32.keybd_event(0x52, 0, 0, 0)
-            ctypes.windll.user32.keybd_event(0x52, 0, 2, 0)
+        if context.mode != 'EDIT_MESH':
+            # Object Mode: "Affect Only Origins" is on, so a normal rotate turns the origin.
+            bpy.ops.transform.rotate('INVOKE_DEFAULT', orient_axis=axis, orient_type='LOCAL',
+                                     constraint_axis=(axis == 'X', axis == 'Y', axis == 'Z'),
+                                     release_confirm=True)
+            return {'FINISHED'}
 
-            # press axis key with ctypes
-            if axis == 'X':
-                ctypes.windll.user32.keybd_event(0x58, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(0x58, 0, 2, 0)
-            elif axis == 'Y':
-                ctypes.windll.user32.keybd_event(0x59, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(0x59, 0, 2, 0)
-            elif axis == 'Z':
-                ctypes.windll.user32.keybd_event(0x5A, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(0x5A, 0, 2, 0)
-            else:
-                return None
-            
-            return None  
+        # Edit Mode: the pivot is the 3D cursor, which transform.rotate can't turn. Rotate it
+        # here around its own axis, following the mouse around the cursor on screen.
+        region, rv3d = context.region, context.region_data
+        cursor = context.scene.cursor
+        center = location_3d_to_region_2d(region, rv3d, cursor.location)
+        if center is None:
+            return {'CANCELLED'}
+        self.center = center
+        self.start_matrix = cursor.matrix.copy()
+        self.start_angle = self.mouse_angle(event)
+        local_axis = mathutils.Vector((axis == 'X', axis == 'Y', axis == 'Z'))
+        self.world_axis = (self.start_matrix.to_3x3() @ local_axis).normalized()
+        view_dir = rv3d.view_rotation @ mathutils.Vector((0.0, 0.0, -1.0))
+        # Turning counter-clockwise on screen turns around an axis that points at the viewer.
+        self.sign = 1.0 if self.world_axis.dot(view_dir) < 0 else -1.0
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
 
-        bpy.app.timers.register(press_r, first_interval=0.001)
+    def mouse_angle(self, event):
+        return math.atan2(event.mouse_region_y - self.center.y, event.mouse_region_x - self.center.x)
 
-        if context.mode == 'EDIT_MESH':
-            bpy.ops.transform.translate('INVOKE_DEFAULT', cursor_transform=True, orient_type='CURSOR', orient_matrix_type='CURSOR', constraint_axis=(False, False, False))
-        else:
-            bpy.ops.transform.translate('INVOKE_DEFAULT', constraint_axis=(False, False, False), orient_type='LOCAL', orient_matrix_type='LOCAL')
-        return {'FINISHED'}
+    def modal(self, context, event):
+        cursor = context.scene.cursor
+        if event.type == 'MOUSEMOVE':
+            angle = (self.mouse_angle(event) - self.start_angle) * self.sign
+            if event.ctrl:
+                step = math.radians(5)
+                angle = round(angle / step) * step
+            rot = Matrix.Rotation(angle, 4, self.world_axis)
+            loc = self.start_matrix.to_translation()
+            cursor.matrix = Matrix.Translation(loc) @ rot @ self.start_matrix.to_3x3().to_4x4()
+            context.area.tag_redraw()
+            context.area.header_text_set(f"Rotate Pivot: {math.degrees(angle):.1f}°")
+        elif event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'} and event.value in {'RELEASE', 'PRESS'}:
+            context.area.header_text_set(None)
+            return {'FINISHED'}
+        elif event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            cursor.matrix = self.start_matrix
+            context.area.header_text_set(None)
+            context.area.tag_redraw()
+            return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
 
 class MayaPivotGizmoGroup(bpy.types.GizmoGroup):
     bl_idname = "VIEW3D_GT_gizmo_3d_cursor_pivot"
@@ -413,21 +460,20 @@ class MayaPivotGizmoGroup(bpy.types.GizmoGroup):
         self.v_axes['dot'].draw_options = {'FILL_SELECT', 'ALIGN_VIEW'}
 
         # Rotation Gizmos 
-        if OS == 'nt':
-            self.rot_gizmos = {}
-            rotation_colors = {'x': (1.0, 0.0, 0.0), 'y': (0.0, 1.0, 0.0), 'z': (0.0, 0.0, 1.0)}
+        self.rot_gizmos = {}
+        rotation_colors = {'x': (1.0, 0.0, 0.0), 'y': (0.0, 1.0, 0.0), 'z': (0.0, 0.0, 1.0)}
 
-            for axis in ['x', 'y', 'z']:
-                gizmo = self.gizmos.new('GIZMO_GT_dial_3d')
-                gizmo.use_tooltip = False
-                gizmo.line_width = 1.0  
-                gizmo.scale_basis = 0.4
-                gizmo.color = rotation_colors[axis]
-                gizmo.alpha = 0.75
-                gizmo.draw_options = {'CLIP'}  
-                self.rot_gizmos[axis] = gizmo
-                op = gizmo.target_set_operator('keyops.gizmo_maya_pivot_transform')
-                op.constraint_axis = axis.upper()
+        for axis in ['x', 'y', 'z']:
+            gizmo = self.gizmos.new('GIZMO_GT_dial_3d')
+            gizmo.use_tooltip = False
+            gizmo.line_width = 1.0  
+            gizmo.scale_basis = 0.4
+            gizmo.color = rotation_colors[axis]
+            gizmo.alpha = 0.75
+            gizmo.draw_options = {'CLIP'}  
+            self.rot_gizmos[axis] = gizmo
+            op = gizmo.target_set_operator('keyops.gizmo_maya_pivot_transform')
+            op.constraint_axis = axis.upper()
 
     def refresh(self, context):
         global gizmo_location
@@ -475,24 +521,23 @@ class MayaPivotGizmoGroup(bpy.types.GizmoGroup):
             gizmo2.scale_basis = dot_scale if axis == 'dot' else arrow_size['scale']
             gizmo2.line_width = dot_size['line_width'] if axis == 'dot' else arrow_size['line_width']
         
-        if OS == 'nt':
-            # rotation gizmos
-            for axis, gizmo in self.rot_gizmos.items():
-                if context.mode == 'EDIT_MESH':
-                    location = cursor.location.copy()
-                    rotation = cursor.rotation_euler.to_matrix().to_4x4()
-                else:
-                    location = context.active_object.location.copy()
-                    rotation = context.active_object.rotation_euler.to_matrix().to_4x4()
+        # rotation gizmos
+        for axis, gizmo in self.rot_gizmos.items():
+            if context.mode == 'EDIT_MESH':
+                location = cursor.location.copy()
+                rotation = cursor.rotation_euler.to_matrix().to_4x4()
+            else:
+                location = context.active_object.location.copy()
+                rotation = context.active_object.rotation_euler.to_matrix().to_4x4()
 
-                if axis == 'x':
-                    rotation @= Matrix.Rotation(math.radians(90), 4, 'Y')
-                elif axis == 'y':
-                    rotation @= Matrix.Rotation(math.radians(-90), 4, 'X')
+            if axis == 'x':
+                rotation @= Matrix.Rotation(math.radians(90), 4, 'Y')
+            elif axis == 'y':
+                rotation @= Matrix.Rotation(math.radians(-90), 4, 'X')
 
-                gizmo.matrix_basis = Matrix.Translation(location) @ rotation
-                gizmo.scale_basis = rot_size['scale']
-                gizmo.line_width = rot_size['line_width']
+            gizmo.matrix_basis = Matrix.Translation(location) @ rotation
+            gizmo.scale_basis = rot_size['scale']
+            gizmo.line_width = rot_size['line_width']
 
     def draw_prepare(self, context):
         for axis in ['x', 'y', 'z', 'dot']:
