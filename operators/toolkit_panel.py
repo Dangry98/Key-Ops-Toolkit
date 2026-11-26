@@ -188,6 +188,53 @@ def get_description(type: str) -> str:
                 "from a profile. The axis is picked from the profile (change it in Adjust Last Operation).\n"
                 "Everything that is not selected in this object is deleted first")
 
+TRIPLANAR_GROUP = "Triplanar UV"   # rebuilt group (scripts/build_node_groups.py); files keep the old one
+TRIPLANAR_MOD = "Triplanar UV"
+TRIPLANAR_ATTR = "Triplanar_UV_Mapping"
+
+
+def gn_input_id(mod, name):
+    """The identifier (Socket_N) of a Geometry Nodes modifier's input, by its name."""
+    group = mod.node_group
+    for it in group.interface.items_tree:
+        if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name == name:
+            return it.identifier
+    return None
+
+
+def set_gn_input(mod, name, value):
+    ident = gn_input_id(mod, name)
+    if ident is None:
+        return False
+    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2 and hasattr(mod, "properties"):
+        sock = getattr(mod.properties.inputs, ident)
+        if hasattr(sock, "type") and sock.type == "ATTRIBUTE" and not isinstance(value, str):
+            sock.type = "VALUE"
+        sock.value = value
+    else:
+        if mod.get(ident + "_use_attribute"):
+            mod[ident + "_use_attribute"] = False
+        mod[ident] = value
+    return True
+
+
+def set_gn_attribute_input(obj, mod, name, attribute):
+    """Make a modifier input read a named attribute instead of a value."""
+    ident = gn_input_id(mod, name)
+    if ident is None:
+        return False
+    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2 and hasattr(mod, "properties"):
+        sock = getattr(mod.properties.inputs, ident)
+        sock.attribute_name = attribute
+        sock.type = "ATTRIBUTE"
+    else:
+        if not mod.get(ident + "_use_attribute"):
+            mod[ident + "_use_attribute"] = True
+        mod[ident + "_attribute_name"] = attribute
+    obj.update_tag()
+    return True
+
+
 def make_instances_real(context, instances):
     """Turn collection-instance empties into real objects (each a single user, so modifiers can be
     applied), keep them selected, and remove the now-empty instancers. Returns how many objects were made."""
@@ -270,6 +317,12 @@ class ToolkitPanel(bpy.types.Operator):
     world_offset: bpy.props.BoolProperty(name="World Offset", default=False) # type: ignore
     world_scale: bpy.props.BoolProperty(name="World Scale", default=True) # type: ignore
     scale_triplanar: bpy.props.FloatProperty(name="Scale", default=0.5) # type: ignore
+    tri_size: bpy.props.FloatProperty(name="Texture Size", default=1.0, min=0.0001, soft_max=10.0, subtype='DISTANCE',
+                                      description="How many metres one UV tile covers") # type: ignore
+    tri_world_rotation: bpy.props.BoolProperty(name="World Rotation", default=False,
+                                               description="Project along the world axes instead of the object's own") # type: ignore
+    tri_offset_x: bpy.props.FloatProperty(name="Offset X", default=0.0) # type: ignore
+    tri_offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0) # type: ignore
     rotation_triplanar: bpy.props.FloatProperty(name="Rotation", default=0.0) # type: ignore
     axis_x: bpy.props.FloatProperty(name="X", default=0.5) # type: ignore
     axis_y: bpy.props.FloatProperty(name="Y", default=0.5 ) # type: ignore
@@ -327,13 +380,17 @@ class ToolkitPanel(bpy.types.Operator):
         #         layout.prop(self, "true_false")
         if self.type == "Triplanar_UV_Mapping":
             layout.label(text="Triplanar UV", icon="AXIS_SIDE")
-            layout.prop(self, "world_offset")
-            layout.prop(self, "axis_x")
-            layout.prop(self, "axis_y")
-            layout.prop(self, "world_scale")
-            layout.prop(self, "scale_triplanar")
+            layout.prop(self, "tri_size")
             layout.prop(self, "rotation_triplanar")
+            row = layout.row(align=True)
+            row.prop(self, "world_scale", toggle=True)
+            row.prop(self, "tri_world_rotation", toggle=True)
+            row.prop(self, "world_offset", toggle=True)
+            row = layout.row(align=True)
+            row.prop(self, "tri_offset_x")
+            row.prop(self, "tri_offset_y")
             layout.prop(self, "appy_triplanar")
+            layout.label(text="Per-axis scale and rotation: in the modifier", icon='INFO')
         elif self.type == "Smart_Join_Objects":
             layout.label(text="Quick Join Objects", icon_value=get_icon("union"))
             # layout.prop(self, "set_material_index")   
@@ -424,72 +481,42 @@ class ToolkitPanel(bpy.types.Operator):
         
         if self.type == "Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
-            get_node_group("Triplanar UV Mapping")
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':         
+            group = get_node_group(TRIPLANAR_GROUP)
+            edit = context.mode == 'EDIT_MESH'
+            for obj in [o for o in bpy.context.selected_objects if o.type == 'MESH']:
+                bpy.context.view_layer.objects.active = obj
+                if obj.data.uv_layers.active is None:
+                    obj.data.uv_layers.new(name="UVMap")
+                uv_name = obj.data.uv_layers.active.name
+                mod = obj.modifiers.get(TRIPLANAR_MOD)
+                if mod is None:
+                    mod = obj.modifiers.new(TRIPLANAR_MOD, 'NODES')
+                mod.node_group = group
+                if edit:
+                    # only the selected faces: the Selection input reads a face attribute set on them
+                    if obj.data.attributes.get(TRIPLANAR_ATTR) is None:
+                        obj.data.attributes.new(name=TRIPLANAR_ATTR, domain='FACE', type='BOOLEAN')
+                    set_gn_attribute_input(obj, mod, "Selection", TRIPLANAR_ATTR)
+                else:
+                    set_gn_input(mod, "Selection", True)
+                set_gn_input(mod, "UV Map", uv_name)
+                set_gn_input(mod, "Texture Size", self.tri_size)
+                set_gn_input(mod, "Rotation", self.rotation_triplanar)
+                set_gn_input(mod, "World Scale", self.world_scale)
+                set_gn_input(mod, "World Rotation", self.tri_world_rotation)
+                set_gn_input(mod, "World Offset", self.world_offset)
+                set_gn_input(mod, "Offset X", self.tri_offset_x)
+                set_gn_input(mod, "Offset Y", self.tri_offset_y)
+                mod.show_group_selector = False
+                obj.data.update()
+                if edit:
+                    select_atribute(TRIPLANAR_ATTR)
+                    bpy.ops.mesh.attribute_set(value_bool=True)
+
+            if self.appy_triplanar and not edit:
+                for obj in [o for o in bpy.context.selected_objects if o.modifiers.get(TRIPLANAR_MOD)]:
                     bpy.context.view_layer.objects.active = obj
-
-                    if obj.data.uv_layers.active is None:
-                        bpy.ops.mesh.uv_texture_add()       
-
-                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
-                        bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
-                        bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
-                
-                    if obj.data.uv_layers.active is not None:
-                        active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
-
-                    if context.mode == 'EDIT_MESH':
-                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            triplanar_mod = bpy.context.object.modifiers["Triplanar UV Mapping"]
-                            triplanar_mod.properties.inputs.Socket_2.attribute_name = "Triplanar_UV_Mapping"
-                            triplanar_mod.properties.inputs.Socket_2.type = "ATTRIBUTE"
-                        else:
-                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
-                        named_attributes = bpy.context.object.data.attributes
-                        attribute_name = "Triplanar_UV_Mapping"
-                        set_act = named_attributes.get(attribute_name)
-                        if set_act is not None:
-                            select_atribute(attribute_name)
-                        else:
-                            mesh = bpy.context.object.data
-                            mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
-                            select_atribute(attribute_name)
-                    else:
-                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            context.object.modifiers["Triplanar UV Mapping"].properties.inputs.Socket_2.value = True
-                        else:
-                            context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
-                    mod = context.object.modifiers["Triplanar UV Mapping"]
-
-                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                        mod.properties.inputs.Socket_3.value = active_uv_layer_name
-                        mod.properties.inputs.Socket_5.value = self.world_offset
-                        mod.properties.inputs.Socket_6.value = self.axis_x
-                        mod.properties.inputs.Socket_7.value = self.axis_y
-                        mod.properties.inputs.Socket_9.value = self.world_scale
-                        mod.properties.inputs.Socket_10.value = self.scale_triplanar
-                        mod.properties.inputs.Socket_13.value = self.rotation_triplanar
-                    else:
-                        mod["Socket_3"] = active_uv_layer_name
-                        mod["Socket_5"] = self.world_offset
-                        mod["Socket_6"] = self.axis_x
-                        mod["Socket_7"] = self.axis_y
-                        mod["Socket_9"] = self.world_scale
-                        mod["Socket_10"] = self.scale_triplanar
-                        mod["Socket_13"] = self.rotation_triplanar
-                    bpy.context.object.data.update()
-                
-                    mod.show_group_selector = False
-
-                    if context.mode == 'EDIT_MESH':
-                        bpy.ops.mesh.attribute_set(value_bool=True)
-
-            if self.appy_triplanar == True:
-                for obj in bpy.context.selected_objects:
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
+                    bpy.ops.object.modifier_apply(modifier=TRIPLANAR_MOD)
 
             bpy.context.view_layer.objects.active = active_object
 
@@ -499,8 +526,9 @@ class ToolkitPanel(bpy.types.Operator):
             for obj in bpy.context.selected_objects:
                 if obj.type == 'MESH':
                     bpy.context.view_layer.objects.active = obj
-                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is not None:
-                        bpy.context.object.modifiers.remove(bpy.context.object.modifiers['Triplanar UV Mapping'])
+                    for name in (TRIPLANAR_MOD, "Triplanar UV Mapping"):  # the new modifier and the one from older versions
+                        if obj.modifiers.get(name) is not None:
+                            obj.modifiers.remove(obj.modifiers[name])
             bpy.context.view_layer.objects.active = active_object
 
         elif self.type == "offset_uv":

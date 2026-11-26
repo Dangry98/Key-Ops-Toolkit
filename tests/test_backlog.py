@@ -766,6 +766,53 @@ def test_hide_ui():
           any(i[0] == "VIEW3D_PT_overlay" for i in items) and any(i[0] == "VIEW3D_HT_header" for i in items), len(items))
 
 
+def test_triplanar():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    obj.scale = (2.0, 2.0, 2.0)  # World Scale: the texture keeps its size anyway
+    res = bpy.ops.keyops.toolkit_panel(type="Triplanar_UV_Mapping", tri_size=1.0, appy_triplanar=True)
+    me = obj.data
+    uv = me.uv_layers.active.data
+    mirrored, upside_down, spans = 0, 0, []
+    for p in me.polygons:
+        pts = [me.vertices[me.loops[i].vertex_index].co for i in p.loop_indices]
+        uvs = [uv[i].uv.copy() for i in p.loop_indices]
+        area = sum(uvs[i].x * uvs[(i + 1) % 4].y - uvs[(i + 1) % 4].x * uvs[i].y for i in range(4)) / 2
+        mirrored += area < 0
+        spans.append(round(max(u.x for u in uvs) - min(u.x for u in uvs), 4))
+        if abs(p.normal.z) < 0.5:  # a side: V goes up with Z
+            hi = max(range(4), key=lambda i: pts[i].z)
+            lo = min(range(4), key=lambda i: pts[i].z)
+            upside_down += uvs[hi].y < uvs[lo].y
+    check("Triplanar: no side is mirrored", res == {'FINISHED'} and mirrored == 0, f"{mirrored} mirrored")
+    check("Triplanar: the sides are upright (V goes up)", upside_down == 0, f"{upside_down} upside down")
+    check("Triplanar: World Scale keeps the texture size (a 4 m face spans 4 tiles at 1 m)", set(spans) == {4.0}, str(set(spans)))
+    check("Triplanar: the old modifier name is gone, the new group is used",
+          bpy.data.node_groups.get("Triplanar UV") is not None)
+
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    for f in bm.faces:
+        f.select_set(f.normal.z > 0.5)
+    bmesh.update_edit_mesh(obj.data)
+    res = bpy.ops.keyops.toolkit_panel(type="Triplanar_UV_Mapping", tri_size=0.5)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg).to_mesh()
+    uvd = ev.uv_layers.active.data
+    top = next(p for p in ev.polygons if p.normal.z > 0.5)
+    side = next(p for p in ev.polygons if abs(p.normal.x) > 0.5)
+    top_span = max(uvd[i].uv.x for i in top.loop_indices) - min(uvd[i].uv.x for i in top.loop_indices)
+    side_span = max(uvd[i].uv.x for i in side.loop_indices) - min(uvd[i].uv.x for i in side.loop_indices)
+    check("Triplanar (Edit Mode): only the selected faces get the new UVs",
+          res == {'FINISHED'} and abs(top_span - 4.0) < 1e-4 and abs(side_span - 4.0) > 1e-3, f"top {top_span:.3f} side {side_span:.3f}")
+    obj.evaluated_get(dg).to_mesh_clear()
+
+
 def run():
     addon_utils.enable(MOD, default_set=True)
     for t in (test_revolve_axis, test_curve_tools, test_q_menu_migration, test_whats_new_not_automatic,
@@ -774,7 +821,8 @@ def run():
               test_alt_c_screw_and_instances, test_edge_trim,
               test_attribute_ops, test_parent_used_objects_unique, test_lattice_min_box,
               test_modifier_order, test_realign_rotation, test_slide_scale,
-              test_full_edge_loop, test_macro_operator_params, test_hide_ui):
+              test_full_edge_loop, test_macro_operator_params, test_hide_ui,
+              test_triplanar):
         try:
             t()
         except Exception as e:  # noqa: BLE001
