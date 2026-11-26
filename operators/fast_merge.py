@@ -215,15 +215,19 @@ class FastConnect(bpy.types.Operator):
     bl_label = 'FastConnect'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
-    # set_flow: bpy.props.BoolProperty(name="Set Flow", default=False) # type: ignore
+    edge_count: bpy.props.IntProperty(name="Cuts", default=1, min=1, max=128) # type: ignore
+    set_flow: bpy.props.BoolProperty(name="Set Flow", default=False,
+                                     description="Curve the new edges to follow the surrounding surface") # type: ignore
 
-    # def draw(self, context):
-    #     layout = self.layout 
-    #     layout.use_property_split = True
-        
-    #     layout.prop(self, "edge_count")
-    #     layout.prop(self, "set_flow")
+    def draw(self, context):
+        # Cuts and Set Flow only apply to the edge/face connect, not to vertex paths or the knife.
+        if context.tool_settings.mesh_select_mode[0]:
+            return
+        layout = self.layout
+        layout.use_property_split = True
+
+        layout.prop(self, "edge_count")
+        layout.prop(self, "set_flow")
 
     @classmethod
     def poll(cls, context):
@@ -260,8 +264,7 @@ class FastConnect(bpy.types.Operator):
                 bpy.ops.mesh.knife_tool('INVOKE_DEFAULT')
                 return {'FINISHED'}
             else:
-                bpy.ops.mesh.connect2('INVOKE_DEFAULT')
-                # bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
+                bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
 
             
         elif sel_mode[2]:
@@ -275,8 +278,7 @@ class FastConnect(bpy.types.Operator):
                 return {'FINISHED'}
 
             elif len(face_sel) > 1:
-                bpy.ops.mesh.connect2('INVOKE_DEFAULT')
-                # bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
+                bpy.ops.mesh.connect2('INVOKE_DEFAULT', edge_count=self.edge_count, set_flow=self.set_flow)
 
 
         return {'FINISHED'}
