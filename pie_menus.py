@@ -270,6 +270,7 @@ def _q_sections():
             op(edit, "Extract Geometry", "DUPLICATE", "keyops.extract_geometry"),
             op(edit, "Merge", "AUTOMERGE_OFF", "keyops.fast_merge"),
             op(edit, "Set Flow", "MOD_SMOOTH", "mesh.set_mesh_edge_flow"),
+            op(edit, "Slide Scale", "FULLSCREEN_EXIT", "keyops.slide_scale"),
             op(edit, "Resample Edges", "CURVE_PATH", "keyops.resample_edges"),
             op(edit, "Make Edge Trim", "MOD_EDGESPLIT", "keyops.edge_trim"),
             op(edit, "Mark Sharp", "SHARPCURVE", "mesh.mark_sharp"),
@@ -287,6 +288,7 @@ def _q_sections():
         ],
         "object": [
             op(obj_mode, "Smart Apply Scale", "FREEZE", "object.smart_apply_scale"),
+            op(obj_mesh, "Re-Align Rotation", "ORIENTATION_LOCAL", "keyops.realign_rotation"),
             op(obj_mode, "Snap to Floor", "VIEW_PERSPECTIVE", "keyops.snap_to_floor"),
             op(obj_mode, "Origin to Selection", "LAYER_USED", "keyops.origin_to_selection", "type='origin_to_geometry'"),
             op(obj_mesh, "Clean Up", "BRUSH_DATA", "keyops.mesh_cleanup"),
@@ -3503,6 +3505,8 @@ INSERT_KINDS = (
 ) + tuple((f"G:{g}", name, f"A new {name.lower()} group with one item in it. {desc}", icon)
           for g, name, desc, icon, _n in GROUP_TYPES) + (
     (BREAK, "Next Column", "The items after this go in the next column", 'CENTER_ONLY'),
+    ("HIDE_UI", "Hide Blender UI", "A button that hides one of Blender's own panels, menus or headers (press it "
+                                   "again to show it). Pick which one from a list", 'HIDE_ON'),
 )
 
 
@@ -3611,6 +3615,15 @@ class KEYOPS_OT_menu_item_insert(Operator):
             prefs.pie_slot = pos
             _changed()
             _redraw_all(context)
+            return {'FINISHED'}
+        if self.kind == "HIDE_UI":  # a button running keyops.toggle_ui_element: pick the element next
+            it = _insert_item(pie, pos, O)
+            it.idname, it.label, it.icon = "keyops.toggle_ui_element", "Hide Blender UI", 'HIDE_ON'
+            prefs.pie_slot = pos
+            _changed()
+            _redraw_all(context)
+            if context.window:
+                bpy.ops.keyops.pick_ui_element('INVOKE_DEFAULT', slot=pos)
             return {'FINISHED'}
         it = _insert_item(pie, pos, self.kind)  # a Button starts empty (no action yet)
         it.label = {LABEL: "Heading", BREAK: "Next Column", MACRO: "Macro"}.get(self.kind, "")
@@ -4039,7 +4052,7 @@ class KEYOPS_MT_item_add(bpy.types.Menu):
         layout = self.layout
         layout.operator_context = 'EXEC_DEFAULT'
         for n, (kind, name, _desc, icon) in enumerate(INSERT_KINDS):
-            if (kind.startswith("G:") and not INSERT_KINDS[n - 1][0].startswith("G:")) or kind == BREAK:
+            if (kind.startswith("G:") and not INSERT_KINDS[n - 1][0].startswith("G:")) or kind in (BREAK, "HIDE_UI"):
                 layout.separator()
             op = layout.operator("keyops.menu_item_insert", text=name, icon=icon)
             op.kind, op.at_end = kind, True
@@ -4238,6 +4251,116 @@ class KEYOPS_OT_value_remove(Operator):
             _values_changed()
             schedule_custom_props_sync()
         return {'FINISHED'}
+
+
+def _op_rna(idname):
+    """The operator's RNA properties (name -> property), or None when there's no such operator."""
+    mod, _dot, name = idname.strip().partition(".")
+    if not name or name not in dir(getattr(bpy.ops, mod, object())):
+        return None
+    try:
+        return getattr(getattr(bpy.ops, mod), name).get_rna_type().properties
+    except (AttributeError, KeyError, RuntimeError):
+        return None
+
+
+def _param_names(rna):
+    return [p.identifier for p in rna if p.identifier != "rna_type" and not p.is_hidden and not p.is_readonly]
+
+
+def _plain(value):
+    """A setting's value as a plain Python literal (tuples for vectors, sets for flag choices)."""
+    if isinstance(value, (bool, int, float, str, set)):
+        return value
+    try:
+        return tuple(_plain(v) for v in value)
+    except TypeError:
+        return value
+
+
+_params_saved = {}  # the operator's own "last used" values while the parameters dialog borrows them
+
+
+class KEYOPS_OT_operator_params(Operator):
+    """Set the parameters this step (or button) runs its operator with: every option the operator has, as fields"""
+    bl_idname = "keyops.operator_params"
+    bl_label = "Operator Parameters"
+    bl_options = {'INTERNAL'}
+
+    slot: IntProperty(options={'SKIP_SAVE'}) # type: ignore
+    step: IntProperty(default=-1, options={'SKIP_SAVE'}) # type: ignore
+    op_idname: StringProperty(options={'SKIP_SAVE', 'HIDDEN'}) # type: ignore
+
+    def _target(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, self.slot)
+        if item is None:
+            return None, None
+        if self.step >= 0:
+            if item.kind != MACRO or self.step >= len(item.steps):
+                return None, None
+            return item.steps[self.step], item.steps[self.step].idname
+        return item, item.idname
+
+    def invoke(self, context, event):
+        target, idname = self._target(context)
+        rna = _op_rna(idname or "")
+        if target is None or rna is None:
+            self.report({'WARNING'}, "Pick an operator first")
+            return {'CANCELLED'}
+        self.op_idname = idname.strip()
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        # the operator's "last used" values are borrowed for the dialog and put back afterwards
+        _params_saved[self.op_idname] = {n: _plain(getattr(props, n)) for n in _param_names(rna) if props.is_property_set(n)}
+        for n in _param_names(rna):
+            props.property_unset(n)
+        try:
+            for k, v in _parse_props(target.props).items():
+                if k in rna:
+                    setattr(props, k, v)
+        except (SyntaxError, ValueError, TypeError, AttributeError):
+            pass
+        return context.window_manager.invoke_props_dialog(self, width=380)
+
+    def draw(self, context):
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        layout = self.layout
+        layout.use_property_split = True
+        layout.label(text=self.op_idname, icon='TOOL_SETTINGS')
+        names = _param_names(props.bl_rna.properties)
+        if not names:
+            layout.label(text="This operator has no options")
+        for n in names:
+            layout.prop(props, n)
+
+    def _restore(self, context):
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        for n in _param_names(props.bl_rna.properties):
+            props.property_unset(n)
+        for n, v in _params_saved.pop(self.op_idname, {}).items():
+            try:
+                setattr(props, n, v)
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+    def execute(self, context):
+        target, _idname = self._target(context)
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        rna = props.bl_rna.properties
+        parts = []
+        for n in _param_names(rna):
+            value = _plain(getattr(props, n))
+            if props.is_property_set(n) or value != _plain(rna[n].default if not getattr(rna[n], "is_array", False)
+                                                               else tuple(rna[n].default_array)):
+                parts.append(f"{n}={value!r}")
+        if target is not None:
+            target.props = ", ".join(parts)
+            _changed()
+        self._restore(context)
+        return {'FINISHED'}
+
+    def cancel(self, context):
+        self._restore(context)
 
 
 class KEYOPS_OT_macro_step_add(Operator):
@@ -5759,6 +5882,11 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
         draw_item_advanced(context, adv, pie, item, slot, looks)
         if item.kind == O:
             _field(adv, "Run As").prop(item, "call_mode", text="")
+            if item.idname.strip() == "keyops.toggle_ui_element":
+                adv.operator("keyops.pick_ui_element", text="Pick Blender UI to Hide", icon='HIDE_ON').slot = slot
+            elif item.idname.strip() and _op_rna(item.idname) is not None:
+                prm = adv.operator("keyops.operator_params", text="Operator Parameters", icon='PREFERENCES')
+                prm.slot, prm.step = slot, -1
         if has_operator_settings(item):
             col.separator(factor=0.6)
             if _foldout(col, prefs, "pie_show_op_params", "Operator Parameters"):
@@ -6094,6 +6222,8 @@ def draw_macro_steps(layout, item, slot):
         op = r.operator("keyops.pie_slot_search", text=step_name(step) or "Pick an operator", icon='VIEWZOOM')
         op.slot, op.scope, op.step = slot, "ALL", n
         r.prop(step, "props", text="", placeholder="Options") if bpy.app.version >= (4, 1, 0) else r.prop(step, "props", text="")
+        prm = r.operator("keyops.operator_params", text="", icon='PREFERENCES')
+        prm.slot, prm.step = slot, n
         r.prop(step, "interactive", text="", icon='RESTRICT_SELECT_OFF', toggle=True)
         for icon, d in (('TRIA_UP', -1), ('TRIA_DOWN', 1)):
             mv = r.operator("keyops.macro_step_move", text="", icon=icon)
@@ -6111,7 +6241,7 @@ classes = (KEYOPS_OT_panel_parent_pick, KEYOPS_MT_pie_submenu, KEYOPS_OT_submenu
            KEYOPS_OT_panel_to_menu, KEYOPS_MT_extend_here, *_here_menu_classes,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
-           KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
+           KEYOPS_OT_macro_step_move, KEYOPS_OT_operator_params, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
            KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_UL_menus, KEYOPS_MT_menu_list_specials, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_panel_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)

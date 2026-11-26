@@ -1371,6 +1371,9 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", type="change_cylinder_segments_modifier")),
         _op("keyops.rebevel", "Re-Bevel"), _op("keyops.rebevel", "Remove Bevel", remove=True),
     ])
+    _section(box, "Transform", [
+        _wide(_op("keyops.slide_scale", "Slide Scale (along edges)")),
+    ])
 
 
 class EditModePanel(bpy.types.Panel):

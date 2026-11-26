@@ -652,6 +652,120 @@ def test_modifier_order():
           not hasattr(pin, "use_pin_to_last") or not mo.can_move(obj, obj.modifiers["Weighted Normal"], 3))
 
 
+def test_realign_rotation():
+    import math
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    obj.scale = (1.0, 2.0, 0.5)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    obj.rotation_euler = (math.radians(20), 0, math.radians(35))
+    obj.location = (1, 2, 3)
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)  # rotation frozen
+    bpy.context.view_layer.update()
+    before = sorted(tuple(round(c, 4) for c in obj.matrix_world @ v.co) for v in obj.data.vertices)
+    res = bpy.ops.keyops.realign_rotation()
+    bpy.context.view_layer.update()
+    after = sorted(tuple(round(c, 4) for c in obj.matrix_world @ v.co) for v in obj.data.vertices)
+    dims = sorted(round(d, 3) for d in obj.dimensions)
+    check("Re-Align Rotation: nothing moves in the scene", res == {'FINISHED'} and before == after)
+    check("Re-Align Rotation: the object gets back a rotation that matches the shape (tight box)",
+          dims == [1.0, 2.0, 4.0] and abs(obj.rotation_euler.z) > 0.1, f"{dims} {tuple(round(r, 3) for r in obj.rotation_euler)}")
+    check("Re-Align Rotation: stays upright (the axis closest to up is still up)",
+          (obj.matrix_world.to_3x3() @ Vector((0, 0, 1))).z > 0.9)
+
+
+def test_slide_scale():
+    clear_scene()
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    zs = sorted({round(v.co.z, 4) for v in bm.verts})
+    ring_z = [z for z in zs if 0.3 < z < 0.6][0]  # a ring above the equator
+    for v in bm.verts:
+        v.select = abs(v.co.z - ring_z) < 1e-4
+    bm.select_flush(True)
+    bmesh.update_edit_mesh(obj.data)
+    bpy.context.scene.tool_settings.transform_pivot_point = 'MEDIAN_POINT'
+    res = bpy.ops.keyops.slide_scale(factor=0.8)
+    bm = bmesh.from_edit_mesh(obj.data)
+    ring = [v for v in bm.verts if v.select]
+    radii = [v.co.length for v in ring]
+    up = min(v.co.z for v in ring)
+    check("Slide Scale: the ring slides along the sphere's edges (stays on the surface, moves up)",
+          res == {'FINISHED'} and min(radii) > 0.97 and up > ring_z + 1e-3,
+          f"radius {min(radii):.3f}..{max(radii):.3f} z {ring_z:.3f}->{up:.3f}")
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_full_edge_loop():
+    dc = sub("operators.double_click_select_island")
+    clear_scene()
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    # a meridian edge next to the equator: Blender's loop select stops at the poles (triangle fans)
+    e = next(e for e in bm.edges if abs(e.verts[0].co.x * e.verts[1].co.y - e.verts[0].co.y * e.verts[1].co.x) < 1e-6
+             and abs(e.verts[0].co.z - e.verts[1].co.z) > 1e-3 and min(abs(v.co.z) for v in e.verts) < 0.21
+             and e.verts[0].co.x > 0.1)
+    loop = dc.full_loop(e)
+    check("full edge loop: a meridian on a UV sphere runs through both poles (a whole great circle)",
+          len(loop) == 32, f"{len(loop)} edges")
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_macro_operator_params():
+    pm = sub("pie_menus")
+    prefs = sub("utils.pref_utils").get_keyops_prefs()
+    pie = pm._new_pie(prefs)
+    pie.name, pie.menu_type = "Macro Test", "MENU"
+    prefs.active_pie = len(prefs.pies) - 1
+    item = pie.items.add()
+    item.kind = pm.MACRO
+    step = item.steps.add()
+    step.idname = "object.modifier_add"
+    names = pm._param_names(pm._op_rna("object.modifier_add"))
+    check("Operator Parameters: lists the operator's options (Add Modifier's type)", "type" in names, str(names))
+    bridge = pm._param_names(pm._op_rna("mesh.bridge_edge_loops"))
+    check("Operator Parameters: lists Bridge Edge Loops' options", {"type", "use_merge", "number_cuts", "twist_offset"} <= set(bridge),
+          str(bridge))
+    wm = bpy.context.window_manager
+    last = wm.operator_properties_last("object.modifier_add")
+    before = last.type
+    last.type = 'BEVEL'
+    res = bpy.ops.keyops.operator_params('EXEC_DEFAULT', slot=0, step=0, op_idname="object.modifier_add")
+    check("Operator Parameters: the chosen options are written into the step", res == {'FINISHED'}
+          and pm._parse_props(step.props).get("type") == 'BEVEL', step.props)
+    check("Operator Parameters: the operator's own last-used values are put back", last.type == before or not last.is_property_set("type"))
+    prefs.pies.remove(len(prefs.pies) - 1)
+
+
+def test_hide_ui():
+    hu = sub("ui.hide_ui")
+    name = "VIEW3D_PT_view3d_properties"
+    cls = getattr(bpy.types, name)
+    had_poll = "poll" in cls.__dict__
+    res = bpy.ops.keyops.toggle_ui_element(element=name)
+    hidden = cls.poll(bpy.context) is False
+    prefs = sub("utils.pref_utils").get_keyops_prefs()
+    check("Hide Blender UI: hides a panel (its poll says no) and remembers it", res == {'FINISHED'} and hidden
+          and name in prefs.hidden_ui)
+    bpy.ops.keyops.toggle_ui_element(element=name)
+    check("Hide Blender UI: pressing again shows it, Blender's own poll is back",
+          not hu.is_hidden(name) and ("poll" in cls.__dict__) == had_poll and name not in prefs.hidden_ui)
+    menu = "VIEW3D_MT_view"
+    bpy.ops.keyops.toggle_ui_element(element=menu)
+    m = getattr(bpy.types, menu)
+    check("Hide Blender UI: hides a menu (draws nothing)", m.draw is hu._draw_nothing)
+    hu.show_all()
+    check("Hide Blender UI: everything comes back when switched off", m.draw is not hu._draw_nothing and not hu.hidden_names())
+    items = hu.ui_element_items(None, bpy.context)
+    check("Hide Blender UI: the picker lists Blender's panels, menus and headers",
+          any(i[0] == "VIEW3D_PT_overlay" for i in items) and any(i[0] == "VIEW3D_HT_header" for i in items), len(items))
+
+
 def run():
     addon_utils.enable(MOD, default_set=True)
     for t in (test_revolve_axis, test_curve_tools, test_q_menu_migration, test_whats_new_not_automatic,
@@ -659,7 +773,8 @@ def run():
               test_cylinder_sides_partial, test_none_live_booleans_undo, test_smart_apply_scale, test_rebevel,
               test_alt_c_screw_and_instances, test_edge_trim,
               test_attribute_ops, test_parent_used_objects_unique, test_lattice_min_box,
-              test_modifier_order):
+              test_modifier_order, test_realign_rotation, test_slide_scale,
+              test_full_edge_loop, test_macro_operator_params, test_hide_ui):
         try:
             t()
         except Exception as e:  # noqa: BLE001

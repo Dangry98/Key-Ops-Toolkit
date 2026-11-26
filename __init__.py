@@ -27,13 +27,13 @@ from .operators import (
     edge_trim, extract_geometry, extrude_edge_along_normals, fast_merge, fast_mirror, fast_solidify,
     flatten, legacy_shortcuts, looptools_menu, material_index, maya_navigation, maya_pivot, mesh_cleanup,
     modi_key, offset_extrude_edge, optional_keys, origin_to_selection, outliner_options,
-    parent_used_objects, poly_count_list, quick_bake_name, quick_export, rebevel, resample_edges, select_similar,
-    set_cylinder_sides, set_flow, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
+    parent_used_objects, poly_count_list, quick_bake_name, quick_export, realign_rotation, rebevel, resample_edges, select_similar,
+    set_cylinder_sides, set_flow, slide_scale, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
     uv_tools, viewport_menu,
 )
 from .operators.xray_select import register_xray_select, unregister_xray_select
 from .tools import cutter_tool, fast_loop_cut, merge_tool
-from .ui import toolkit_paneL_ui, welcome
+from .ui import hide_ui, toolkit_paneL_ui, welcome
 from .utils.pref_utils import get_keyops_prefs, register_icon_refresh, unregister_icon_refresh, unregister_icons
 
 
@@ -81,6 +81,7 @@ def register():
     register_module(resample_edges)
     register_module(set_cylinder_sides)
     register_module(rebevel)
+    register_module(slide_scale)
     register_module(mesh_cleanup)
     register_module(set_flow)
     register_module(curve_tools)
@@ -90,6 +91,7 @@ def register():
     register_module(extrude_edge_along_normals)
     register_module(offset_extrude_edge)
     register_module(smart_apply_scale)
+    register_module(realign_rotation)
     register_module(select_similar)
     register_module(modi_key)
     register_module(material_index)
@@ -126,6 +128,7 @@ def register():
     # Panels and the welcome screen
     register_module(toolkit_paneL_ui)
     register_module(welcome)
+    register_module(hide_ui)
 
     # The preferences only exist once the add-on is enabled in Preferences. With Blender's
     # --addons command line flag they don't yet: tools, panels and menus still work, with no shortcuts.
@@ -141,6 +144,7 @@ def unregister():
     toggle_retopology.reset_retopo_themes_on_unregister_addon()
     features.switch_all_off()
 
+    unregister_module(hide_ui)
     unregister_module(welcome)
     unregister_module(toolkit_paneL_ui)
 
@@ -172,6 +176,7 @@ def unregister():
     unregister_module(material_index)
     unregister_module(modi_key)
     unregister_module(select_similar)
+    unregister_module(realign_rotation)
     unregister_module(smart_apply_scale)
     unregister_module(offset_extrude_edge)
     unregister_module(extrude_edge_along_normals)
@@ -181,6 +186,7 @@ def unregister():
     unregister_module(curve_tools)
     unregister_module(set_flow)
     unregister_module(mesh_cleanup)
+    unregister_module(slide_scale)
     unregister_module(rebevel)
     unregister_module(set_cylinder_sides)
     unregister_module(resample_edges)

@@ -203,6 +203,8 @@ class KeyOpsPreferences(bpy.types.AddonPreferences):
                                 description="What the selected item is and runs: its type, command, Python, macro steps and when it shows") # type: ignore
     pie_show_op_params: BoolProperty(name="Operator Parameters", default=True,
                                      description="Settings Key Ops keeps for the selected item's operator") # type: ignore
+    hidden_ui: StringProperty(name="Hidden Blender UI", default="", options={'HIDDEN'},
+                              description="Blender panels, menus and headers hidden with Custom Menus buttons") # type: ignore
     pie_show_drawing: BoolProperty(name="Drawing", default=False,
                                    description="How the selected item is drawn: emboss, alert, active, depress and its size") # type: ignore
     pause_shortcuts: BoolProperty(name="Pause All Key Ops Shortcuts", default=False, update=_pause_update,

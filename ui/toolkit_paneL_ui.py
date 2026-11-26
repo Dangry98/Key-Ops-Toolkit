@@ -83,7 +83,9 @@ def draw_object_panel_clean(self, context):
                 op = row.operator(idname, text=text, icon=icon)
             if type_:
                 op.type = type_
-    col.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
+    row = col.row(align=True)
+    row.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
+    row.operator("keyops.realign_rotation", text="Re-Align Rotation", icon="ORIENTATION_LOCAL")
 
     _subheading(col, "Duplicate Linked")
     row = col.row(align=True)
@@ -142,6 +144,7 @@ def draw_object_panel(self, context):
     row = col.row(align=True)
     row.scale_y = 1.4
     row.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
+    row.operator("keyops.realign_rotation", text="Re-Align Rotation", icon="ORIENTATION_LOCAL")
 
     row = col.row(align=True)
     row.label(text="Duplicate Linked")
