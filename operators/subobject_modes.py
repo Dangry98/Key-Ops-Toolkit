@@ -259,8 +259,51 @@ def draw_mode_row(layout, context):
     row.alignment = 'CENTER'
     for mode, on, icon in (("VERT", sel[0], 'VERTEXSEL'), ("EDGE", sel[1], 'EDGESEL'), ("FACE", sel[2], 'FACESEL')):
         row.operator("keyops.sub_object_mode", text="", icon=icon, depress=bool(on) and extra == "NONE").mode = mode
-    row.operator("keyops.sub_object_mode", text="", icon='SNAP_VOLUME', depress=extra == "ELEMENT").mode = "ELEMENT"
+    row.operator("keyops.sub_object_mode", text="", icon=ELEMENT_ICON, depress=extra == "ELEMENT").mode = "ELEMENT"
     return row
+
+
+ELEMENT_ICON = 'LINKED'  # Element mode picks whole linked parts, like Select Linked
+
+
+# ---------------------------------------------------------------- the header button
+# Blender draws its Vertex / Edge / Face buttons with a C template (template_header_3D_mode) and then, in
+# mesh Edit Mode, its editor menus. Drawing the Element button at the start of the editor menus puts it
+# right after the three mode buttons, like a fourth mode.
+
+def _draw_editor_menus(cls, context, layout):
+    if context.mode == 'EDIT_MESH' and _header_on():
+        row = layout.row(align=True)
+        row.operator("keyops.sub_object_mode", text="", icon=ELEMENT_ICON,
+                     depress=active_mode() == "ELEMENT").mode = "ELEMENT"
+    _original_collapsible.__func__(cls, context, layout)
+
+
+def _header_on():
+    from ..utils.pref_utils import feature_on
+    try:
+        return feature_on("toolkit_panel")
+    except Exception:  # noqa: BLE001  prefs not ready (e.g. while registering)
+        return False
+
+
+_original_collapsible = None
+
+
+def _patch_header():
+    global _original_collapsible
+    menus = getattr(bpy.types, "VIEW3D_MT_editor_menus", None)
+    if menus is None or "draw_collapsible" in menus.__dict__:
+        return
+    _original_collapsible = bpy.types.Menu.draw_collapsible
+    menus.draw_collapsible = classmethod(_draw_editor_menus)
+
+
+def _unpatch_header():
+    menus = getattr(bpy.types, "VIEW3D_MT_editor_menus", None)
+    if menus is not None and menus.__dict__.get("draw_collapsible") is not None \
+            and getattr(menus.__dict__["draw_collapsible"], "__func__", None) is _draw_editor_menus:
+        del menus.draw_collapsible
 
 
 classes = (KEYOPS_OT_sub_object_mode, KEYOPS_OT_sub_object_watch)
@@ -269,9 +312,11 @@ classes = (KEYOPS_OT_sub_object_mode, KEYOPS_OT_sub_object_watch)
 def register():
     for c in classes:
         bpy.utils.register_class(c)
+    _patch_header()
 
 
 def unregister():
+    _unpatch_header()
     state["mode"] = "NONE"
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

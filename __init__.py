@@ -23,7 +23,7 @@ from . import features, pie_menus, properties
 from .addon_preferences import KeyOpsPreferences
 from .menu import pies
 from .operators import (
-    add_mesh, add_modifier, atri_op, auto_delete, auto_lod, cad_decimate, double_click_select_island,
+    add_mesh, add_modifier, atri_op, auto_delete, auto_lod, cad_decimate, curve_tools, double_click_select_island,
     edge_trim, extract_geometry, extrude_edge_along_normals, fast_merge, fast_mirror, fast_solidify,
     flatten, legacy_shortcuts, looptools_menu, material_index, maya_navigation, maya_pivot, mesh_cleanup,
     modi_key, offset_extrude_edge, optional_keys, origin_to_selection, outliner_options,
@@ -81,6 +81,7 @@ def register():
     register_module(set_cylinder_sides)
     register_module(mesh_cleanup)
     register_module(set_flow)
+    register_module(curve_tools)
     register_module(fast_mirror)
     register_module(snap_to_floor)
     register_module(parent_used_objects)
@@ -175,6 +176,7 @@ def unregister():
     unregister_module(parent_used_objects)
     unregister_module(snap_to_floor)
     unregister_module(fast_mirror)
+    unregister_module(curve_tools)
     unregister_module(set_flow)
     unregister_module(mesh_cleanup)
     unregister_module(set_cylinder_sides)

@@ -411,7 +411,7 @@ class AddObjectsPie(Menu):
 
         pie.operator("keyops.add_mesh", text="Cube", icon="MESH_CUBE").mesh_type = "CUBE"  # RIGHT
 
-        pie.operator("keyops.add_mesh", text="Cylinder", icon="MESH_CYLINDER").mesh_type = "CYLINDER"  # BOTTOM
+        pie.operator("mesh.primitive_cylinder_add", text="Cylinder", icon="MESH_CYLINDER")  # BOTTOM: Blender's own, with its redo panel
 
         pie.operator("keyops.add_mesh", text="Plane", icon="MESH_PLANE").mesh_type = "PLANE"  # TOP
 

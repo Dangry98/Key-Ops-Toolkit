@@ -64,6 +64,8 @@ def draw_header(layout):
     row = right.row(align=False)
     row.alignment = 'LEFT'
     _links(row)
+    if hasattr(bpy.types, "KEYOPS_OT_show_whats_new"):
+        row.operator("keyops.show_whats_new", text="What's New", icon='INFO', emboss=False)
 
 
 def unregister():

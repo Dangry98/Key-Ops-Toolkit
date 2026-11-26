@@ -185,7 +185,26 @@ def get_description(type: str) -> str:
                 "Select one edge that runs along the length of the cylinder")
     elif type == "change_cylinder_segments_modifier":
         return ("Revolve the selected edges around the object's origin with a Screw modifier, to make a round shape "
-                "from a profile.\nEverything that is not selected in this object is deleted first")
+                "from a profile. The axis is picked from the profile (change it in Adjust Last Operation).\n"
+                "Everything that is not selected in this object is deleted first")
+
+def revolve_axis(points):
+    """The local axis ('X', 'Y' or 'Z') to revolve a profile around: the one it runs along most while
+    sitting away from it (a vertical line beside the origin makes a cylinder around Z). A flat profile through
+    the axis (a disc) has no length along any axis: then it's the axis it is farthest from, Z on a tie."""
+    import mathutils
+    lo = mathutils.Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for p in points)))
+    hi = mathutils.Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
+    size = max((hi - lo).length, 1e-6)
+    best, best_score = 'Z', -1.0
+    for i, name in ((2, 'Z'), (0, 'X'), (1, 'Y')):  # Z first: it wins ties
+        others = [j for j in range(3) if j != i]
+        radius = sum((p[others[0]] ** 2 + p[others[1]] ** 2) ** 0.5 for p in points) / len(points)
+        score = radius * ((hi[i] - lo[i]) + 0.01 * size)
+        if score > best_score + 1e-9:
+            best, best_score = name, score
+    return best
+
 
 class ToolkitPanel(bpy.types.Operator):
     bl_description = "Object Panel Operator"
@@ -236,6 +255,13 @@ class ToolkitPanel(bpy.types.Operator):
     ovveride_color: bpy.props.BoolProperty(name="Override Color", default=False) # type: ignore
     ovveride_color_vec: bpy.props.FloatVectorProperty(name="Color", default=(0.0, 0.0, 0.0, 1.0), subtype='COLOR', size=4) # type: ignore
     instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
+    screw_axis: bpy.props.EnumProperty(name="Axis", default="AUTO",
+                                       items=[("AUTO", "Auto", "Pick the axis from the selected profile: the one it "
+                                               "runs along and sits away from, so revolving it makes a round wall"),
+                                              ("X", "X", "Revolve around the object's X axis"),
+                                              ("Y", "Y", "Revolve around the object's Y axis"),
+                                              ("Z", "Z", "Revolve around the object's Z axis")]) # type: ignore
+    screw_steps: bpy.props.IntProperty(name="Steps", default=32, min=3, max=512) # type: ignore
     seprate_by: bpy.props.EnumProperty(name="Separate By",
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
                                               ("LOOSE", "Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
@@ -295,6 +321,9 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "un_subdivide_cylinder":
             layout.prop(self, "angle_to_skip")
             layout.prop(self, "full_edge_loops")
+        elif self.type == "change_cylinder_segments_modifier":
+            layout.row().prop(self, "screw_axis", expand=True)
+            layout.prop(self, "screw_steps")
         elif self.type == "Instant_Apply_Modifiers":
             layout.label(text="Apply All Modifiers", icon_value=get_icon("mesh"))
             layout.prop(self, "convert_to_options", text="Convert To")
@@ -893,16 +922,25 @@ class ToolkitPanel(bpy.types.Operator):
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
         elif self.type == "change_cylinder_segments_modifier":
+            obj = bpy.context.active_object
+            bm = bmesh.from_edit_mesh(obj.data)
+            profile = [v.co.copy() for v in bm.verts if v.select]
+            if not profile:
+                self.report({'WARNING'}, "Select the profile edges to revolve")
+                return {'CANCELLED'}
+            axis = self.screw_axis if self.screw_axis != "AUTO" else revolve_axis(profile)
+
             bpy.ops.mesh.select_all(action='INVERT')
             bpy.ops.mesh.delete(type='EDGE')
 
-            obj = bpy.context.active_object
-
             mod = obj.modifiers.new(type='SCREW', name='Screw')
+            mod.axis = axis
             mod.use_normal_calculate = True
             mod.use_merge_vertices = True
-            mod.steps = 32
+            mod.steps = self.screw_steps
+            mod.render_steps = self.screw_steps
             bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+            self.report({'INFO'}, f"Revolving around {axis}")
 
         elif self.type == "clear_custom_normals":
             selection = bpy.context.selected_objects
@@ -1155,15 +1193,15 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.label(text="Edit Toolkit", icon_value=get_icon("editmode"))
     sub = row.row(align=True)
     sub.alignment = 'RIGHT'
-    sub.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
+    # the filter: on = only Key Ops' own operators
+    sub.prop(prefs, "edit_toolkit_show_blender_ops", text="", icon='FILTER', invert_checkbox=True)
 
-    if show_blender_ops:
-        row = box.row(align=True)
-        row.scale_x = 2.15
-        row.scale_y = 1.5
-        row.alignment = 'CENTER'
-        # Vertex, Edge, Face plus Element mode, as one centered row of modes
-        draw_mode_row(row, context)
+    # Vertex, Edge, Face plus Element mode, as one centered row of modes (always: you need them either way)
+    row = box.row(align=True)
+    row.scale_x = 2.15
+    row.scale_y = 1.5
+    row.alignment = 'CENTER'
+    draw_mode_row(row, context)
 
     vert_mode, edge_mode, face_mode = sel_mode
     fast_merge = feature_on("fast_merge")
@@ -1283,8 +1321,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
         ])
 
-    # Cylinder
-    _section(box, "Cylinder", [
+    # Round shapes: sides and rings of cylinders, pipes and other revolved shapes
+    _section(box, "Rings & Sides", [
         _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides")),
         _op("keyops.toolkit_panel", "Halve Sides", type="un_subdivide_cylinder"),
         _op("keyops.toolkit_panel", "Double Sides", type="subdivide_cylinder"),
@@ -1310,7 +1348,9 @@ class EditModePanel(bpy.types.Panel):
         layout = self.layout
         row = layout.row(align=True)
         row.label(text="Edit Mesh", icon_value=get_icon("editmode"))
-        row.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
+        prefs = get_keyops_prefs()
+        if prefs is not None and hasattr(prefs, "edit_toolkit_show_blender_ops"):
+            row.prop(prefs, "edit_toolkit_show_blender_ops", text="", icon='FILTER', invert_checkbox=True)
 
     def draw(self, context):
         draw_edit_mode_panel(self, context, draw_header=False)
@@ -1398,14 +1438,27 @@ class EDIT_PT_Settings(bpy.types.Panel):
 classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll)
 
 
+def object_menu_duplicate(self, context):
+    """Object menu: Duplicate Linked Modifiers, the same command as its key, so the menu shows the shortcut."""
+    if not feature_on("toolkit_panel"):
+        return
+    layout = self.layout
+    layout.separator()
+    layout.operator_context = 'INVOKE_DEFAULT'
+    layout.operator("keyops.toolkit_panel", text="Duplicate Linked Modifiers",
+                    icon='LINKED').type = "duplicate_linked_modifiers_and_move"
+
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     register_toolkit_panel_keymaps()
+    bpy.types.VIEW3D_MT_object.append(object_menu_duplicate)
     bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_object.remove(object_menu_duplicate)
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

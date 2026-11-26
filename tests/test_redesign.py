@@ -354,9 +354,13 @@ def run():
     check("Q Menu: every Show If test reads", not bad_tests, str(bad_tests))
     check("tests can use len(), mods and sel", PM.safe_test("len(mods) >= 0 and sel >= 0 and len(C.selected_objects) == sel",
                                                          bpy.context))
-    more = next(i for s in subs for i in s.items if i.kind == PM.SUB)
-    check("Q Menu: More Modifiers opens the Add Modifier pie", PM.find_pie(more.idname) is not None
-          and PM.find_pie(more.idname).preset == "add_modifier")
+    check("Q Menu: no More Modifiers, no Active Modifier submenu, no Shade Auto Smooth",
+          not any(i.kind == PM.SUB for s in subs for i in s.items)
+          and not any(x.preset == "q_active_modifier" for x in p.pies)
+          and not any(i.idname == "object.shade_auto_smooth" for i in every))
+    check("Q Menu: has a Curve section and opens in curve Edit Mode",
+          any(x.preset == "q_curve" for x in p.pies) and "Curve" in PM.editor_names(qm)
+          and any(i.idname == "keyops.edges_to_curve" for i in every))
     # only the Object section shown: the columns before it must not leave empty columns
     shown = [(n, i) for n, i in enumerate(qc.items) if i.kind == PM.BREAK or i.label == "Object"]
     check("hidden items never leave an empty column", len(PM.layout_tree(list(qc.items), shown)) == 1)

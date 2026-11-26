@@ -42,6 +42,7 @@ EDITORS = (
     ("Sequencer", "Video Sequencer", "In the Video Sequencer", 'SEQUENCE'),
     ("Text", "Text Editor", "In the Text Editor", 'TEXT'),
     ("Window", "Everywhere", "In every editor", 'WINDOW'),
+    ("Curve", "Edit Curve", "Only in curve Edit Mode", 'CURVE_DATA'),
 )
 
 MENU_TYPES = (
@@ -236,10 +237,10 @@ def _q_sections():
     edit = "mode == 'EDIT_MESH'"
     obj_mode = "mode == 'OBJECT'"
     has_obj = "mode == 'OBJECT' and obj"
-    # the active modifier, and its boolean settings when it's a boolean
-    active = "mode == 'OBJECT' and obj and obj.modifiers.active"
-    active_bool = active + " and obj.modifiers.active.type == 'BOOLEAN'"
-    mod = "object.modifiers.active."
+    # curves: Object Mode with a curve active, curve Edit Mode, or edges selected in mesh Edit Mode
+    curve_obj = "mode == 'OBJECT' and obj and obj.type == 'CURVE'"
+    curve_edit = "mode == 'EDIT_CURVE'"
+    edge_sel = "mode == 'EDIT_MESH' and tool.mesh_select_mode[1]"
     bool_op = "object.add_boolean_modifier_operator"
     # as the N panel: Blender 4.2 has no mouse wheel icon
     scroll_icon = "EVENT_CAPSLOCK" if bpy.app.version < (4, 3, 0) else "MOUSE_MMB_SCROLL"
@@ -250,6 +251,10 @@ def _q_sections():
     def setting(test, label, icon, path):
         # drawn the way Blender draws it: expanded rows don't fit in popup menus (the labels overlap)
         return (P, label, icon, path, "", test)
+
+    def value(test, label, icon, path, option):
+        # one button per choice, right in the menu (no submenu): it sets the setting to that option
+        return (P, label, icon, path, option, test, "VALUE")
 
     items = {
         "boolean": [
@@ -278,35 +283,31 @@ def _q_sections():
             op(mesh, "Solidify", "MOD_SOLIDIFY", "keyops.fast_solidify"),
             op(mesh, "Weighted Normal", "MOD_NORMALEDIT", "keyops.add_modifier", "type='WEIGHTED_NORMAL'"),
             op(mesh, "Triangulate", "MOD_TRIANGULATE", "keyops.add_modifier", "type='TRIANGULATE'"),
-            (SUB, "More Modifiers", "ADD", "preset:add_modifier", "", mesh),
             op("mode == 'OBJECT' and len(mods) > 0", "Apply All Modifiers", "keyops:mesh", "object.convert", "target='MESH'"),
-        ],
-        "active_modifier": [
-            setting(active, "Show in Viewport", "RESTRICT_VIEW_OFF", mod + "show_viewport"),
-            setting(active, "Show in Edit Mode", "EDITMODE_HLT", mod + "show_in_editmode"),
-            setting(active_bool, "Operation", "", mod + "operation"),
-            setting(active_bool, "Solver", "", mod + "solver"),
-            op(active, "Move Up", "TRIA_UP", "keyops.active_modifier", "action='MOVE_UP'"),
-            op(active, "Move Down", "TRIA_DOWN", "keyops.active_modifier", "action='MOVE_DOWN'"),
-            op(active, "Duplicate", "DUPLICATE", "keyops.active_modifier", "action='DUPLICATE'"),
-            op(active, "Apply", "CHECKMARK", "keyops.active_modifier", "action='APPLY'"),
-            op(active, "Remove", "X", "keyops.active_modifier", "action='REMOVE'"),
         ],
         "object": [
             op(obj_mode, "Smart Apply Scale", "FREEZE", "object.smart_apply_scale"),
             op(obj_mode, "Snap to Floor", "VIEW_PERSPECTIVE", "keyops.snap_to_floor"),
             op(obj_mode, "Origin to Selection", "LAYER_USED", "keyops.origin_to_selection", "type='origin_to_geometry'"),
-            op(obj_mesh, "Shade Auto Smooth", "MOD_SMOOTH", "object.shade_auto_smooth"),
             op(obj_mesh, "Clean Up", "BRUSH_DATA", "keyops.mesh_cleanup"),
         ],
         "display": [
             setting(has_obj, "Wireframe", "SHADING_WIRE", "object.show_wire"),
             setting(has_obj, "In Front", "XRAY", "object.show_in_front"),
-            setting(has_obj, "Display As", "", "object.display_type"),
+            value(has_obj, "Bounds", "SHADING_BBOX", "object.display_type", "BOUNDS"),
+            value(has_obj, "Wire", "SHADING_WIRE", "object.display_type", "WIRE"),
+            value(has_obj, "Solid", "SHADING_SOLID", "object.display_type", "SOLID"),
+            value(has_obj, "Textured", "SHADING_TEXTURE", "object.display_type", "TEXTURED"),
+        ],
+        "curve": [
+            op(f"({curve_obj}) or ({curve_edit})", "Radius", "PROP_ON", "keyops.curve_radius"),
+            op(curve_obj, "Convert to Mesh", "keyops:mesh", "object.convert", "target='MESH'"),
+            op(edge_sel, "Edges to Curve", "CURVE_DATA", "keyops.edges_to_curve"),
         ],
     }
     shows = {"boolean": f"({booleans}) or ({has_bool}) or ({edit})", "mesh": edit, "modifiers": mesh,
-             "active_modifier": active, "object": obj_mode, "display": has_obj,
+             "object": obj_mode, "display": has_obj,
+             "curve": f"({curve_obj}) or ({curve_edit}) or ({edge_sel})",
              # one mesh selected in Object Mode: the modifier modals go to the top, booleans need two
              "single": obj_mesh + " and sel <= 1"}
     return items, shows
@@ -315,7 +316,7 @@ def _q_sections():
 # The Q Menu's sections: (key, title, icon). The one-column Q Menu shows the boolean actions that fit,
 # then opens each other section as a submenu (preset "q_<key>"); Q Menu (Columns) shows them side by side.
 Q_SECTIONS = (("boolean", "Boolean", "keyops:difference"), ("mesh", "Mesh", "keyops:editmode"),
-              ("modifiers", "Modifiers", "keyops:modifier"), ("active_modifier", "Active Modifier", "MODIFIER_ON"),
+              ("modifiers", "Modifiers", "keyops:modifier"), ("curve", "Curve", "CURVE_DATA"),
               ("object", "Object", "keyops:mesh_cube"), ("display", "Display", "HIDE_OFF"))
 
 
@@ -338,7 +339,7 @@ def _q_columns_items():
     items, shows = _q_sections()
     out = []
     for key, title, icon in Q_SECTIONS:
-        if key in ("modifiers", "active_modifier", "object"):  # Mesh goes under Boolean, Display under Object
+        if key in ("modifiers", "curve", "object"):  # Mesh goes under Boolean, Display under Object
             out.append((BREAK, "", "", "", "", shows[key]))
         out.append((LABEL, title, icon, "", "", shows[key]))
         out.extend(items[key])
@@ -348,7 +349,7 @@ def _q_columns_items():
 def _q_submenu_presets():
     """The one-column Q Menu's submenus: hidden presets, added with the Q Menu."""
     items, _shows = _q_sections()
-    return tuple(dict(id=f"q_{key}", name=f"Q Menu: {title}", editor="Object Mode, Mesh", key="NONE",
+    return tuple(dict(id=f"q_{key}", name=f"Q Menu: {title}", editor="Object Mode, Mesh, Curve", key="NONE",
                       menu_type="MENU", optional=True, sub=True, styles=set(), items=tuple(items[key]))
                  for key, title, _icon in Q_SECTIONS[1:])
 
@@ -358,7 +359,9 @@ PRESETS = (
          styles={"BLENDER_PLUS", "INDUSTRY"}, items=(
              _op("UV Sphere", "SHADING_WIRE", "keyops.add_mesh", "mesh_type='UVSPHERE'"),
              _op("Cube", "MESH_CUBE", "keyops.add_mesh", "mesh_type='CUBE'"),
-             _op("Cylinder", "MESH_CYLINDER", "keyops.add_mesh", "mesh_type='CYLINDER'"),
+             # Blender's own cylinder: its Adjust Last Operation panel (vertices, cap fill, align...) shows;
+             # Mod Cylinder is the Screw-modifier one
+             _op("Cylinder", "MESH_CYLINDER", "mesh.primitive_cylinder_add"),
              _op("Plane", "MESH_PLANE", "keyops.add_mesh", "mesh_type='PLANE'"),
              _op("Mod Cylinder", "MOD_SCREW", "keyops.add_mesh", "mesh_type='MODCYLINDER'"),
              (M, "Other", "ADD", "VIEW3D_MT_add", ""),
@@ -435,9 +438,9 @@ PRESETS = (
     # two or more meshes are selected, then submenus for the modifiers, the active modifier, mesh and
     # object tools. Each item's Show If does the picking. Q Menu (Columns) shows it all side by side. In the list on new installs, switched off,
     # since it takes Blender's Quick Favorites key.
-    dict(id="q_menu", name="Q Menu", editor="Object Mode, Mesh", key="Q", menu_type="MENU",
+    dict(id="q_menu", name="Q Menu", editor="Object Mode, Mesh, Curve", key="Q", menu_type="MENU",
          styles=set(), items=_q_menu_items()),
-    dict(id="q_menu_columns", name="Q Menu (Columns)", editor="Object Mode, Mesh", key="Q", menu_type="MENU",
+    dict(id="q_menu_columns", name="Q Menu (Columns)", editor="Object Mode, Mesh, Curve", key="Q", menu_type="MENU",
          optional=True, styles=set(), items=_q_columns_items()),
     *_q_submenu_presets(),
 ) + (
@@ -872,7 +875,7 @@ _EDITOR_AREAS = {"3D View Generic": 'VIEW_3D', "Object Mode": 'VIEW_3D', "Mesh":
                  "Weight Paint": 'VIEW_3D', "UV Editor": 'IMAGE_EDITOR', "Image": 'IMAGE_EDITOR',
                  "Node Editor": 'NODE_EDITOR', "Graph Editor": 'GRAPH_EDITOR', "Dopesheet": 'DOPESHEET_EDITOR',
                  "Outliner": 'OUTLINER', "Property Editor": 'PROPERTIES', "Sequencer": 'SEQUENCE_EDITOR',
-                 "Text": 'TEXT_EDITOR', "Window": None}
+                 "Text": 'TEXT_EDITOR', "Window": None, "Curve": 'VIEW_3D'}
 
 
 def editor_ok(context, pie):
@@ -1152,6 +1155,8 @@ def _fill(pie, preset):
         it.kind, it.label, it.icon, it.idname, it.props = kind, label, icon, idname, props
         it.show_if = extra[0] if extra else ""
         it.setting_style = extra[1] if len(extra) > 1 else "AUTO"
+        if kind == P and it.setting_style in SETTING_SOURCE:
+            it.source, it.props = props, ""  # e.g. the option a One Option button sets
 
 
 def _pie_for_preset(preset_id, owner=""):
@@ -1242,7 +1247,7 @@ ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
                "call_mode", "enabled", "menu_style", "op_style", "enum_prop", "source", "index", "invert", "decorate",
                "sub_style")
 STEP_FIELDS = ("idname", "props", "interactive")
-PIE_SCHEMA = 13  # bump when the saved layout changes, and add a migration below
+PIE_SCHEMA = 14  # bump when the saved layout changes, and add a migration below
 
 
 def _extra(obj):
@@ -1462,10 +1467,34 @@ def _migrate_pies_12_to_13(data):
     return data
 
 
+def _migrate_pies_13_to_14(data):
+    """Schema 14: the Q Menu drops its Active Modifier submenu, More Modifiers and Shade Auto Smooth, shows
+    Display As as one button per choice, gains a Curve section and also opens in curve Edit Mode. Menus made
+    from the Q Menu presets are rebuilt from them (key and on/off stay); the old Active Modifier submenu goes.
+    The UV Islands pie works only in the UV Editor; Add Objects' Cylinder is Blender's own cylinder."""
+    data = _migrate_pies_9_to_10(data)
+    for p in data.get("pies", []):
+        # the Q UV Islands pie belongs to the UV Editor only (older setups could have it in more editors)
+        if p.get("preset") == "uv_islands" and p.get("editor") != "UV Editor":
+            p["editor"] = "UV Editor"
+        # Add Objects: Cylinder is Blender's own cylinder (with its own redo panel), not a copy of Mod Cylinder's
+        if p.get("preset") == "add_objects":
+            for it in p.get("items", []):
+                if isinstance(it, dict) and it.get("idname") == "keyops.add_mesh" \
+                        and it.get("props", "").replace(" ", "") == "mesh_type='CYLINDER'":
+                    it["idname"], it["props"] = "mesh.primitive_cylinder_add", ""
+        if p.get("preset") in ("q_menu", "q_menu_columns") or (
+                str(p.get("preset", "")).startswith("q_") and p.get("owner")):
+            if p.get("editor") == "Object Mode, Mesh":
+                p["editor"] = "Object Mode, Mesh, Curve"
+    data["pies"] = [p for p in data.get("pies", []) if not (isinstance(p, dict) and p.get("preset") == "q_active_modifier")]
+    return data
+
+
 PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3, 3: _migrate_pies_3_to_4, 4: _migrate_pies_4_to_5,
                   5: _migrate_pies_5_to_6, 6: _migrate_pies_6_to_7, 7: _migrate_pies_7_to_8, 8: _migrate_pies_8_to_9,
                   9: _migrate_pies_9_to_10, 10: _migrate_pies_10_to_11, 11: _migrate_pies_11_to_12,
-                  12: _migrate_pies_12_to_13}
+                  12: _migrate_pies_12_to_13, 13: _migrate_pies_13_to_14}
 
 
 def load_from_disk():
@@ -2413,6 +2442,8 @@ def _in_editor(context, editor):
         return area == 'IMAGE_EDITOR' and context.mode == 'EDIT_MESH' and getattr(space, "mode", "") == 'UV'
     if editor == "Mesh":
         return area == 'VIEW_3D' and context.mode == 'EDIT_MESH'
+    if editor == "Curve":
+        return area == 'VIEW_3D' and context.mode in ('EDIT_CURVE', 'EDIT_SURFACE')
     return True  # the other keymaps only run in their own editor
 
 
@@ -5714,24 +5745,6 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
             r = _field(col, "Label")
             r.operator("keyops.pie_icon_picker", text="", **icon_kw(item.icon or 'ADD')).slot = slot
             _prop_hint(r, item, "label", "", "", "No label: icon only")
-            if k == P:
-                col.prop(item, "setting_style", text="Draw As")
-        if k == P and item.setting_style in SETTING_SOURCE:
-            name, hint = SETTING_SOURCE[item.setting_style]
-            _prop_hint(_field(col, name), item, "source", "", "", hint)
-        elif k == M:
-            col.prop(item, "menu_style", text="Draw As")
-        elif k == SUB:
-            col.row(align=True).prop(item, "sub_style", expand=True)
-            if item.sub_style == "INLINE":
-                r = col.row(align=True)
-                r.prop(item, "group_type", text="")
-                r.prop(item, "align", toggle=True, icon='SNAP_EDGE')
-        elif k == O:
-            col.prop(item, "op_style", text="Draw As")
-            if item.op_style != "BUTTON":
-                _prop_hint(_field(col, "Option"), item, "enum_prop", "", "",
-                           "The operator's choice option, e.g. type")
         if k == MACRO:  # its steps, stacked in the order they run
             draw_macro_steps(col, item, slot)
 
@@ -5751,10 +5764,14 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
             if _foldout(col, prefs, "pie_show_op_params", "Operator Parameters"):
                 draw_operator_settings(prefs, col.box().column(), item)
     # how it's drawn: last, right above the menu's own settings
-    if toggles or "width" in looks:
+    draws_as = not _is_empty(item) and k in (P, M, SUB, O)
+    if toggles or "width" in looks or draws_as:
         col.separator(factor=0.6)
         if _foldout(col, prefs, "pie_show_drawing", "Drawing"):
-            line = col.box().row()  # the look toggles, then the size, on one row
+            dbox = col.box()
+            if draws_as:
+                draw_item_draw_as(dbox.column(), item, compact)
+            line = dbox.row()  # the look toggles, then the size, on one row
             if toggles:
                 r = line.row(align=True)
                 for name, icon in toggles:
@@ -5766,6 +5783,32 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
                 r = line.row(align=True)
                 r.prop(item, "width", text="X")
                 r.prop(item, "height", text="Y")
+
+
+def draw_item_draw_as(col, item, compact=False):
+    """Draw As: how a setting, menu, submenu or operator item is drawn (a button, a dropdown, a group...),
+    with the extra field some styles need. Part of the item card's Drawing section."""
+    k = item.kind
+    if k == P:
+        col.prop(item, "setting_style", text="Draw As")
+        if item.setting_style in SETTING_SOURCE:
+            name, hint = SETTING_SOURCE[item.setting_style]
+            _prop_hint(_field(col, name), item, "source", "", "", hint)
+    elif k == M:
+        col.prop(item, "menu_style", text="Draw As")
+    elif k == SUB:
+        if compact:
+            col.prop(item, "sub_style", text="Draw As")
+        else:
+            col.row(align=True).prop(item, "sub_style", expand=True)
+        if item.sub_style == "INLINE":
+            r = col.row(align=True)
+            r.prop(item, "group_type", text="")
+            r.prop(item, "align", toggle=True, icon='SNAP_EDGE')
+    elif k == O:
+        col.prop(item, "op_style", text="Draw As")
+        if item.op_style != "BUTTON":
+            _prop_hint(_field(col, "Option"), item, "enum_prop", "", "", "The operator's choice option, e.g. type")
 
 
 def has_operator_settings(item):
