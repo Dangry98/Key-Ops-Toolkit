@@ -90,6 +90,16 @@ def sortList(item):
     else:
         return item[1]
 
+def is_hidden(obj, view_layer=None):
+    """Hidden in the viewport: by the eye (hide_get), the monitor (hide_viewport) or not in the view layer."""
+    if obj.hide_viewport:
+        return True
+    try:
+        return obj.hide_get(view_layer=view_layer) if view_layer else obj.hide_get()
+    except RuntimeError:  # not in this view layer
+        return True
+
+
 def get_poly_count(context, force_update_all=False):
     global total_tris, latest_updateded_objects_in_depsgrapth, obj_lookup_cache, list_cache
     
@@ -139,7 +149,12 @@ def get_poly_count(context, force_update_all=False):
     # replace mesh cache with just global polycount cache
     total_tris = 0
 
-    filter_type = [obj for obj in filter_type if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}]
+    allowed = set(getattr(props, "type_filter", {'MESH', 'CURVE', 'FONT', 'META'}))
+    if 'CURVE' in allowed:
+        allowed.add('SURFACE')
+    show_hidden = getattr(props, "show_hidden", True)
+    filter_type = [obj for obj in filter_type if obj.type in allowed
+                   and (show_hidden or not is_hidden(obj, c.view_layer))]
     
     for obj in filter_type:
         tris = 0
@@ -163,9 +178,9 @@ def get_poly_count(context, force_update_all=False):
                         if not ms >= 1e-4:
                             if obj in list_cache:
                                 tris2, verts2, edges2, faces2, ms = list_cache[obj]
-                                
-                        list_cache[obj] = (tris, verts, edges, faces, ms)
-                        eval_obj.to_mesh_clear()
+                    # cached and freed whatever columns are shown (the cache used to fill only with Time on)
+                    list_cache[obj] = (tris, verts, edges, faces, ms)
+                    eval_obj.to_mesh_clear()
         else:
             tris, verts, edges, faces, ms = list_cache[obj]
 
@@ -245,6 +260,8 @@ def register():
     bpy.utils.register_class(POLYCOUNT_OT_refresh)
     bpy.utils.register_class(POLYCOUNTILST_PT_Settings)
     bpy.utils.register_class(POLYCOUNT_OT_walk)
+    bpy.utils.register_class(POLYCOUNT_OT_toggle_hide)
+    bpy.utils.register_class(POLYCOUNT_OT_hide_key)
     register_polycount_keymaps()
 
 
@@ -255,6 +272,8 @@ def unregister():
     bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
     bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
     clear_registered_keymaps(registered_polycount_keymaps)
+    bpy.utils.unregister_class(POLYCOUNT_OT_hide_key)
+    bpy.utils.unregister_class(POLYCOUNT_OT_toggle_hide)
     bpy.utils.unregister_class(POLYCOUNT_OT_walk)
 
 
@@ -340,6 +359,14 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
     row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
     row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
     row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
+    search = getattr(props, "search", "")
+    row = layout.row(align=True)
+    if bpy.app.version >= (4, 1, 0):
+        row.prop(props, "search", text="", icon='VIEWZOOM', placeholder="Search objects")
+    else:
+        row.prop(props, "search", text="", icon='VIEWZOOM')
+    if len(getattr(props, "type_filter", ())) < 4:  # some types filtered out: say so
+        row.prop(props, "type_filter", text="", icon_only=True)
 
     col_flow = layout.column_flow(columns=0, align=True)
     row = col_flow.row(align=True)
@@ -415,20 +442,34 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
         curve_icon = get_icon("curve")
         
         found_active = False
+        needle = search.strip().lower()
+        toggle_op = POLYCOUNT_OT_toggle_hide.bl_idname
+        shown = 0
 
         for i, obj in enumerate(polycount):
-            if i >= max_list_length:
+            if shown >= max_list_length:
                 break
             
             # data
             obj_name = str(obj[0])
+            if needle and needle not in obj_name.lower():
+                continue
             object = obj_lookup_cache.get(obj_name)
             # if object == None or str(object) == "<bpy_struct, Object invalid>": # object was deleted most likely
             if object == None: # object was deleted most likely
                 continue
+            shown += 1
 
             row = col_flow.row(align=True)
             selected = object in selecteion
+            try:
+                hidden = object.hide_viewport or object.hide_get()
+            except RuntimeError:  # not in this view layer
+                hidden = True
+            # an eye per row: hidden objects are greyed out, the eye shows them again (whatever hid them)
+            row.operator(toggle_op, text="", icon=EYE_ICONS[hidden], emboss=False).name = obj_name
+            if hidden:
+                row.active = False
 
             if show_obj_type:
                 object_type = object.type
@@ -477,7 +518,7 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
                 row.operator("keyops.polycount_user_interaction", text=str(text), depress=selected, emboss=selected).make_active = obj_name
             
             #add reached max list length warning
-            if i == max_list_length - 1:
+            if shown == max_list_length:
                 row = col_flow.row(align=True)
                 row.alignment = 'LEFT'
                 row.scale_x = 2
@@ -567,6 +608,12 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         # row.alignment = "EXPAND"
         row.scale_x = 2.1
         row.prop(props, "filter_list_show")
+
+        row = layout.row()
+        row.label(text="Object Types:")
+        row = layout.row(align=True)
+        row.prop(props, "type_filter", expand=True)
+        layout.prop(props, "show_hidden")
 
         row = layout.row()
         row.label(text="Filter Objects by:")
@@ -665,14 +712,20 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
 
         return {'FINISHED'}
 
-def get_list_objects(context):
-    """Objects in the order the list shows them (only those that can be selected)."""
+def get_list_objects(context, include_hidden=False):
+    """Objects in the order the list shows them (only those that can be selected; with include_hidden, hidden
+    ones too), with the search applied."""
     props = context.scene.keyops.polycount_props
     view_layer_objects = context.view_layer.objects
+    needle = getattr(props, "search", "").strip().lower()
     objects = []
-    for item in polycount[:props.max_list_length]:
+    for item in polycount:
+        if len(objects) >= props.max_list_length:
+            break
+        if needle and needle not in str(item[0]).lower():
+            continue
         obj = view_layer_objects.get(item[0])
-        if obj is not None and obj not in objects:
+        if obj is not None and obj not in objects and (include_hidden or obj.visible_get()):
             objects.append(obj)
     return objects
 
@@ -779,6 +832,64 @@ class POLYCOUNT_OT_walk(bpy.types.Operator):
                     area.tag_redraw()
         return {'FINISHED'}
 
+EYE_ICONS = {False: 'HIDE_OFF', True: 'HIDE_ON'}
+
+
+class POLYCOUNT_OT_toggle_hide(bpy.types.Operator):
+    """Hide or show this object. Showing it again also turns on its viewport display (the monitor)"""
+    bl_idname = "keyops.polycount_toggle_hide"
+    bl_label = "Hide / Show"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    name: StringProperty(options={'SKIP_SAVE'})  # type: ignore
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if obj is None:
+            return {'CANCELLED'}
+        set_hidden(context, [obj], not is_hidden(obj, context.view_layer))
+        return {'FINISHED'}
+
+
+class POLYCOUNT_OT_hide_key(bpy.types.Operator):
+    """H over the Polycount List: hide the selected objects, or show them when they are all hidden"""
+    bl_idname = "keyops.polycount_hide_key"
+    bl_label = "Polycount List Hide"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return POLYCOUNT_OT_walk.poll(context)
+
+    def execute(self, context):
+        objs = [o for o in get_list_objects(context, include_hidden=True) if o.select_get()
+                or o == context.view_layer.objects.active]
+        if not objs:
+            return {'CANCELLED'}
+        set_hidden(context, objs, not all(is_hidden(o, context.view_layer) for o in objs))
+        return {'FINISHED'}
+
+
+def set_hidden(context, objs, hide):
+    """Hide, or force show (eye and monitor, so it really shows), and redraw the list."""
+    for obj in objs:
+        if hide:
+            try:
+                obj.hide_set(True)
+            except RuntimeError:
+                obj.hide_viewport = True
+        else:
+            obj.hide_viewport = False
+            try:
+                obj.hide_set(False)
+            except RuntimeError:
+                pass  # not in the view layer: the monitor was all we could switch
+    if context.screen is not None:
+        for area in context.screen.areas:
+            if area.type in {'PROPERTIES', 'VIEW_3D', 'OUTLINER'}:
+                area.tag_redraw()
+
+
 registered_polycount_keymaps = []
 
 def register_polycount_keymaps():
@@ -793,6 +904,8 @@ def register_polycount_keymaps():
                 kmi.properties.direction = direction
                 kmi.properties.extend = shift
                 registered_polycount_keymaps.append((km, kmi))
+        kmi = km.keymap_items.new(POLYCOUNT_OT_hide_key.bl_idname, 'H', 'PRESS')
+        registered_polycount_keymaps.append((km, kmi))
 
 def trim_numbers(number):
     if number < 1000:

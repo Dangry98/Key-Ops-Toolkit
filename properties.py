@@ -124,6 +124,28 @@ class PolyCountProperties(PropertyGroup):
         description="Show the time it took to draw the list",
         default=True
     )
+    search: StringProperty(  # type: ignore
+        name="Search",
+        description="Only list objects whose name contains this (not case sensitive)",
+        default="", options={'TEXTEDIT_UPDATE'}
+    )
+    type_filter: EnumProperty(  # type: ignore
+        name="Object Types",
+        description="Which kinds of objects the list shows",
+        items=[
+            ('MESH', "Mesh", "Meshes", 'OUTLINER_OB_MESH', 1),
+            ('CURVE', "Curve", "Curves and surfaces", 'OUTLINER_OB_CURVE', 2),
+            ('FONT', "Text", "Text objects", 'OUTLINER_OB_FONT', 4),
+            ('META', "Metaball", "Metaballs", 'OUTLINER_OB_META', 8),
+        ],
+        options={'ENUM_FLAG'},
+        default={'MESH', 'CURVE', 'FONT', 'META'}
+    )
+    show_hidden: BoolProperty(  # type: ignore
+        name="Show Hidden",
+        description="List hidden objects too, greyed out, with an eye button to show them again",
+        default=True
+    )
     keyboard_navigation: BoolProperty(  # type: ignore
         name="Keyboard Navigation",
         description="Up/Down Arrow or W/S moves the active object through the list while hovering it (in the Toolkit N-panel or Scene Properties). Hold Shift to extend the selection",

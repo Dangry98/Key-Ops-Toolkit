@@ -4,6 +4,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
 from mathutils import Vector, Matrix
+from ..utils.modifier_order import place_shape_modifier, sort_shading_last
 from ..utils.utilities import get_blender_key_icon
 
 AXES = "XYZ"
@@ -324,13 +325,9 @@ def get_mirror_origin_object(context, targets=None):
 
 
 def move_before_weighted_normal(obj, mod):
-    modifiers = obj.modifiers
-    names = [m.name for m in modifiers]
-    mod_index = names.index(mod.name)
-    for index, other in enumerate(modifiers):
-        if other.type == 'WEIGHTED_NORMAL' and index < mod_index:
-            modifiers.move(mod_index, index)
-            return
+    """Above the shading modifiers (Triangulate, Weighted Normal, Smooth by Angle) and pinned ones."""
+    place_shape_modifier(obj, mod)
+    sort_shading_last(obj)
 
 
 def get_or_create_mirror_modifier(obj, new_modifier, mirror_object):

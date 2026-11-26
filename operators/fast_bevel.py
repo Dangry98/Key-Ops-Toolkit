@@ -4,6 +4,11 @@ from math import radians, degrees
 from mathutils import Vector
 from bpy_extras import view3d_utils
 
+from ..utils.modifier_order import can_move, place_shape_modifier, sort_shading_last
+
+# number row (while not typing a value): segment presets
+SEGMENT_KEYS = {'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 6, 'SIX': 12}
+
 # Newer Blender features are used when available:
 #   - 4.3+: edit mode bevels are limited by a custom edge attribute
 #     (BevelModifier.edge_weight / vertex_weight) instead of a vertex group,
@@ -108,7 +113,8 @@ def _draw_status(header, context):
         item(('EVENT_SHIFT', 'EVENT_C'), "Loop Slide" + check(mod.loop_slide))
         item(('EVENT_N',), "Harden Normals" + check(mod.harden_normals))
         item(('EVENT_M',), f"Miter ({_nice(mod.miter_outer)})")
-    item(('EVENT_ONE', 'EVENT_TWO', 'EVENT_THREE'), "Edge / Vertex / Conversion")
+    item(('EVENT_ONE',), "- 6  Segments 1 2 3 4 6 12")
+    item(('EVENT_SHIFT', 'EVENT_ONE'), "- 3  Edge / Vertex / Conversion")
     item(('EVENT_X',), "Half of Previous")
     item(('EVENT_V',), "Toggle Viewport")
     item(('EVENT_Z',), "Wireframe")
@@ -304,17 +310,10 @@ class FastBevel(bpy.types.Operator):
         return mod
 
     def sort_new(self, obj, mod):
-        """Keep normal / triangulate / pinned modifiers below the new bevel."""
-        idx = obj.modifiers.find(mod.name)
-        for i, m in enumerate(obj.modifiers):
-            if i >= idx:
-                break
-            keep_below = m.type in {'WEIGHTED_NORMAL', 'TRIANGULATE'} or getattr(m, "use_pin_to_last", False)
-            if m.type == 'NODES' and any(n in m.name for n in ("Smooth by Angle", "Auto Smooth")):
-                keep_below = True
-            if keep_below:
-                obj.modifiers.move(idx, i)
-                break
+        """The new bevel goes above the shading modifiers (Triangulate, Weighted Normal, Smooth by Angle) and
+        the pinned ones, and the shading modifiers end up in shading order, so the bevel shades right."""
+        place_shape_modifier(obj, mod)
+        sort_shading_last(obj)
 
     # --- edit mode selection ---
 
@@ -501,7 +500,7 @@ class FastBevel(bpy.types.Operator):
         for obj, mod in self.target_mods():
             idx = obj.modifiers.find(mod.name)
             new = idx + direction
-            if 0 <= new < len(obj.modifiers):
+            if can_move(obj, mod, new):  # never into the modifiers pinned to the end
                 obj.modifiers.move(idx, new)
 
     def toggle(self, prop, label):
@@ -763,8 +762,14 @@ class FastBevel(bpy.types.Operator):
         elif t == 'Z':
             self.toggle_wire()
 
-        elif t in {'ONE', 'TWO', 'THREE'}:
-            self.preset(('ONE', 'TWO', 'THREE').index(t) + 1)
+        elif t in SEGMENT_KEYS and event.shift and t in {'ONE', 'TWO', 'THREE'}:
+            self.preset(('ONE', 'TWO', 'THREE').index(t) + 1)  # Edge / Vertex / Conversion
+        elif t in SEGMENT_KEYS and not event.shift:
+            segments = SEGMENT_KEYS[t]
+            for obj, mod in self.target_mods():
+                mod.segments = segments
+            self.report({'INFO'}, f"{segments} Segment{'s' if segments > 1 else ''}")
+            self.capture_base()
 
         elif t == 'X':
             self.half_of_previous(double=event.shift)

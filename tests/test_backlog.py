@@ -505,12 +505,161 @@ def test_edge_trim():
           str([round(r, 4) for r in ratios]))
 
 
+# ---------------------------------------------------------------- Phase 3
+
+def test_attribute_ops():
+    clear_scene()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=10, y_subdivisions=10)
+    obj = bpy.context.object
+    me = obj.data
+    me.attributes.new("Weight", 'FLOAT', 'POINT')
+    me.attributes.new("Tag", 'BOOLEAN', 'FACE')
+    me.attributes.new("Dir", 'FLOAT_VECTOR', 'EDGE')
+    me.attributes.new("Paint", 'BYTE_COLOR', 'CORNER')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(me)
+    for f in bm.faces:
+        f.select_set(f.index < 10)
+    bmesh.update_edit_mesh(me)
+    wm = bpy.context.window_manager
+
+    def run_on(name, action):
+        me.attributes.active = me.attributes[name]
+        return bpy.ops.keyops.atri_op(type=action)
+
+    r = run_on("Tag", "Assign")
+    bpy.ops.mesh.select_all(action='DESELECT')
+    r2 = run_on("Tag", "Select")
+    bm = bmesh.from_edit_mesh(me)
+    check("Attributes: boolean Assign then Select picks the same faces",
+          r == r2 == {'FINISHED'} and sum(f.select for f in bm.faces) == 10)
+    r3 = run_on("Tag", "Deselect")
+    bm = bmesh.from_edit_mesh(me)
+    check("Attributes: Deselect", r3 == {'FINISHED'} and sum(f.select for f in bm.faces) == 0)
+    for f in bm.faces:
+        f.select_set(f.index < 3)
+    bm.select_flush(True)
+    bmesh.update_edit_mesh(me)
+    want_v = sum(v.select for v in bm.verts)
+    want_e = sum(e.select for e in bm.edges)
+    wm.float_value = 0.5  # the live update assigns it
+    me.attributes.active = me.attributes["Weight"]
+    run_on("Weight", "Assign")
+    wm.keyops_vector_value = (1, 2, 3)
+    r_v = run_on("Dir", "Assign")
+    wm.float_color_value = (1, 0, 0, 1)
+    r_c = run_on("Paint", "Assign")
+    bpy.ops.object.mode_set(mode='OBJECT')
+    w = [d.value for d in me.attributes["Weight"].data]
+    dirs = [tuple(d.vector) for d in me.attributes["Dir"].data]
+    cols = [tuple(round(c, 2) for c in d.color) for d in me.attributes["Paint"].data]
+    check("Attributes: float value on the selected vertices", w.count(0.5) == want_v, f"{w.count(0.5)} of {want_v}")
+    check("Attributes: vector on the selected edges", r_v == {'FINISHED'} and dirs.count((1.0, 2.0, 3.0)) == want_e,
+          f"{dirs.count((1.0, 2.0, 3.0))} of {want_e}")
+    check("Attributes: byte color on the selected faces' corners",
+          r_c == {'FINISHED'} and sum(1 for c in cols if c[0] > 0.99 and c[1] < 0.01) == 12, str(cols[:2]))
+    bpy.ops.object.mode_set(mode='EDIT')
+    r_g = bpy.ops.keyops.atri_op(type="Face")
+    bpy.ops.object.mode_set(mode='OBJECT')
+    g = me.attributes.get("Face_Group")
+    check("Attributes: Face Group makes a boolean face attribute set on the selection",
+          r_g == {"FINISHED"} and g is not None and sum(d.value for d in g.data) == 3, f"{r_g} {g and sum(d.value for d in g.data)}")
+
+
+def test_parent_used_objects_unique():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    a = bpy.context.object
+    a.name = "A"
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    b = bpy.context.object
+    b.name = "B"
+    bpy.ops.mesh.primitive_cylinder_add(location=(2.5, 0, 0))
+    cut = bpy.context.object
+    cut.name = "SharedCutter"
+    for o in (a, b):
+        m = o.modifiers.new("Boolean", 'BOOLEAN')
+        m.object = cut
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    a.select_set(True)
+    bpy.context.view_layer.objects.active = a
+    res = bpy.ops.keyops.parent_used_objects(make_unique=True)
+    new = a.modifiers["Boolean"].object
+    check("Parent Used Objects (Make Unique): the selected object gets its own copy of a shared cutter",
+          res == {'FINISHED'} and new is not cut and new.parent == a and new.data is not cut.data)
+    check("Parent Used Objects (Make Unique): the other object keeps the original, unparented",
+          b.modifiers["Boolean"].object is cut and cut.parent is None)
+    check("Parent Used Objects (Make Unique): the copy stays where the cutter was",
+          (new.matrix_world.translation - cut.matrix_world.translation).length < 1e-6)
+
+
+def test_lattice_min_box():
+    import math
+    from mathutils import Matrix
+    gmu = sub("utils.geometry_math_utils")
+    # a box turned 30 degrees around Z and 20 around X: the minimum box finds its real size
+    rot = Matrix.Rotation(math.radians(30), 3, 'Z') @ Matrix.Rotation(math.radians(20), 3, 'X')
+    corners = [rot @ Vector((x * 2, y * 1, z * 0.5)) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
+    centre, r, size = gmu.min_oriented_box(corners)
+    check("minimum box: a turned box is fitted at its own size (not the world-aligned box)",
+          abs(size.x - 4) < 1e-3 and abs(size.y - 2) < 1e-3 and abs(size.z - 1) < 1e-3 and centre.length < 1e-4,
+          str([round(v, 3) for v in size]))
+    flat = [rot @ Vector((x, y, 0)) for x, y in ((0, 0), (3, 0), (3, 1), (0, 1), (1.5, 0.5))]
+    centre, r, size = gmu.min_oriented_box(flat)
+    check("minimum box: flat points are flat along the box's Z", size.z < 1e-4 and abs(size.x - 3) < 1e-3,
+          str([round(v, 3) for v in size]))
+
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    a = bpy.context.object
+    a.rotation_euler = (0.3, 0.2, 0.5)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(4, 0, 0))
+    b = bpy.context.object
+    for o in (a, b):
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = a
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    res = bpy.ops.keyops.add_modifier(type='LATTICE', min_box=True)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    lat = [o for o in bpy.data.objects if o.type == 'LATTICE']
+    mods = [m for o in (a, b) for m in o.modifiers if m.type == 'LATTICE']
+    check("Lattice (Edit Mode): every object with selected vertices gets the modifier, on its own group",
+          res == {'FINISHED'} and len(lat) == 1 and len(mods) == 2
+          and all(m.vertex_group in o.vertex_groups for o in (a, b) for m in o.modifiers if m.type == 'LATTICE'),
+          f"{res} lattices {len(lat)} mods {len(mods)}")
+
+
+def test_modifier_order():
+    mo = sub("utils.modifier_order")
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    obj = bpy.context.object
+    obj.modifiers.new("Weighted Normal", 'WEIGHTED_NORMAL')
+    obj.modifiers.new("Triangulate", 'TRIANGULATE')
+    pin = obj.modifiers.new("Pinned", 'DISPLACE')
+    if hasattr(pin, "use_pin_to_last"):
+        pin.use_pin_to_last = True
+    bev = obj.modifiers.new("Bevel", 'BEVEL')
+    mo.place_shape_modifier(obj, bev)
+    mo.sort_shading_last(obj)
+    names = [m.name for m in obj.modifiers]
+    want = ["Bevel", "Triangulate", "Weighted Normal", "Pinned"] if hasattr(pin, "use_pin_to_last") else None
+    check("modifier order: new shape modifier above shading, Triangulate before Weighted Normal, pinned last",
+          want is None or names == want, str(names))
+    check("modifier order: never moves a modifier into the pinned ones",
+          not hasattr(pin, "use_pin_to_last") or not mo.can_move(obj, obj.modifiers["Weighted Normal"], 3))
+
+
 def run():
     addon_utils.enable(MOD, default_set=True)
     for t in (test_revolve_axis, test_curve_tools, test_q_menu_migration, test_whats_new_not_automatic,
               test_header_element_button, test_duplicate_linked_in_object_menu,
               test_cylinder_sides_partial, test_none_live_booleans_undo, test_smart_apply_scale, test_rebevel,
-              test_alt_c_screw_and_instances, test_edge_trim):
+              test_alt_c_screw_and_instances, test_edge_trim,
+              test_attribute_ops, test_parent_used_objects_unique, test_lattice_min_box,
+              test_modifier_order):
         try:
             t()
         except Exception as e:  # noqa: BLE001

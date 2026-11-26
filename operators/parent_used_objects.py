@@ -70,6 +70,76 @@ def get_modifier_dependencies(obj, booleans_only=False):
     return unique
 
 
+def _object_users(booleans_only):
+    """For every object a modifier points at (directly, not through a collection): the objects whose
+    modifiers point at it."""
+    users = {}
+    for obj in bpy.data.objects:
+        for dep in _direct_dependencies(obj, booleans_only):
+            users.setdefault(dep.name_full, set()).add(obj.name_full)
+    return users
+
+
+def _direct_dependencies(obj, booleans_only):
+    """Objects obj's modifiers point at directly (a pointer or a Geometry Nodes Object input)."""
+    out = []
+    for mod in obj.modifiers:
+        if mod.type == 'BOOLEAN':
+            if getattr(mod, "operand_type", 'OBJECT') != 'COLLECTION' and mod.object is not None:
+                out.append(mod.object)
+            continue
+        if booleans_only:
+            continue
+        if mod.type == 'NODES':
+            node_group = getattr(mod, "node_group", None)
+            if node_group is None or not hasattr(node_group, "interface"):
+                continue
+            for item in node_group.interface.items_tree:
+                if getattr(item, "item_type", None) == 'SOCKET' and getattr(item, "in_out", None) == 'INPUT' \
+                        and item.socket_type in GN_OBJECT_SOCKETS:
+                    value = mod.get(item.identifier)
+                    if isinstance(value, bpy.types.Object):
+                        out.append(value)
+        else:
+            for prop in mod.bl_rna.properties:
+                if prop.type == 'POINTER' and prop.fixed_type is not None and prop.fixed_type.identifier == 'Object':
+                    value = getattr(mod, prop.identifier, None)
+                    if value is not None:
+                        out.append(value)
+    return [d for d in out if d is not obj]
+
+
+def _repoint(owner, old, new):
+    """Point owner's modifiers at new wherever they pointed at old. Returns how many were changed."""
+    changed = 0
+    for mod in owner.modifiers:
+        if mod.type == 'NODES' and getattr(mod, "node_group", None) is not None:
+            for item in mod.node_group.interface.items_tree:
+                if getattr(item, "item_type", None) == 'SOCKET' and getattr(item, "in_out", None) == 'INPUT' \
+                        and item.socket_type in GN_OBJECT_SOCKETS and mod.get(item.identifier) == old:
+                    mod[item.identifier] = new
+                    changed += 1
+            continue
+        for prop in mod.bl_rna.properties:
+            if prop.type == 'POINTER' and prop.fixed_type is not None and prop.fixed_type.identifier == 'Object' \
+                    and not prop.is_readonly and getattr(mod, prop.identifier, None) == old:
+                setattr(mod, prop.identifier, new)
+                changed += 1
+    if changed:
+        owner.update_tag()
+    return changed
+
+
+def _unique_copy(dep):
+    """A copy of dep with its own data, in the same collections."""
+    new = dep.copy()
+    if dep.data is not None:
+        new.data = dep.data.copy()
+    for coll in dep.users_collection:
+        coll.objects.link(new)
+    return new
+
+
 def _is_self_or_ancestor(candidate, obj):
     """True if candidate is obj or one of obj's parents (parenting would create a cycle)."""
     current = obj
@@ -106,6 +176,13 @@ class ParentUsedObjects(bpy.types.Operator):
         default='ALL',
     )  # type: ignore
 
+    make_unique: bpy.props.BoolProperty(
+        name="Make Unique",
+        description="Objects that other (unselected) objects' modifiers also use, like a cutter shared by two "
+                    "meshes, are copied for the selected object first, so parenting them never moves the others",
+        default=False,
+    )  # type: ignore
+
     recursive: bpy.props.BoolProperty(
         name="Recursive",
         description="Also parent the dependencies of the dependencies (e.g. cutters on a cutter) to their own owner",
@@ -129,9 +206,12 @@ class ParentUsedObjects(bpy.types.Operator):
         processed = set()  # objects whose dependencies were already handled
         parented_count = 0
         skipped_count = 0
+        copied_count = 0
+        users = _object_users(booleans_only) if self.make_unique else {}
+        root_names = {r.name_full for r in roots}
 
         def process(owner):
-            nonlocal parented_count, skipped_count
+            nonlocal parented_count, skipped_count, copied_count
             if owner.name_full in processed:
                 return
             processed.add(owner.name_full)
@@ -142,6 +222,19 @@ class ParentUsedObjects(bpy.types.Operator):
                 if dep.library is not None or _is_self_or_ancestor(dep, owner):
                     skipped_count += 1
                     continue
+                if self.make_unique:
+                    others = users.get(dep.name_full, set()) - {owner.name_full} - root_names
+                    if others:  # used by objects that aren't being parented to: give this owner its own copy
+                        new = _unique_copy(dep)
+                        if _repoint(owner, dep, new):
+                            users.setdefault(new.name_full, set()).add(owner.name_full)
+                            users[dep.name_full].discard(owner.name_full)
+                            dep = new
+                            copied_count += 1
+                        else:  # only reachable through a collection: can't repoint it, so leave it shared
+                            bpy.data.objects.remove(new)
+                            skipped_count += 1
+                            continue
                 if dep.parent != owner:
                     _parent_keep_transform(dep, owner)
                     parented_count += 1
@@ -156,6 +249,8 @@ class ParentUsedObjects(bpy.types.Operator):
             self.report({'INFO'}, "No new dependencies to parent")
         else:
             msg = f"Parented {parented_count} object{'s' if parented_count != 1 else ''}"
+            if copied_count:
+                msg += f", {copied_count} made unique"
             if skipped_count:
                 msg += f" (skipped {skipped_count})"
             self.report({'INFO'}, msg)

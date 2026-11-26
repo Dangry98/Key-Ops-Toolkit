@@ -152,3 +152,109 @@ class GeometryMath:
                 projected = dRes[5]
 
         return vert, edge, vertex_pixel_distance, edge_pixel_distance, projected
+
+
+# ---------------------------------------------------------------- minimum oriented bounding box
+
+def _min_rect_2d(points2d):
+    """Smallest-area rectangle around 2D points: (area, angle, (min_u, max_u, min_v, max_v)) with u, v the
+    rectangle's axes rotated by angle. Rotating calipers over the convex hull's edges."""
+    import math
+    from mathutils import Vector
+    from mathutils.geometry import convex_hull_2d
+    if len(points2d) < 3:
+        hull = list(points2d)
+    else:
+        hull = [points2d[i] for i in convex_hull_2d(points2d)]
+    best = None
+    n = len(hull)
+    angles = set()
+    for i in range(n):
+        d = hull[(i + 1) % n] - hull[i]
+        if d.length > 1e-12:
+            angles.add(round(math.atan2(d.y, d.x) % (math.pi / 2), 9))
+    if not angles:
+        angles = {0.0}
+    for a in angles:
+        c, s = math.cos(a), math.sin(a)
+        us = [p.x * c + p.y * s for p in hull]
+        vs = [-p.x * s + p.y * c for p in hull]
+        box = (min(us), max(us), min(vs), max(vs))
+        area = (box[1] - box[0]) * (box[3] - box[2])
+        if best is None or area < best[0] - 1e-12:
+            best = (area, a, box)
+    return best
+
+
+def min_oriented_box(points):
+    """The smallest box around 3D points, as (centre, rotation 3x3 with the box axes as columns, size).
+    The box's axes are sorted so Z is the thinnest (a flat set of points is flat along Z).
+    Tries the normals of the convex hull's faces as one axis and fits the smallest rectangle across them."""
+    import bmesh
+    from mathutils import Matrix, Vector
+    pts = [Vector(p) for p in points]
+    if not pts:
+        return Vector(), Matrix.Identity(3), Vector()
+    centre0 = sum(pts, Vector()) / len(pts)
+    normals = []
+    bm = bmesh.new()
+    try:
+        for p in pts:
+            bm.verts.new(p)
+        try:
+            res = bmesh.ops.convex_hull(bm, input=list(bm.verts))
+            faces = [g for g in res["geom"] if isinstance(g, bmesh.types.BMFace)]
+            for f in faces:
+                f.normal_update()
+                n = f.normal.copy()
+                if n.length > 1e-9 and not any(abs(n.dot(m)) > 0.9999 for m in normals):
+                    normals.append(n)
+                if len(normals) > 400:
+                    break
+        except (ValueError, RuntimeError):
+            pass
+    finally:
+        bm.free()
+    if not normals:  # flat or a line: the plane's normal from the spread of the points
+        normals = [_flat_normal(pts, centre0)]
+    best = None
+    for n in normals:
+        n = n.normalized()
+        u = n.orthogonal().normalized()
+        w = n.cross(u)
+        p2 = [Vector(((p - centre0).dot(u), (p - centre0).dot(w))) for p in pts]
+        area, a, box = _min_rect_2d(p2)
+        hs = [(p - centre0).dot(n) for p in pts]
+        depth = max(hs) - min(hs)
+        vol = area * depth if depth > 1e-9 else area * 1e-9
+        if best is None or vol < best[0] - 1e-12:
+            import math
+            c, s = math.cos(a), math.sin(a)
+            ax_u = (u * c + w * s).normalized()
+            ax_v = n.cross(ax_u).normalized()
+            centre = (centre0 + ax_u * (box[0] + box[1]) * 0.5 + ax_v * (box[2] + box[3]) * 0.5
+                      + n * (min(hs) + max(hs)) * 0.5)
+            best = (vol, centre, [(ax_u, box[1] - box[0]), (ax_v, box[3] - box[2]), (n, depth)])
+    _vol, centre, axes = best
+    axes.sort(key=lambda a: -a[1])  # longest first, thinnest last (Z)
+    x, y = axes[0][0], axes[1][0]
+    z = x.cross(y).normalized()  # right-handed
+    rot = Matrix((x, y, z)).transposed()
+    return centre, rot, Vector((axes[0][1], axes[1][1], axes[2][1]))
+
+
+def _flat_normal(pts, centre):
+    from mathutils import Matrix, Vector
+    cov = Matrix(((0, 0, 0), (0, 0, 0), (0, 0, 0)))
+    for p in pts:
+        d = p - centre
+        for i in range(3):
+            for j in range(3):
+                cov[i][j] += d[i] * d[j]
+    try:
+        import numpy as np
+        vals, vecs = np.linalg.eigh(np.array([list(r) for r in cov]))
+        n = Vector(vecs[:, 0])
+    except Exception:  # noqa: BLE001
+        n = Vector((0, 0, 1))
+    return n.normalized() if n.length > 1e-9 else Vector((0, 0, 1))
