@@ -527,6 +527,8 @@ class FastLoopCut(bpy.types.Operator):
             edit_object=obj,
             selected_objects=[obj],
             selected_editable_objects=[obj],
+            objects_in_mode=[obj],
+            objects_in_mode_unique_data=[obj],
         ):
             if bpy.ops.mesh.set_mesh_edge_flow.poll():
                 bpy.ops.mesh.set_mesh_edge_flow(tension=self.flow_tension, iterations=self.flow_iterations)
