@@ -49,8 +49,11 @@ def ctx():
     return dict(window=window(), area=a, region=region(a), screen=window().screen)
 
 
-def to_window(x, y):
-    """Area-relative fractions (0..1) or pixels to window pixels."""
+def to_window(x, y=None):
+    """Area-relative fractions (0..1) or region pixels to window pixels. x may be a function returning (x, y),
+    worked out when the step runs (e.g. a 3D point projected to the screen)."""
+    if callable(x):
+        x, y = x()
     a = area()
     r = region(a) or a
     px = r.x + (x * r.width if isinstance(x, float) and x <= 1.0 else x)
@@ -111,8 +114,12 @@ def _steps_gen(steps):
             _redraw()
             yield 0.05
         elif kind == "move":
-            x1, y1 = to_window(step[1], step[2])
-            secs = step[3] if len(step) > 3 else 0.5
+            if callable(step[1]):
+                x1, y1 = to_window(step[1])
+                secs = step[2] if len(step) > 2 else 0.5
+            else:
+                x1, y1 = to_window(step[1], step[2])
+                secs = step[3] if len(step) > 3 else 0.5
             x0, y0 = state["mouse"] or (x1, y1)
             n = max(1, int(secs / 0.02))
             for i in range(1, n + 1):
@@ -139,7 +146,9 @@ def _steps_gen(steps):
             ev(button, 'RELEASE', **mods)
             yield 0.15
         elif kind == "drag":
-            (xa, ya), (xb, yb) = step[1], step[2]
+            a_pt = step[1]() if callable(step[1]) else step[1]
+            b_pt = step[2]() if callable(step[2]) else step[2]
+            (xa, ya), (xb, yb) = a_pt, b_pt
             secs = step[3] if len(step) > 3 else 0.6
             button = step[4] if len(step) > 4 else 'LEFTMOUSE'
             state["mouse"] = to_window(xa, ya)
@@ -196,9 +205,19 @@ def run(steps, first_delay=2.0, quit_after=True):
                 if quit_after:
                     bpy.ops.wm.quit_blender()
                 return None
-        bpy.app.timers.register(tick, first_interval=0.1)
+        bpy.app.timers.register(tick, first_interval=0.1, persistent=True)
         return None
-    bpy.app.timers.register(start, first_interval=first_delay)
+    bpy.app.timers.register(start, first_interval=first_delay, persistent=True)
+
+
+def world_to_px(co):
+    """A function giving the region pixel position of a 3D point in the current 3D View (for move/drag steps)."""
+    def fn():
+        from bpy_extras.view3d_utils import location_3d_to_region_2d
+        a = area()
+        p = location_3d_to_region_2d(region(a), a.spaces.active.region_3d, co)
+        return (int(p.x), int(p.y)) if p is not None else (0, 0)
+    return fn
 
 
 def scene_cube(edit=False, select_mode='FACE'):

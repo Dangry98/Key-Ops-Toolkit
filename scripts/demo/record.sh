@@ -11,7 +11,7 @@ disp=":$((90 + RANDOM % 9))"
 Xvfb "$disp" -screen 0 "${W}x${H}x24" -nolisten tcp >/dev/null 2>&1 &
 xpid=$!
 sleep 1
-DISPLAY="$disp" "$blender" --enable-event-simulate --window-geometry 0 0 "$W" "$H" --no-window-focus --python "$script" "$@" >"${out%.mp4}.log" 2>&1 &
+DISPLAY="$disp" timeout "${DEMO_TIMEOUT:-240}" "$blender" --enable-event-simulate --window-geometry 0 0 "$W" "$H" --no-window-focus --python "$script" "$@" >"${out%.mp4}.log" 2>&1 &
 bpid=$!
 # wait for the window to draw, then record until Blender exits
 if [ "${NO_RECORD:-0}" = 1 ]; then wait $bpid; kill $xpid 2>/dev/null; echo "ran $script"; exit 0; fi

@@ -228,15 +228,52 @@ def copy_modifier(target, source, string=""):
 #         return {'FINISHED'}
 
 
+def _scale_modifiers(obj, scale, operator):
+    """Make the object's modifiers keep their look after its scale (average of X, Y, Z) is applied.
+    Returns warnings, e.g. about displacement textures."""
+    warnings = []
+    for mod in obj.modifiers:
+        if mod.type in MODS and mod.show_viewport:
+            if MODS[mod.type] == 'function':
+                result = globals()["func" + mod.type](mod, scale, obj, operator)
+                if result:
+                    warnings.append(result)
+            else:
+                for attrname in MODS[mod.type]:
+                    if hasattr(mod, attrname):
+                        setattr(mod, attrname, getattr(mod, attrname) * scale)
+    if operator.geomtryNodes:
+        func_geom_nodes(scale, obj)
+    return warnings
+
+
+def _real_users(data):
+    return data.users - (1 if data.use_fake_user else 0)
+
+
+def _is_linked(obj):
+    return bool(obj.library or (obj.data is not None and getattr(obj.data, "library", None))
+                or getattr(obj, "override_library", None))
+
+
+def _keep_children_in_place(obj, scale_matrix):
+    """The parent's scale goes to 1: fold it into each child's parent inverse so children don't move."""
+    for child in obj.children:
+        child.matrix_parent_inverse = scale_matrix @ child.matrix_parent_inverse
+
+
 class SmartApplyScale(bpy.types.Operator):
     bl_idname = "object.smart_apply_scale"
     bl_label = "Smart Apply Scale"
-    bl_description = "Apply scale while compensating in the modifiers for the scale difference"
+    bl_description = ("Apply scale while compensating in the modifiers for the scale difference. Objects that "
+                      "share their mesh keep sharing it when they have the same scale")
     bl_options = {'REGISTER', 'UNDO'}
 
-    deselect : bpy.props.BoolProperty(name="Deselect problem objects", default=False) # type: ignore
     scaleTextures: bpy.props.BoolProperty(name="Scale displacement textures", default=False) # type: ignore
-    makeClonesReal: bpy.props.BoolProperty(name="Make objects single user", default=False) # type: ignore
+    makeClonesReal: bpy.props.BoolProperty(
+        name="Make Single User When Needed", default=True,
+        description="Objects that share a mesh with objects of another scale (or with unselected objects) get "
+                    "their own copy of it, so their scale can be applied. Off: those are skipped") # type: ignore
     geomtryNodes: bpy.props.BoolProperty(name="Fix Geometry Nodes Modifiers", default=True, description="Only works if the input has Distance Subtype (m)") # type: ignore
     auto_fix_normals: bpy.props.BoolProperty(name="Auto Fix normals", default=True, description="Recalculate normals after applying scale if inverted scale") # type: ignore
 
@@ -247,114 +284,156 @@ class SmartApplyScale(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "deselect")
-        layout.prop(self, "scaleTextures")
         layout.prop(self, "makeClonesReal")
+        layout.prop(self, "scaleTextures")
         layout.prop(self, "geomtryNodes")
         layout.prop(self, "auto_fix_normals")
 
-    def execute(self, context):
-        objects = context.selected_objects
-        notEven = []
-        clones = []
-        funcWarnings = []
-        isClonesModified = False
-        warningMessage = ""
+    # ------------------------------------------------------------ applying
+    def _apply_one_by_one(self, context, objs):
+        """Blender's own apply, one object at a time (one failure doesn't stop the others).
+        Returns (applied, failed[(obj, reason)])."""
+        applied, failed = [], []
+        if not objs:
+            return applied, failed
+        selected = list(context.selected_objects)
+        active = context.view_layer.objects.active
+        for o in selected:
+            o.select_set(False)
+        try:
+            batch = [o for o in objs]
+            # one call for all: fast; if Blender refuses, retry each on its own to find which can't
+            for o in batch:
+                o.select_set(True)
+            context.view_layer.objects.active = batch[0]
+            try:
+                self._transform_apply(batch)
+                applied = batch
+            except RuntimeError:
+                for o in batch:
+                    o.select_set(False)
+                for o in batch:
+                    o.select_set(True)
+                    context.view_layer.objects.active = o
+                    try:
+                        self._transform_apply([o])
+                        applied.append(o)
+                    except RuntimeError as e:
+                        failed.append((o, str(e).strip().splitlines()[-1] if str(e).strip() else "Blender refused"))
+                    o.select_set(False)
+        finally:
+            for o in context.selected_objects:
+                o.select_set(False)
+            for o in selected:
+                if o.name in context.view_layer.objects:
+                    o.select_set(True)
+            context.view_layer.objects.active = active
+        return applied, failed
 
+    def _transform_apply(self, objs):
+        if BLENDER_VERSION >= (5, 0, 0):
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True,
+                                           corrective_flip_normals=self.auto_fix_normals)
+            return
+        flipped = []
+        if self.auto_fix_normals:
+            flipped = [o for o in objs if o.type == "MESH" and o.scale.x * o.scale.y * o.scale.z < 0]
+            for o in flipped:
+                o.data.flip_normals()
+        try:
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        except RuntimeError:
+            for o in flipped:  # nothing was applied: undo the flip
+                o.data.flip_normals()
+            raise
+
+    def _apply_shared(self, users, data):
+        """Objects that share one mesh/curve and have the same scale: scale the shared data once and set each
+        object's scale to 1, so they keep sharing it."""
+        from mathutils import Matrix
+        sx, sy, sz = users[0].scale
+        m = Matrix.Diagonal((sx, sy, sz, 1.0))
+        data.transform(m)
+        if self.auto_fix_normals and sx * sy * sz < 0 and hasattr(data, "flip_normals"):
+            data.flip_normals()
+        for o in users:
+            _keep_children_in_place(o, m)
+            o.scale = (1.0, 1.0, 1.0)
+
+    def execute(self, context):
+        objects = list(context.selected_objects)
         if not objects:
             self.report({'WARNING'}, "No objects selected")
-            return { 'CANCELLED' }
-
+            return {'CANCELLED'}
         if context.mode != 'OBJECT':
             self.report({'WARNING'}, "Smart Apply Scale only works in Object Mode")
-            return { 'CANCELLED' }
+            return {'CANCELLED'}
 
+        skipped = []          # (obj, reason)
+        to_apply = []         # Blender's apply, own data
+        shared_groups = []    # (data, [objects]) applied to the shared data
+        uneven = 0
+        selected_set = set(objects)
+
+        by_data = {}
         for obj in objects:
-            if not obj.data:
+            if tuple(obj.scale) == (1.0, 1.0, 1.0):
                 continue
+            if _is_linked(obj):
+                skipped.append((obj, "linked from a library"))
+                continue
+            if obj.data is not None and _real_users(obj.data) > 1:
+                by_data.setdefault(obj.data, []).append(obj)
+            else:
+                to_apply.append(obj)
 
-            users = obj.data.users
-            if obj.data.use_fake_user:
-                users-=1
-            if users > 1:
-                if self.makeClonesReal & (not isClonesModified):
-                    isClonesModified = True
-                    bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True, material=False, animation=False)
-                    warningMessage = "Objects are single user now. "
-                else:
-                    clones.append(obj)
-                    continue
+        single_user_made = 0
+        for data, users in by_data.items():
+            all_users = [o for o in bpy.data.objects if o.data == data]
+            same_scale = all(tuple(o.scale) == tuple(users[0].scale) for o in users)
+            if same_scale and set(all_users) <= selected_set and hasattr(data, "transform"):
+                shared_groups.append((data, users))
+            elif self.makeClonesReal:
+                for o in users:
+                    o.data = o.data.copy()
+                    single_user_made += 1
+                    to_apply.append(o)
+            else:
+                for o in users:
+                    skipped.append((o, "shares its mesh with objects of another scale"))
 
-            s = obj.scale
-            isEven = s[0] == s[1] == s[2]
-            if not isEven:
-                notEven.append(obj)
+        # remember each object's scale before applying, for its modifiers
+        scales = {o: abs(sum(o.scale) / 3.0) for o in to_apply + [o for _d, us in shared_groups for o in us]}
+        uneven = sum(1 for o in scales if not (o.scale[0] == o.scale[1] == o.scale[2]))
 
-            scale = abs((s[0] + s[1] + s[2]) / 3)
+        applied, failed = self._apply_one_by_one(context, to_apply)
+        skipped += failed
+        for data, users in shared_groups:
+            self._apply_shared(users, data)
+            applied += users
 
-            for mod in obj.modifiers:
-                if (mod.type in MODS) & mod.show_viewport:
-                    if MODS[mod.type] == 'function':
-                        result = globals()["func" + mod.type](mod, scale, obj, self)
-                        if result:
-                            funcWarnings.append((obj, result))
-                    else:
-                        for attrname in MODS[mod.type]:
-                            if not hasattr(mod, attrname):
-                                continue
-                            val = getattr(mod, attrname)
-                            setattr(mod, attrname, val * scale)
-            if self.geomtryNodes:
-                func_geom_nodes(scale, obj)
+        warnings = {}
+        for o in applied:
+            for w in _scale_modifiers(o, scales[o], self):
+                warnings[w] = warnings.get(w, 0) + 1
 
-        warningObjects = []
-        if len(funcWarnings):
-            keys = {}
-            for obj, w in funcWarnings:
-                warningObjects.append(obj)
-
-                if not w in keys:
-                    keys[w] = 1
-                else:
-                    keys[w] += 1
-
-            for k in keys:
-                warningMessage += ("{:d} " + k + " ").format(keys[k])
-
-
-        clonesLen = len(clones)
-        if clonesLen:
-            warningMessage += "{:d} objects are multi-user, ignoring ".format(clonesLen)
-            objectsSelectSet(clones, False)
-
-        notEvenLen = len(notEven)
-        if notEvenLen:
-            warningMessage += "Scale of {:d} objects is not even. ".format(notEvenLen)
-        if warningMessage:
-            self.report({'WARNING'}, warningMessage + "Some issues are possible ")
-
-        def old_apply_scale(auto_fix_normals=False):
-            if auto_fix_normals:
-                objs_with_neg_scale = [obj for obj in objects if obj.type == "MESH" and (obj.scale.x < 0 or obj.scale.y < 0 or obj.scale.z < 0)]
-                for obj in objs_with_neg_scale:
-                    obj.data.flip_normals()
-
-            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-        if BLENDER_VERSION < (5, 0, 0):
-            old_apply_scale(self.auto_fix_normals)
-        else:
-            try:
-                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True, corrective_flip_normals=self.auto_fix_normals)
-            except:
-                old_apply_scale(self.auto_fix_normals)
-
-        objectsSelectSet(clones, True)
-
-        if self.deselect:
-            objectsSelectSet(clones + notEven + warningObjects, False)
-
-        return { 'FINISHED' }
+        parts = [f"Applied scale to {len(applied)} object{'s' if len(applied) != 1 else ''}"]
+        shared_n = sum(len(us) for _d, us in shared_groups)
+        if shared_n:
+            parts.append(f"{shared_n} still share their mesh")
+        if single_user_made:
+            parts.append(f"{single_user_made} got their own mesh")
+        if uneven:
+            parts.append(f"{uneven} had uneven scale (modifiers use the average)")
+        for w, n in warnings.items():
+            parts.append(f"{n} {w}")
+        if skipped:
+            reasons = {}
+            for _o, r in skipped:
+                reasons[r] = reasons.get(r, 0) + 1
+            parts.append("skipped " + ", ".join(f"{n} ({r})" for r, n in reasons.items()))
+        self.report({'WARNING'} if skipped or uneven else {'INFO'}, "; ".join(parts))
+        return {'FINISHED'} if applied or not skipped else {'CANCELLED'}
 
 def menu_apply(self, context):
     if not feature_on("toolkit_panel"):

@@ -179,7 +179,9 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
     def invoke(self, context, event):
         self.select_mode = tuple(context.tool_settings.mesh_select_mode)
         self.snaps = self._snapshots(context)
+        self.quick = self._quick(context)
         self.pending = self.click = self.deselect = False
+        self.fast = None  # a short timer, only while a pick waits to be grown
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         state["running"] = True
@@ -188,9 +190,28 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
     def _snapshots(self, context):
         return {o.name: snapshot(bmesh.from_edit_mesh(o.data)) for o in _edit_meshes(context)}
 
+    @staticmethod
+    def _quick(context):
+        """Cheap per-mesh state: selection totals (kept by Blender) and the active element. When these haven't
+        changed, the selection hasn't either, so the full comparison is skipped."""
+        out = {}
+        for o in _edit_meshes(context):
+            me = o.data
+            bm = bmesh.from_edit_mesh(me)
+            act = bm.select_history.active
+            out[o.name] = (me.total_vert_sel, me.total_edge_sel, me.total_face_sel, len(bm.verts),
+                           _key(act) if act else None)
+        return out
+
+    def _stop_fast(self, context):
+        if self.fast is not None:
+            context.window_manager.event_timer_remove(self.fast)
+            self.fast = None
+
     def _finish(self, context):
         state["running"] = False
         state["mode"] = "NONE"
+        self._stop_fast(context)
         context.window_manager.event_timer_remove(self.timer)
         for area in context.screen.areas if context.screen else ():
             area.tag_redraw()
@@ -204,7 +225,10 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
 
     def update(self, context):
         changed = False
+        quick = self._quick(context)
         for obj in _edit_meshes(context):
+            if not self.click and quick.get(obj.name) == self.quick.get(obj.name) and obj.name in self.snaps:
+                continue  # nothing changed in this mesh: skip the full comparison
             bm = bmesh.from_edit_mesh(obj.data)
             before = self.snaps.get(obj.name)
             if before is None:
@@ -214,6 +238,7 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
             if did:
                 bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
                 changed = True
+        self.quick = self._quick(context) if changed else quick
         if changed:
             bpy.ops.ed.undo_push(message="Select Element")
 
@@ -240,14 +265,18 @@ class KEYOPS_OT_sub_object_watch(bpy.types.Operator):
                 and not (event.shift or event.alt or event.oskey) and self._ctrl_deselect(context, event):
             self.pending, self.deselect = True, True
             return {'RUNNING_MODAL'}
-        if event.type in {'LEFTMOUSE', 'RIGHTMOUSE'}:  # a pick happens on this event: look on the next one
+        if event.type in {'LEFTMOUSE', 'RIGHTMOUSE'}:  # a pick happens on this event: look right after it
             self.pending = True
-            if event.value == 'PRESS' and not self.deselect:
+            # Blender's click-select picks on release (press when select-on-press): both count as a pick
+            if event.value in {'PRESS', 'RELEASE'} and event.type == 'LEFTMOUSE' and not self.deselect:
                 self.click = True
+            if self.fast is None:  # Blender picks after this event: grow it on the very next tick (~10 ms)
+                self.fast = context.window_manager.event_timer_add(0.01, window=context.window)
             return {'PASS_THROUGH'}
         if self.pending and event.type in {'TIMER', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
             self.update(context)
             self.pending = self.click = self.deselect = False
+            self._stop_fast(context)
         return {'PASS_THROUGH'}
 
 

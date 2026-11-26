@@ -188,6 +188,42 @@ def get_description(type: str) -> str:
                 "from a profile. The axis is picked from the profile (change it in Adjust Last Operation).\n"
                 "Everything that is not selected in this object is deleted first")
 
+def make_instances_real(context, instances):
+    """Turn collection-instance empties into real objects (each a single user, so modifiers can be
+    applied), keep them selected, and remove the now-empty instancers. Returns how many objects were made."""
+    view_layer = context.view_layer
+    keep_active = view_layer.objects.active
+    if keep_active in instances:
+        keep_active = None  # it may be removed below
+    others = [o for o in context.selected_objects if o not in instances]
+    for o in context.selected_objects:
+        o.select_set(False)
+    made = []
+    for inst in instances:
+        inst.select_set(True)
+        view_layer.objects.active = inst
+        before = set(context.scene.objects)
+        bpy.ops.object.duplicates_make_real(use_base_parent=False, use_hierarchy=True)
+        new = [o for o in context.scene.objects if o not in before]
+        for o in new:
+            if o.data is not None and o.data.users > 1:
+                o.data = o.data.copy()  # its own data: applying modifiers mustn't change the collection's
+        made += new
+        inst.select_set(False)
+    for inst in instances:
+        if not inst.children:
+            bpy.data.objects.remove(inst)
+        else:
+            inst.instance_type = 'NONE'
+    for o in others + made:
+        if o.name in view_layer.objects:
+            o.select_set(True)
+    active = keep_active if keep_active and keep_active.name in view_layer.objects else (made[0] if made else None)
+    if active is not None:
+        view_layer.objects.active = active
+    return len(made)
+
+
 def revolve_axis(points):
     """The local axis ('X', 'Y' or 'Z') to revolve a profile around: the one it runs along most while
     sitting away from it (a vertical line beside the origin makes a cylinder around Z). A flat profile through
@@ -693,6 +729,13 @@ class ToolkitPanel(bpy.types.Operator):
             import time
             perf_time = time.time()
 
+            # collection instances: make their objects real first, so their modifiers can be applied too
+            instances = [o for o in bpy.context.selected_objects
+                         if o.type == 'EMPTY' and o.instance_type == 'COLLECTION' and o.instance_collection]
+            if instances:
+                made_real = make_instances_real(bpy.context, instances)
+                self.report({'INFO'}, f"Made {len(instances)} collection instance(s) real ({made_real} objects)")
+
             if self.convert_to_options == "Insta_Apply_Modifiers":
                 new_selected_objects = bpy.context.selected_objects
                 new_selected_meshes = [obj for obj in new_selected_objects if obj.type == 'MESH']
@@ -714,8 +757,7 @@ class ToolkitPanel(bpy.types.Operator):
                             bmesh.update_edit_mesh(obj.data)
                             
                         if self.remove_modifiers:
-                            for modifier in obj.modifiers:
-                                obj.modifiers.remove(modifier) 
+                            obj.modifiers.clear()
 
                     for obj in selected_curves:
                         name = obj.name
@@ -1327,6 +1369,7 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         _op("keyops.toolkit_panel", "Halve Sides", type="un_subdivide_cylinder"),
         _op("keyops.toolkit_panel", "Double Sides", type="subdivide_cylinder"),
         _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", type="change_cylinder_segments_modifier")),
+        _op("keyops.rebevel", "Re-Bevel"), _op("keyops.rebevel", "Remove Bevel", remove=True),
     ])
 
 

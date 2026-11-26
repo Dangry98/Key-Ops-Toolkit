@@ -134,21 +134,33 @@ def is_current_running_modal_transform_none_live_booleans(dummy1, dummy2):
             was_transforming = is_transforming
 
 def delete_temp_objs_on_redo_undo(dummy1, dummy2): # need to do this since the bpy.opps.transform.translate() creates a undo step where the temp objects still exist
+    """Undo/redo can land on the step where a transform's temporary cutter copies still exist. Remove the
+    copies that are really in the scene in that step and show their cutters again; a cutter is only
+    selected when its copy was (it stood in for it). Copies from earlier transforms that aren't in the
+    scene are left alone, so undo never touches other booleans' cutters or the selection."""
     global obj_to_delete
     all_objects = bpy.data.objects
+    view_layer_objects = bpy.context.view_layer.objects
+    live = []
+    for obj_name in obj_to_delete:
+        temp = all_objects.get(obj_name)
+        if temp is not None and temp.users_collection and temp.name in view_layer_objects:
+            live.append((temp, temp.select_get()))
+    # forget copies that no longer exist at all
+    obj_to_delete = [n for n in obj_to_delete if n in all_objects]
+    if not live:
+        return
 
-    objects_to_delete = [all_objects[obj_name] for obj_name in obj_to_delete if obj_name in all_objects]
+    faster_objs_delete([temp for temp, _sel in live])
 
-    faster_objs_delete(objects_to_delete)
+    for temp, was_selected in live:
+        cutter = all_objects.get(temp.name.replace("temp_boolean_cutter_", "", 1))
+        if cutter is None or cutter.name not in view_layer_objects:
+            continue
+        cutter.hide_set(False)
+        if was_selected:
+            cutter.select_set(True)
 
-    for obj in objects_to_delete:
-        cutter_name = obj.name.replace("temp_boolean_cutter_", "")
-        if cutter_name in all_objects:
-            cutter = bpy.data.objects[cutter_name]
-            if cutter.name in bpy.context.view_layer.objects:
-                cutter.hide_set(False)
-                cutter.select_set(True)
-   
     # refresh viewport the object someitmes does not translate to the correct location at first undo/redo due to it being in the last captured undo step in that lcoation before the temp objects took over
     # bpy.ops.transform.translate(value=(0, 0, 0), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=False, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'GRID', 'VERTEX', 'FACE'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
     # print("Deleted temp objects in: " + str(time.time() - exec_time) + " seconds")

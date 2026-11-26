@@ -8,8 +8,9 @@ centre), so a circle stays a circle, ovals stay close to their shape, and bent p
 Faces copy materials and smoothing, UVs and other corner data are interpolated from the old faces, and
 seams, sharp edges and creases are kept where an old edge lines up with a new one.
 
-Shapes that are joined to other geometry along their sides or ends are left alone and reported, so the
-operator never tears the mesh.
+Where the walk meets geometry it can't follow (a boss joined to a plate, a fillet, an uneven ring) it stops
+there: that ring keeps its sides, and a strip of quads and triangles joins it to the rebuilt rings, so the rest
+of the shape still changes and the mesh never tears.
 """
 
 import math
@@ -146,6 +147,7 @@ class Chain:
         self.rings = []    # ordered vertex lists, all aligned (index i lines up along the shape)
         self.strips = []   # (ring_p, ring_q, faces along ring_p's edges, forward)
         self.caps = []     # (ring, kind, data, forward)
+        self.fixed = set() # rings that touch other geometry: they keep their vertices
 
 
 def find_chain(start):
@@ -155,6 +157,7 @@ def find_chain(start):
     sides = {}
     visited = set(start)
     closed = False
+    stopped = {}  # side -> True when the walk stopped at geometry it can't follow
     for forward in (True, False):
         seq, strips, cap = [], [], None
         cur = start
@@ -174,7 +177,8 @@ def find_chain(start):
                 seq.append(nxt)
                 cur = nxt
             elif kind == 'BAD':
-                return None, "The shape is joined to other geometry or has uneven rings"
+                stopped[forward] = True  # this ring touches other geometry: keep it, rebuild up to it
+                break
             else:
                 cap = (kind, data)
                 break
@@ -196,12 +200,20 @@ def find_chain(start):
         chain.caps.append((i0 + len(seq_a), cap_a[0], cap_a[1], True))
     if cap_b and cap_b[0] != 'OPEN':
         chain.caps.append((i0 - len(seq_b), cap_b[0], cap_b[1], False))
+    if stopped.get(True):
+        chain.fixed.add(i0 + len(seq_a))
+    if stopped.get(False):
+        chain.fixed.add(i0 - len(seq_b))
+    if len(chain.fixed) >= len(chain.rings):
+        return None, "The shape is joined to other geometry right at the selected loop"
 
-    # Nothing else may hang on the shape, or rebuilding it would tear the mesh
+    # Nothing else may hang on the rings that get rebuilt, or rebuilding them would tear the mesh
     allowed = {f for _, _, faces, _ in chain.strips for f in faces}
     for _, kind, data, _ in chain.caps:
         allowed |= {data} if kind == 'NGON' else set(data[0])
-    for ring in chain.rings:
+    for x, ring in enumerate(chain.rings):
+        if x in chain.fixed:
+            continue
         for v in ring:
             if any(f not in allowed for f in v.link_faces) or any(not e.link_faces for e in v.link_edges):
                 return None, "The shape is joined to other geometry"
@@ -298,7 +310,10 @@ def rebuild(bm, chain, sides):
     old_ring_edges = [_loop_edges(ring) for ring in chain.rings]
 
     new_rings = []
-    for ring, (c, axis, u, w, ang, rad, hgt) in zip(chain.rings, shapes):
+    for x, (ring, (c, axis, u, w, ang, rad, hgt)) in enumerate(zip(chain.rings, shapes)):
+        if x in chain.fixed:
+            new_rings.append(None)  # keeps its own vertices
+            continue
         verts = []
         for t in ts:
             i = _segment(ang, t)
@@ -321,6 +336,11 @@ def rebuild(bm, chain, sides):
     for p, q, faces, forward in chain.strips:
         ang = shapes[p][4]
         P, Q = new_rings[p], new_rings[q]
+        if P is None and Q is None:
+            continue  # both rings stay: so does the strip between them
+        if P is None or Q is None:
+            _transition(bm, chain, shapes, new_rings, ts, p, q, faces, forward)
+            continue
         for k in range(sides):
             k1 = (k + 1) % sides
             sa, sb, mid = spans(ang, k)
@@ -359,6 +379,8 @@ def rebuild(bm, chain, sides):
 
     # Ring edges keep the flags (and selection) of the old ring edge they lie on
     for x, ring in enumerate(new_rings):
+        if ring is None:
+            continue
         ang = shapes[x][4]
         for k in range(sides):
             new = _edge_between(ring[k], ring[(k + 1) % sides])
@@ -367,8 +389,59 @@ def rebuild(bm, chain, sides):
                 _copy_edge(bm, old, new)
                 new.select_set(old.select)
 
-    bmesh.ops.delete(bm, geom=list({v for ring in chain.rings for v in ring}), context='VERTS')
+    bmesh.ops.delete(bm, geom=list({v for x, ring in enumerate(chain.rings) if x not in chain.fixed for v in ring}),
+                     context='VERTS')
     return None
+
+
+def _transition(bm, chain, shapes, new_rings, ts, p, q, faces, forward):
+    """Join a ring that keeps its vertices to a rebuilt one: walk round both by angle and make a quad where
+    their points line up, a triangle where one has a point the other hasn't."""
+    keep = p if new_rings[p] is None else q
+    built = q if keep == p else p
+    c, axis, u, w = shapes[built][:4]
+    old_ang = shapes[p][4]
+    kept = [(math.atan2((v.co - c).dot(w), (v.co - c).dot(u)) % FULL, v) for v in chain.rings[keep]]
+    start = min(range(len(kept)), key=lambda i: kept[i][0])
+    kept = kept[start:] + kept[:start]
+    new = list(zip(ts, new_rings[built]))
+    A, B = (kept, new) if keep == p else (new, kept)  # A runs along ring p, B along ring q
+    na, nb = len(A), len(B)
+
+    def angle(lst, i):
+        return lst[i % len(lst)][0] + FULL * (i // len(lst))
+
+    def src(t):
+        return faces[_segment(old_ang, t)]
+
+    i = j = 0
+    while i < na or j < nb:
+        a_next = angle(A, i + 1) if i < na else math.inf
+        b_next = angle(B, j + 1) if j < nb else math.inf
+        a0, b0 = A[i % na][1], B[j % nb][1]
+        if abs(a_next - b_next) < 1e-4:
+            vs = [a0, A[(i + 1) % na][1], B[(j + 1) % nb][1], b0]
+            mid = (a_next + angle(A, i)) * 0.5
+            i, j = i + 1, j + 1
+        elif a_next < b_next:
+            vs = [a0, A[(i + 1) % na][1], b0]
+            mid = (a_next + angle(A, i)) * 0.5
+            i += 1
+        else:
+            vs = [a0, B[(j + 1) % nb][1], b0]
+            mid = (b_next + angle(B, j)) * 0.5
+            j += 1
+        if len(set(vs)) < 3:
+            continue
+        if not forward:
+            vs.reverse()
+        old = src(mid)
+        try:
+            face = bm.faces.new(vs, old)
+        except ValueError:
+            continue  # already exists
+        face.select_set(old.select)
+        _interp_loops(face, {v: old for v in vs})
 
 
 # ---------------------------------------------------------------- operator
@@ -459,6 +532,10 @@ class KEYOPS_OT_set_cylinder_sides(bpy.types.Operator):
                                          [e.index for e in bm.edges if e.select],
                                          [f.index for f in bm.faces if f.select])
         self.mode, self.change = "CHANGE", 0
+        self._dirty = False
+        # wheel ticks only set the count; the mesh is rebuilt on the next timer tick, so fast scrolling on a
+        # heavy mesh rebuilds once instead of once per tick
+        self._timer = context.window_manager.event_timer_add(0.03, window=context.window)
         context.window_manager.modal_handler_add(self)
         self._update(context)
         return {'RUNNING_MODAL'}
@@ -485,6 +562,9 @@ class KEYOPS_OT_set_cylinder_sides(bpy.types.Operator):
             bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
 
     def _cleanup(self, context):
+        if getattr(self, "_timer", None) is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
         for tmp in self._backup.values():
             bpy.data.meshes.remove(tmp)
         self._backup = {}
@@ -514,8 +594,14 @@ class KEYOPS_OT_set_cylinder_sides(bpy.types.Operator):
             else:
                 self.change += 1 if up else -1
             self.change = max(self._min_change, self.change)
+            self._dirty = True
+            context.area.header_text_set(f"Sides: {self._base + self.change if self._single else f'{self.change:+d}'}")
+        elif event.type == 'TIMER' and self._dirty:
+            self._dirty = False
             self._update(context)
         elif event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'SPACE'} and event.value == 'PRESS':
+            if self._dirty:
+                self._update(context)
             self._cleanup(context)
             return {'FINISHED'}
         elif event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':

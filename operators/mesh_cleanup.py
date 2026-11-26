@@ -44,6 +44,57 @@ def _counts(bm):
     return len(bm.verts), len(bm.edges), len(bm.faces)
 
 
+class _ScrewSafe:
+    """The operator's options, but loose edges and vertices are kept: on an object with a Screw modifier
+    they are the profile the modifier turns into faces."""
+
+    def __init__(self, opts):
+        self._opts = opts
+
+    def __getattr__(self, name):
+        if name in ("loose_edges", "loose_verts"):
+            return False
+        if name == "redundant_verts":  # profile points shape the revolved surface
+            return False
+        return getattr(self._opts, name)
+
+
+def _screws(obj):
+    return [m for m in obj.modifiers if m.type == 'SCREW' and m.show_viewport]
+
+
+def _points_inward(obj, depsgraph):
+    """True when the evaluated mesh's faces mostly face its centre (its normals are flipped)."""
+    ev = obj.evaluated_get(depsgraph)
+    try:
+        me = ev.to_mesh()
+    except RuntimeError:
+        return False
+    try:
+        if not len(me.polygons):
+            return False
+        centre = sum((v.co for v in me.vertices), me.vertices[0].co * 0) / len(me.vertices)
+        score = sum(p.area * p.normal.dot(p.center - centre) for p in me.polygons)
+        size = sum(p.area for p in me.polygons) * max(ev.dimensions) * 1e-3
+        return score < -size
+    finally:
+        ev.to_mesh_clear()
+
+
+def fix_screw_normals(context, objs):
+    """Objects with a Screw modifier: when the surface it makes faces inward, flip the modifier's normals
+    (its Flip option) instead of touching the profile. Returns how many were flipped."""
+    flipped = 0
+    context.view_layer.update()
+    depsgraph = context.evaluated_depsgraph_get()
+    for obj in objs:
+        screws = _screws(obj)
+        if screws and _points_inward(obj, depsgraph):
+            screws[-1].use_normal_flip = not screws[-1].use_normal_flip
+            flipped += 1
+    return flipped
+
+
 def clean(bm, scope, opts, select=True):
     """Run the chosen steps on one bmesh; returns (step counts, removed (v, e, f), problem edge count, found)."""
     report = {}
@@ -259,17 +310,20 @@ class KEYOPS_OT_mesh_cleanup(bpy.types.Operator):
                 context.tool_settings.mesh_select_mode = mode
             for obj in objs:
                 bm = bmesh.from_edit_mesh(obj.data)
-                add(clean(bm, self.scope, self))
+                add(clean(bm, self.scope, _ScrewSafe(self) if _screws(obj) else self))
                 bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
         else:
-            objs = {o.data: o for o in context.selected_objects if o.type == 'MESH'}.values()
+            objs = list({o.data: o for o in context.selected_objects if o.type == 'MESH'}.values())
             for obj in objs:
                 bm = bmesh.new()
                 bm.from_mesh(obj.data)
-                add(clean(bm, "ALL", self, select=False))
+                add(clean(bm, "ALL", _ScrewSafe(self) if _screws(obj) else self, select=False))
                 bm.to_mesh(obj.data)
                 bm.free()
                 obj.data.update()
+        screw_flips = fix_screw_normals(context, objs) if self.normals else 0
+        if screw_flips:
+            totals["Screw normals flipped"] = screw_flips
 
         fixed = [f"{v} {k}" for k, v in totals.items() if v]
         v, e, f = removed

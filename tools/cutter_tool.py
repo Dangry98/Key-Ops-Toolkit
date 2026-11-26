@@ -575,6 +575,8 @@ Add mode makes a new object from the shape instead"""
     outline: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     target_names: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     mirror_pivot: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
+    # drawn from the grid floor into selected objects: the depth may go either way, like Add
+    free_depth: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -623,7 +625,8 @@ Add mode makes a new object from the shape instead"""
         depth = self.depth_amount
         if abs(depth) < MIN_DEPTH:
             depth = math.copysign(MIN_DEPTH, depth)
-        self.depth = depth if is_add else -abs(depth)  # negative Add depth goes into the surface
+        # negative Add depth goes into the surface; a cut from the floor keeps its side too
+        self.depth = depth if (is_add or self.free_depth) else -abs(depth)
         self.cutter = None
         self.created = []
         self.mirror_object = bpy.data.objects.get(self.mirror_pivot) if self.mirror_pivot else None
@@ -685,13 +688,40 @@ Add mode makes a new object from the shape instead"""
         center = self._profile_center()
         verts, faces = build_prism([p - center for p in profile], z_range[0], z_range[1])
         to_local = obj.matrix_world.inverted_safe()
-        for mirror in self._mirror_matrices():
+        mirrors = self._mirror_matrices()
+        pivot = getattr(self, "mirror_object", None)
+        axes = [i for i, on in enumerate((self.mirror_x, self.mirror_y, self.mirror_z)) if on]
+        all_new = []
+        for mirror in mirrors:
             matrix = to_local @ mirror @ self._cutter_matrix(center)
             flipped = matrix.determinant() < 0.0  # a mirrored copy would be inside out
             new_verts = [bm.verts.new(matrix @ Vector(co)) for co in verts]
+            new_faces = []
             for face in faces:
                 indices = reversed(face) if flipped else face
-                bm.faces.new([new_verts[i] for i in indices]).select_set(True)
+                f = bm.faces.new([new_verts[i] for i in indices])
+                f.select_set(True)
+                new_faces.append(f)
+            if len(mirrors) > 1 and pivot is not None:
+                # bisect each copy at the mirror planes, keeping its own side, so copies meet instead of overlapping
+                to_pivot = pivot.matrix_world.inverted_safe() @ obj.matrix_world
+                from_pivot = to_pivot.inverted_safe()
+                centre = sum((v.co for v in new_verts), Vector()) / len(new_verts)
+                c_piv = to_pivot @ centre
+                for axis in axes:
+                    n_piv = Vector((0.0, 0.0, 0.0))
+                    n_piv[axis] = 1.0 if c_piv[axis] >= 0.0 else -1.0
+                    plane_co = from_pivot @ Vector((0.0, 0.0, 0.0))
+                    plane_no = (from_pivot.to_3x3() @ n_piv).normalized()
+                    geom = [g for g in set(new_verts) | {e for f in new_faces if f.is_valid for e in f.edges}
+                            | {f for f in new_faces if f.is_valid} if g.is_valid]
+                    res = bmesh.ops.bisect_plane(bm, geom=geom, plane_co=plane_co, plane_no=plane_no,
+                                                 clear_inner=True, dist=1e-6)
+                    new_verts = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert) and g.is_valid] or new_verts
+                    new_faces = [g for g in res["geom"] if isinstance(g, bmesh.types.BMFace) and g.is_valid]
+            all_new += [v for v in new_verts if v.is_valid]
+        if len(mirrors) > 1:
+            bmesh.ops.remove_doubles(bm, verts=[v for v in all_new if v.is_valid], dist=1e-5)
         bmesh.update_edit_mesh(obj.data)
 
     def _mirror_matrices(self):
@@ -724,6 +754,13 @@ Add mode makes a new object from the shape instead"""
             mod = self.cutter.modifiers.new(name="Mirror", type='MIRROR')
         mod.use_axis = axes
         mod.mirror_object = pivot
+        # Bisect at the mirror plane, keeping the cutter's own side: a cutter that crosses the plane would
+        # otherwise overlap its mirrored copy, and booleans with overlapping cutters fail
+        side = pivot.matrix_world.inverted_safe() @ self.cutter.matrix_world.translation
+        mod.use_bisect_axis = axes
+        mod.use_bisect_flip_axis = tuple(on and side[i] < 0.0 for i, on in enumerate(axes))
+        mod.use_clip = False
+        mod.use_mirror_merge = True
 
     def _store_outline(self, profile):
         """Box and circle store their bounds (circle segments stay editable on redo), ngon its points."""
@@ -799,11 +836,16 @@ Add mode makes a new object from the shape instead"""
         self.mirror_object = hit[3] if hit and hit[3] in self.targets else (self.targets[0] if self.targets else None)
         self.mirror_pivot = self.mirror_object.name if self.mirror_object else ""
 
+        self.free_depth = False
         if hit is None:
-            # Nothing under the cursor: always Add a new mesh, built up from the grid floor
+            # Nothing under the cursor: drawn on the grid floor. With objects selected it cuts them (the depth
+            # may go up or down from the floor); with nothing to cut it adds a new mesh
             self.on_floor = True
-            self.operation = 'ADD'
-        elif self.operation != 'ADD':
+            if not self.targets:
+                self.operation = 'ADD'
+            else:
+                self.free_depth = True
+        if self.operation != 'ADD' and self.targets:
             # Fast or Manifold to suit what is cut, switched on the tool so the header shows it
             solver = pick_boolean_solver(context, self.targets, self.solver)
             if solver != self.solver:
@@ -1003,6 +1045,11 @@ Add mode makes a new object from the shape instead"""
             mesh.from_pydata(verts, [], faces)
             _set_side_bevel_weights(mesh, len(local))
             ensure_bevel_modifier(self.cutter, self._bevel_radius(hx, hy), self.bevel_segments, self.bevel_profile)
+            # live, not only on confirm: where the bevels meet (full width) their ends are welded together
+            if self._bevel_overlaps(profile):
+                ensure_weld_modifier(self.cutter)
+            else:
+                remove_modifiers(self.cutter, 'WELD')
         else:
             local = [p - center for p in profile]
             verts, faces = build_prism(local, z_range[0], z_range[1])
@@ -1010,6 +1057,7 @@ Add mode makes a new object from the shape instead"""
 
         if self.shape != 'BOX' or not self.bevel:
             remove_modifiers(self.cutter, 'BEVEL')
+            remove_modifiers(self.cutter, 'WELD')
         mesh.update()
         self.cutter.matrix_world = matrix
         self._update_mirror_modifier()
@@ -1059,6 +1107,8 @@ Add mode makes a new object from the shape instead"""
     def _update_live(self, context):
         if not self.live or context.mode != 'OBJECT':
             return  # Edit Mode cuts are applied on confirm, the overlay is the preview
+        if self.phase == 'DRAW' and not self.has_dragged:
+            return  # a plain click selects: nothing is built until the mouse is dragged
         profile = self.profile()
         z = self.z_range(profile) if profile else None
         if z is None or (not self.targets and self.operation != 'ADD'):
@@ -1090,7 +1140,8 @@ Add mode makes a new object from the shape instead"""
         if not self.targets and self.operation != 'ADD':
             self.report({'INFO'}, "Nothing to cut")
             return {'CANCELLED'}
-        self.depth_amount = self.depth if self.operation == 'ADD' else abs(self.depth)  # Add keeps its side
+        # Add (and a cut from the floor) keeps its side
+        self.depth_amount = self.depth if (self.operation == 'ADD' or self.free_depth) else abs(self.depth)
         self.target_names = TARGET_SEPARATOR.join(o.name for o in self.targets)
         return self.execute(context)
 
@@ -1139,8 +1190,8 @@ Add mode makes a new object from the shape instead"""
     def _apply_settings(self, context, values):
         """Apply changed settings to the running cut. Returns True when something changed."""
         values = {k: v for k, v in values.items() if getattr(self, k) != v}
-        if self.on_floor:
-            values.pop('operation', None)  # started on the floor: always Add, there is nothing to cut
+        if self.on_floor and not self.targets:
+            values.pop('operation', None)  # started on the floor with nothing to cut: always Add
         if 'shape' in values:
             new, old = values['shape'], self.shape
             if self.phase == 'EXTRUDE' and 'NGON' in (new, old):
@@ -1352,8 +1403,8 @@ Add mode makes a new object from the shape instead"""
                         self.snap_point = None
                     if had_snap != self.snap_point:
                         self.region.tag_redraw()
-                    if self.operation == 'ADD':
-                        # Add goes either way: out of the surface or into it, never flat
+                    if self.operation == 'ADD' or self.free_depth:
+                        # Add (and a cut drawn on the floor) goes either way: out of the surface or into it
                         if abs(depth) < MIN_DEPTH:
                             depth = math.copysign(MIN_DEPTH, depth)
                     else:
@@ -1374,7 +1425,16 @@ Add mode makes a new object from the shape instead"""
                     self._cancel(context)
                     return self._click_select(context, event)
                 return self._end_draw(context, mouse)
-            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
+            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value == 'RELEASE' and len(self.points) == 1:
+                # the press that started the tool: a click selects, a drag draws the first side
+                if not self.has_dragged:
+                    self._cancel(context)
+                    return self._click_select(context, event)
+                p = self._mouse_to_plane(mouse, event.ctrl)
+                if p is not None and (p - self.points[-1]).length > 1e-6:
+                    self.points.append(p)
+                    changed = True
+            elif self.phase == 'DRAW' and self.shape == 'NGON' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
                 # Close the ngon by clicking the first point, the last point again, or double clicking
                 if len(self.points) >= 3 and (event.value == 'DOUBLE_CLICK'
                                               or self._near_point(mouse, self.points[0])
@@ -1575,8 +1635,8 @@ Add mode makes a new object from the shape instead"""
         except ReferenceError:
             return
         batches = self._batches
-        if not batches:
-            return
+        if not batches or (self.phase == 'DRAW' and not self.has_dragged):
+            return  # nothing shows until the mouse is dragged (a plain click selects)
 
         color = OPERATION_COLORS.get(self.operation, (1.0, 1.0, 1.0))
         gpu.state.blend_set('ALPHA')

@@ -27,14 +27,14 @@ from .operators import (
     edge_trim, extract_geometry, extrude_edge_along_normals, fast_merge, fast_mirror, fast_solidify,
     flatten, legacy_shortcuts, looptools_menu, material_index, maya_navigation, maya_pivot, mesh_cleanup,
     modi_key, offset_extrude_edge, optional_keys, origin_to_selection, outliner_options,
-    parent_used_objects, poly_count_list, quick_bake_name, quick_export, resample_edges, select_similar,
+    parent_used_objects, poly_count_list, quick_bake_name, quick_export, rebevel, resample_edges, select_similar,
     set_cylinder_sides, set_flow, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
     uv_tools, viewport_menu,
 )
 from .operators.xray_select import register_xray_select, unregister_xray_select
 from .tools import cutter_tool, fast_loop_cut, merge_tool
 from .ui import toolkit_paneL_ui, welcome
-from .utils.pref_utils import get_keyops_prefs, unregister_icons
+from .utils.pref_utils import get_keyops_prefs, register_icon_refresh, unregister_icon_refresh, unregister_icons
 
 
 def register_module(module):
@@ -59,6 +59,7 @@ def register():
     properties.register_properties()
     pie_menus.register_properties()
     bpy.utils.register_class(KeyOpsPreferences)
+    register_icon_refresh()
 
     # Toolbar tools
     register_module(merge_tool)
@@ -79,6 +80,7 @@ def register():
     register_module(edge_trim)
     register_module(resample_edges)
     register_module(set_cylinder_sides)
+    register_module(rebevel)
     register_module(mesh_cleanup)
     register_module(set_flow)
     register_module(curve_tools)
@@ -179,6 +181,7 @@ def unregister():
     unregister_module(curve_tools)
     unregister_module(set_flow)
     unregister_module(mesh_cleanup)
+    unregister_module(rebevel)
     unregister_module(set_cylinder_sides)
     unregister_module(resample_edges)
     unregister_module(edge_trim)
@@ -196,6 +199,7 @@ def unregister():
     unregister_module(fast_loop_cut)
     unregister_module(merge_tool)
 
+    unregister_icon_refresh()
     unregister_icons()
     bpy.utils.unregister_class(KeyOpsPreferences)
     pie_menus.unregister_properties()

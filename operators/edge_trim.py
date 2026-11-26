@@ -2,7 +2,9 @@
 out for a trim sheet.
 
 Select edges, run it, get a trim: each chain gets an L profile swept along it, mitred at the turns so the
-flanges keep their width. Its UVs are one piece: U runs along the length (fitted to the sheet, or tiled per
+flanges keep their width. The default Mixed profile lays each flange on the face beside the edge, at whatever
+angle the faces meet (so a trim on a slope or an n-gon never cuts into it), and stands one flange up on
+border edges. Its UVs are one piece: U runs along the length (fitted to the sheet, or tiled per
 metre), V spans the chosen strip of the trim sheet across the L, split at the corner by flange width, so a
 trim texture lines up without any UV editing. Works on open chains and closed loops, on wire edges or edges
 on a surface. Which side the L goes on and which way it points are guessed from the geometry so it hugs the
@@ -37,6 +39,30 @@ def _base_face(edge):
     """The face an upright trim stands on: the one facing most upward (a floor or a top), else any."""
     faces = list(edge.link_faces) if edge else []
     return max(faces, key=lambda f: f.normal.dot(Z_UP)) if faces else None
+
+
+def _in_face(face, mid, t):
+    """Direction inside a face, across the edge (perpendicular to it), from the edge into the face."""
+    d = face.calc_center_median() - mid
+    d -= d.project(t)
+    d -= d.project(face.normal)
+    return d.normalized() if d.length > 1e-9 else None
+
+
+def _mixed_dirs(faces, t, up):
+    """Mixed profile: (flange A direction, flange B direction) lying on the faces beside the edge, or None when
+    the edge has no faces / more than two. A is the more upward face (a box top, a floor), else the one on the
+    +side, so a whole chain keeps A on the same surface. A border edge's second flange stands up from its face."""
+    if not faces or len(faces) > 2:
+        return None
+    if len(faces) == 1:
+        f = faces[0]
+        return ("ONE", f, None)
+    fa, fb = faces
+    if abs(fa.normal.dot(Z_UP) - fb.normal.dot(Z_UP)) > 0.1:
+        if fb.normal.dot(Z_UP) > fa.normal.dot(Z_UP):
+            fa, fb = fb, fa
+    return ("TWO", fa, fb)
 
 
 def _segment_frames(verts, closed, profile):
@@ -77,7 +103,19 @@ def _segment_frames(verts, closed, profile):
             inward = Vector()
         faces = list(edge.link_faces) if edge else []
         normals = sum((f.normal for f in faces), Vector())
-        frames.append((t, up, t.cross(up).normalized(), inward, normals, _up_vote(faces, base, up, mid, t, profile)))
+        side = t.cross(up).normalized()
+        dirs = None
+        if profile == "MIXED":
+            kind = _mixed_dirs(faces, t, up)
+            if kind is not None and kind[0] == "TWO":
+                da, db = _in_face(kind[1], mid, t), _in_face(kind[2], mid, t)
+                if da is not None and db is not None and da.dot(db) > -0.999:  # two faces folding at the edge
+                    dirs = (da, db, (kind[1].normal + kind[2].normal).normalized())
+            elif kind is not None:
+                da = _in_face(kind[1], mid, t)
+                if da is not None:
+                    dirs = (da, kind[1].normal.copy(), kind[1].normal.copy())
+        frames.append((t, up, side, inward, normals, _up_vote(faces, base, up, mid, t, profile), dirs))
     return frames
 
 
@@ -181,8 +219,12 @@ def trim_chains(bm):
     return chains, 0
 
 
-def _profile(up, side, opts, a, b):
+def _profile(up, side, opts, a, b, dirs=None):
     """The L's three points (flange A end, corner, flange B end) as offsets from the edge, in one frame."""
+    if dirs is not None:  # Mixed: each flange lies on its face; the gap lifts the trim off both faces
+        da, db, lift = dirs
+        corner = lift * opts.offset
+        return (corner + da * a, corner, corner + db * b)
     corner = up * opts.offset
     if opts.profile == "WRAP":  # fold around the edge: both flanges lie back along the surface, 90 degrees apart
         d1, d2 = (-up + side).normalized(), (-up - side).normalized()
@@ -236,7 +278,16 @@ def make_trims(bm, opts):
         up_sign = guess_up(frames) * (-1.0 if opts.flip_up else 1.0)  # hug the faces, or the other way
         segs = [(f[0], f[1] * up_sign, f[2] * sign) for f in frames]
         outward = [f[4] for f in frames]  # the edge's face normals: the trim's visible side faces the same way
-        profiles = [_profile(up, side, opts, a, b) for _t, up, side in segs]
+        # Mixed falls back to Upright for wire edges (and where the faces can't tell)
+        def mixed(dirs):
+            # Flip Side swaps which face gets which flange; Flip Up puts the trim on the other side of the surface
+            if dirs is None or opts.profile != "MIXED":
+                return None
+            da, db, lift = dirs
+            if opts.flip_side:
+                da, db = db, da
+            return (da, db, -lift if opts.flip_up else lift)
+        profiles = [_profile(up, side, opts, a, b, mixed(f[6])) for (_t, up, side), f in zip(segs, frames)]
         rows = []  # per point: (flange A end, corner, flange B end)
         for i, v in enumerate(verts):
             prev_s = (i - 1) % len(segs) if (closed or i > 0) else None
@@ -260,6 +311,9 @@ def make_trims(bm, opts):
             u_per_metre = (span / all_length) / total_len
             u_base = u_start
             u_start += span / all_length
+        elif opts.u_mode == "ASPECT":  # square texels: a metre along the trim gets as much U as V gets across it
+            u_per_metre = abs(opts.v_max - opts.v_min) / total if total > 0 else 1.0
+            u_base = 0.0
         else:
             u_per_metre, u_base = opts.u_scale, 0.0
         for i in range(len(lengths) - 1):
@@ -288,10 +342,27 @@ def make_trims(bm, opts):
             corner = next((e for e in rows[i][1].link_edges if e.other_vert(rows[i][1]) is rows[j][1]), None)
             if corner is not None:
                 corner_edges.append(corner)
-    for e in corner_edges:  # the L's 90 degree corner stays crisp when shaded smooth
-        e.smooth = False
+    if opts.smooth:  # smooth all the way: no sharp edges anywhere on the trim
+        for f in new_faces:
+            for e in f.edges:
+                e.smooth = True
+    else:
+        for e in corner_edges:
+            e.smooth = False
     bm.select_flush(True)
     return len(chains), skipped, new_faces
+
+
+def clear_custom_normals(me):
+    """Drop custom split normals a trim object got from the mesh it came from (it has its own shading)."""
+    attr = me.attributes.get("custom_normal")
+    if attr is not None:  # Blender 4.4+: custom normals are an attribute
+        me.attributes.remove(attr)
+    elif getattr(me, "has_custom_normals", False):
+        try:
+            me.normals_split_custom_set([(0.0, 0.0, 0.0)] * len(me.loops))  # zero vectors: back to automatic
+        except (RuntimeError, ValueError, TypeError):
+            pass
 
 
 class KEYOPS_OT_edge_trim(bpy.types.Operator):
@@ -301,8 +372,12 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
                       "for a trim sheet")
     bl_options = {'REGISTER', 'UNDO'}
 
-    profile: EnumProperty(name="Profile", default="UPRIGHT", items=(
-        ("WRAP", "Wrap Edge", "Fold around the edge like a corner moulding: both flanges lie back along the surface"),
+    profile: EnumProperty(name="Profile", default="MIXED", items=(
+        ("MIXED", "Mixed", "Each flange lies on the face beside the edge, at whatever angle the faces meet, so the "
+                           "trim always follows the surface (a fold around outside corners, into inside ones). "
+                           "Border edges get one flange standing up; loose edges stand up like Upright"),
+        ("WRAP", "Wrap Edge", "Fold around the edge like a corner moulding: both flanges lie back along the surface, "
+                              "90 degrees apart"),
         ("UPRIGHT", "Upright", "Stand one flange up from the surface, the other lying on it"))) # type: ignore
     width_a: FloatProperty(name="Width", default=0.05, soft_min=-1.0, soft_max=1.0, subtype='DISTANCE',
                            description="Width of the flanges. Negative points them the other way") # type: ignore
@@ -319,12 +394,15 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
                                       "the trim hugs the faces at the edge: around an outside corner, into an inside one") # type: ignore
     flip_normals: BoolProperty(name="Flip Normals", default=False) # type: ignore
     smooth: BoolProperty(name="Smooth Shading", default=True,
-                         description="Shade the trim smooth; the corner of the L stays sharp") # type: ignore
+                         description="Shade the trim smooth, with no sharp edges and no custom normals. "
+                                     "Off: flat, with the corner of the L marked sharp") # type: ignore
     v_min: FloatProperty(name="V Min", default=0.0, soft_min=0.0, soft_max=1.0,
                          description="Bottom of the trim's strip on the trim sheet") # type: ignore
     v_max: FloatProperty(name="V Max", default=0.125, soft_min=0.0, soft_max=1.0,
                          description="Top of the trim's strip on the trim sheet") # type: ignore
-    u_mode: EnumProperty(name="Length", items=(
+    u_mode: EnumProperty(name="Length", default="ASPECT", items=(
+        ("ASPECT", "Keep Aspect", "No stretching: a metre along the trim gets as much of the sheet as the trim's "
+                                  "width gets across it (square texels)"),
         ("FIT", "Fit to Sheet", "The whole trim spans the sheet once, from left to right (U 0 to 1)"),
         ("TILE", "Tile per Metre", "The texture repeats along the trim, a set number of times per metre"))) # type: ignore
     u_scale: FloatProperty(name="UV per Metre", default=1.0, min=0.0, soft_max=10.0,
@@ -361,7 +439,7 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         col = layout.column(align=True)
         col.prop(self, "v_min")
         col.prop(self, "v_max")
-        layout.row().prop(self, "u_mode", expand=True)
+        layout.prop(self, "u_mode")
         col = layout.column(align=True)
         if self.u_mode == "TILE":
             col.prop(self, "u_scale")
@@ -382,9 +460,13 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         if self.separate:
             before = set(bpy.data.objects)
             bpy.ops.mesh.separate(type='SELECTED')
+            new_objs = set(bpy.data.objects) - before  # the new trim objects
             if self.clear_modifiers:
-                for obj in set(bpy.data.objects) - before:  # the new trim objects
+                for obj in new_objs:
                     obj.modifiers.clear()
+            if self.smooth:
+                for obj in new_objs:
+                    clear_custom_normals(obj.data)
         if skipped:
             self.report({'INFO'}, f"Skipped {skipped} selection(s) that branch")
         return {'FINISHED'}

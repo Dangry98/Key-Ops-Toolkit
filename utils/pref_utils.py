@@ -160,3 +160,40 @@ def load_icon_now(icon):
     file is loading can stay empty. Reading its pixels loads the image straight away, so it always shows."""
     icon.icon_pixels[0:1]
 
+
+def refresh_icons():
+    """After a file loads: make sure every Key Ops icon still has its image (reload the empty ones) and
+    redraw, so icons never go missing when a file is opened while the mouse is over Key Ops' UI."""
+    from ..ui import branding
+    for col in (icons_collection, getattr(branding, "_previews", None)):
+        if col is None:
+            continue
+        for icon in list(col.values()):
+            try:
+                if not icon.icon_size[0] or not icon.image_size[0]:
+                    icon.reload()
+                load_icon_now(icon)
+                icon.image_pixels[0:1]
+            except (ReferenceError, AttributeError):
+                pass
+    wm = getattr(bpy.context, "window_manager", None)
+    for window in (wm.windows if wm else ()):
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
+@bpy.app.handlers.persistent
+def refresh_icons_after_load(_dummy=None):
+    # one tick later: the new file's screens exist then, and drawing them picks up the icons
+    bpy.app.timers.register(lambda: refresh_icons() and None, first_interval=0.05)
+
+
+def register_icon_refresh():
+    if refresh_icons_after_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(refresh_icons_after_load)
+
+
+def unregister_icon_refresh():
+    if refresh_icons_after_load in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(refresh_icons_after_load)
+
