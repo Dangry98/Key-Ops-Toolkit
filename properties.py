@@ -52,6 +52,11 @@ class PolyCountProperties(PropertyGroup):
         description="Compute stats only for selected objects",
         default=False
     )
+    auto_update_polycount: BoolProperty(  # type: ignore
+        name="Auto Update",
+        description="Auto update the list, might be slow in big scenes",
+        default=True
+    )
     filter_list_show: EnumProperty(  # type: ignore
         name="List Show",
         description="Show",
@@ -106,6 +111,12 @@ class PolyCountProperties(PropertyGroup):
         name="Max List Length",
         description="Maximum number of objects to show in the list",
         default=150,
+        min=1
+    )
+    update_rate: IntProperty(  # type: ignore
+        name="Update Rate",
+        description="Update rate",
+        default=1,
         min=1
     )
     show_draw_time: BoolProperty(  # type: ignore
