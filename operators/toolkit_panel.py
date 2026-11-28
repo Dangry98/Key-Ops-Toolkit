@@ -11,7 +11,6 @@ from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
 from ..utils.node_groups import get_node_group
 
-from .subobject_modes import draw_mode_row
 
 BLENDER_VERSION = bpy.app.version
 
@@ -48,8 +47,8 @@ def register_toolkit_panel_keymaps():
 
     # Alt+3 Snap to Floor: added by snap_to_floor.register_snap_to_floor
 
-    kmi = km.keymap_items.new('keyops.toolkit_panel', 'D', 'PRESS', alt=True, shift=True)
-    kmi.properties.type = 'duplicate_linked_modifiers_and_move'
+    # its own object.* operator, so the menu entry and the Toolkit buttons show the shortcut on hover
+    kmi = km.keymap_items.new('object.duplicate_linked_modifiers', 'D', 'PRESS', alt=True, shift=True)
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_MINUS', 'PRESS', ctrl=True)
@@ -185,7 +184,109 @@ def get_description(type: str) -> str:
                 "Select one edge that runs along the length of the cylinder")
     elif type == "change_cylinder_segments_modifier":
         return ("Revolve the selected edges around the object's origin with a Screw modifier, to make a round shape "
-                "from a profile.\nEverything that is not selected in this object is deleted first")
+                "from a profile. The axis is picked from the profile (change it in Adjust Last Operation).\n"
+                "Everything that is not selected in this object is deleted first")
+
+TRIPLANAR_GROUP = "Triplanar UV"   # rebuilt group (scripts/build_node_groups.py); files keep the old one
+TRIPLANAR_MOD = "Triplanar UV"
+TRIPLANAR_ATTR = "Triplanar_UV_Mapping"
+
+
+def gn_input_id(mod, name):
+    """The identifier (Socket_N) of a Geometry Nodes modifier's input, by its name."""
+    group = mod.node_group
+    for it in group.interface.items_tree:
+        if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name == name:
+            return it.identifier
+    return None
+
+
+def set_gn_input(mod, name, value):
+    ident = gn_input_id(mod, name)
+    if ident is None:
+        return False
+    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2 and hasattr(mod, "properties"):
+        sock = getattr(mod.properties.inputs, ident)
+        if hasattr(sock, "type") and sock.type == "ATTRIBUTE" and not isinstance(value, str):
+            sock.type = "VALUE"
+        sock.value = value
+    else:
+        if mod.get(ident + "_use_attribute"):
+            mod[ident + "_use_attribute"] = False
+        mod[ident] = value
+    return True
+
+
+def set_gn_attribute_input(obj, mod, name, attribute):
+    """Make a modifier input read a named attribute instead of a value."""
+    ident = gn_input_id(mod, name)
+    if ident is None:
+        return False
+    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2 and hasattr(mod, "properties"):
+        sock = getattr(mod.properties.inputs, ident)
+        sock.attribute_name = attribute
+        sock.type = "ATTRIBUTE"
+    else:
+        if not mod.get(ident + "_use_attribute"):
+            mod[ident + "_use_attribute"] = True
+        mod[ident + "_attribute_name"] = attribute
+    obj.update_tag()
+    return True
+
+
+def make_instances_real(context, instances):
+    """Turn collection-instance empties into real objects (each a single user, so modifiers can be
+    applied), keep them selected, and remove the now-empty instancers. Returns how many objects were made."""
+    view_layer = context.view_layer
+    keep_active = view_layer.objects.active
+    if keep_active in instances:
+        keep_active = None  # it may be removed below
+    others = [o for o in context.selected_objects if o not in instances]
+    for o in context.selected_objects:
+        o.select_set(False)
+    made = []
+    for inst in instances:
+        inst.select_set(True)
+        view_layer.objects.active = inst
+        before = set(context.scene.objects)
+        bpy.ops.object.duplicates_make_real(use_base_parent=False, use_hierarchy=True)
+        new = [o for o in context.scene.objects if o not in before]
+        for o in new:
+            if o.data is not None and o.data.users > 1:
+                o.data = o.data.copy()  # its own data: applying modifiers mustn't change the collection's
+        made += new
+        inst.select_set(False)
+    for inst in instances:
+        if not inst.children:
+            bpy.data.objects.remove(inst)
+        else:
+            inst.instance_type = 'NONE'
+    for o in others + made:
+        if o.name in view_layer.objects:
+            o.select_set(True)
+    active = keep_active if keep_active and keep_active.name in view_layer.objects else (made[0] if made else None)
+    if active is not None:
+        view_layer.objects.active = active
+    return len(made)
+
+
+def revolve_axis(points):
+    """The local axis ('X', 'Y' or 'Z') to revolve a profile around: the one it runs along most while
+    sitting away from it (a vertical line beside the origin makes a cylinder around Z). A flat profile through
+    the axis (a disc) has no length along any axis: then it's the axis it is farthest from, Z on a tie."""
+    import mathutils
+    lo = mathutils.Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for p in points)))
+    hi = mathutils.Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
+    size = max((hi - lo).length, 1e-6)
+    best, best_score = 'Z', -1.0
+    for i, name in ((2, 'Z'), (0, 'X'), (1, 'Y')):  # Z first: it wins ties
+        others = [j for j in range(3) if j != i]
+        radius = sum((p[others[0]] ** 2 + p[others[1]] ** 2) ** 0.5 for p in points) / len(points)
+        score = radius * ((hi[i] - lo[i]) + 0.01 * size)
+        if score > best_score + 1e-9:
+            best, best_score = name, score
+    return best
+
 
 class ToolkitPanel(bpy.types.Operator):
     bl_description = "Object Panel Operator"
@@ -215,6 +316,12 @@ class ToolkitPanel(bpy.types.Operator):
     world_offset: bpy.props.BoolProperty(name="World Offset", default=False) # type: ignore
     world_scale: bpy.props.BoolProperty(name="World Scale", default=True) # type: ignore
     scale_triplanar: bpy.props.FloatProperty(name="Scale", default=0.5) # type: ignore
+    tri_size: bpy.props.FloatProperty(name="Texture Size", default=1.0, min=0.0001, soft_max=10.0, subtype='DISTANCE',
+                                      description="How many metres one UV tile covers") # type: ignore
+    tri_world_rotation: bpy.props.BoolProperty(name="World Rotation", default=False,
+                                               description="Project along the world axes instead of the object's own") # type: ignore
+    tri_offset_x: bpy.props.FloatProperty(name="Offset X", default=0.0) # type: ignore
+    tri_offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0) # type: ignore
     rotation_triplanar: bpy.props.FloatProperty(name="Rotation", default=0.0) # type: ignore
     axis_x: bpy.props.FloatProperty(name="X", default=0.5) # type: ignore
     axis_y: bpy.props.FloatProperty(name="Y", default=0.5 ) # type: ignore
@@ -236,6 +343,13 @@ class ToolkitPanel(bpy.types.Operator):
     ovveride_color: bpy.props.BoolProperty(name="Override Color", default=False) # type: ignore
     ovveride_color_vec: bpy.props.FloatVectorProperty(name="Color", default=(0.0, 0.0, 0.0, 1.0), subtype='COLOR', size=4) # type: ignore
     instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
+    screw_axis: bpy.props.EnumProperty(name="Axis", default="AUTO",
+                                       items=[("AUTO", "Auto", "Pick the axis from the selected profile: the one it "
+                                               "runs along and sits away from, so revolving it makes a round wall"),
+                                              ("X", "X", "Revolve around the object's X axis"),
+                                              ("Y", "Y", "Revolve around the object's Y axis"),
+                                              ("Z", "Z", "Revolve around the object's Z axis")]) # type: ignore
+    screw_steps: bpy.props.IntProperty(name="Steps", default=32, min=3, max=512) # type: ignore
     seprate_by: bpy.props.EnumProperty(name="Separate By",
                                        items=[("MATERIAL", "Material", "Separate by Material", "MATERIAL", 0),
                                               ("LOOSE", "Loose Parts", "Separate by Loose Islands", "LOOSE", 1)],
@@ -265,13 +379,17 @@ class ToolkitPanel(bpy.types.Operator):
         #         layout.prop(self, "true_false")
         if self.type == "Triplanar_UV_Mapping":
             layout.label(text="Triplanar UV", icon="AXIS_SIDE")
-            layout.prop(self, "world_offset")
-            layout.prop(self, "axis_x")
-            layout.prop(self, "axis_y")
-            layout.prop(self, "world_scale")
-            layout.prop(self, "scale_triplanar")
+            layout.prop(self, "tri_size")
             layout.prop(self, "rotation_triplanar")
+            row = layout.row(align=True)
+            row.prop(self, "world_scale", toggle=True)
+            row.prop(self, "tri_world_rotation", toggle=True)
+            row.prop(self, "world_offset", toggle=True)
+            row = layout.row(align=True)
+            row.prop(self, "tri_offset_x")
+            row.prop(self, "tri_offset_y")
             layout.prop(self, "appy_triplanar")
+            layout.label(text="Per-axis scale and rotation: in the modifier", icon='INFO')
         elif self.type == "Smart_Join_Objects":
             layout.label(text="Quick Join Objects", icon_value=get_icon("union"))
             # layout.prop(self, "set_material_index")   
@@ -295,6 +413,9 @@ class ToolkitPanel(bpy.types.Operator):
         elif self.type == "un_subdivide_cylinder":
             layout.prop(self, "angle_to_skip")
             layout.prop(self, "full_edge_loops")
+        elif self.type == "change_cylinder_segments_modifier":
+            layout.row().prop(self, "screw_axis", expand=True)
+            layout.prop(self, "screw_steps")
         elif self.type == "Instant_Apply_Modifiers":
             layout.label(text="Apply All Modifiers", icon_value=get_icon("mesh"))
             layout.prop(self, "convert_to_options", text="Convert To")
@@ -359,72 +480,42 @@ class ToolkitPanel(bpy.types.Operator):
         
         if self.type == "Triplanar_UV_Mapping":
             active_object = bpy.context.active_object
-            get_node_group("Triplanar UV Mapping")
-            for obj in bpy.context.selected_objects:
-                if obj.type == 'MESH':         
+            group = get_node_group(TRIPLANAR_GROUP)
+            edit = context.mode == 'EDIT_MESH'
+            for obj in [o for o in bpy.context.selected_objects if o.type == 'MESH']:
+                bpy.context.view_layer.objects.active = obj
+                if obj.data.uv_layers.active is None:
+                    obj.data.uv_layers.new(name="UVMap")
+                uv_name = obj.data.uv_layers.active.name
+                mod = obj.modifiers.get(TRIPLANAR_MOD)
+                if mod is None:
+                    mod = obj.modifiers.new(TRIPLANAR_MOD, 'NODES')
+                mod.node_group = group
+                if edit:
+                    # only the selected faces: the Selection input reads a face attribute set on them
+                    if obj.data.attributes.get(TRIPLANAR_ATTR) is None:
+                        obj.data.attributes.new(name=TRIPLANAR_ATTR, domain='FACE', type='BOOLEAN')
+                    set_gn_attribute_input(obj, mod, "Selection", TRIPLANAR_ATTR)
+                else:
+                    set_gn_input(mod, "Selection", True)
+                set_gn_input(mod, "UV Map", uv_name)
+                set_gn_input(mod, "Texture Size", self.tri_size)
+                set_gn_input(mod, "Rotation", self.rotation_triplanar)
+                set_gn_input(mod, "World Scale", self.world_scale)
+                set_gn_input(mod, "World Rotation", self.tri_world_rotation)
+                set_gn_input(mod, "World Offset", self.world_offset)
+                set_gn_input(mod, "Offset X", self.tri_offset_x)
+                set_gn_input(mod, "Offset Y", self.tri_offset_y)
+                mod.show_group_selector = False
+                obj.data.update()
+                if edit:
+                    select_atribute(TRIPLANAR_ATTR)
+                    bpy.ops.mesh.attribute_set(value_bool=True)
+
+            if self.appy_triplanar and not edit:
+                for obj in [o for o in bpy.context.selected_objects if o.modifiers.get(TRIPLANAR_MOD)]:
                     bpy.context.view_layer.objects.active = obj
-
-                    if obj.data.uv_layers.active is None:
-                        bpy.ops.mesh.uv_texture_add()       
-
-                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is None:
-                        bpy.context.object.modifiers.new('Triplanar UV Mapping', 'NODES')
-                        bpy.context.object.modifiers['Triplanar UV Mapping'].node_group = bpy.data.node_groups['Triplanar UV Mapping']
-                
-                    if obj.data.uv_layers.active is not None:
-                        active_uv_layer_name = bpy.context.object.data.uv_layers.active.name
-
-                    if context.mode == 'EDIT_MESH':
-                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            triplanar_mod = bpy.context.object.modifiers["Triplanar UV Mapping"]
-                            triplanar_mod.properties.inputs.Socket_2.attribute_name = "Triplanar_UV_Mapping"
-                            triplanar_mod.properties.inputs.Socket_2.type = "ATTRIBUTE"
-                        else:
-                            bpy.ops.object.geometry_nodes_input_attribute_toggle(input_name="Socket_2", modifier_name="Triplanar UV Mapping")
-                            bpy.context.object.modifiers["Triplanar UV Mapping"]["Socket_2_attribute_name"] = "Triplanar_UV_Mapping"
-                        named_attributes = bpy.context.object.data.attributes
-                        attribute_name = "Triplanar_UV_Mapping"
-                        set_act = named_attributes.get(attribute_name)
-                        if set_act is not None:
-                            select_atribute(attribute_name)
-                        else:
-                            mesh = bpy.context.object.data
-                            mesh.attributes.new(name="Triplanar_UV_Mapping", domain='FACE', type='BOOLEAN')
-                            select_atribute(attribute_name)
-                    else:
-                        if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                            context.object.modifiers["Triplanar UV Mapping"].properties.inputs.Socket_2.value = True
-                        else:
-                            context.object.modifiers["Triplanar UV Mapping"]["Socket_2"] = True
-                    mod = context.object.modifiers["Triplanar UV Mapping"]
-
-                    if BLENDER_VERSION_MAJOR_POINT_MINOR >= 5.2:
-                        mod.properties.inputs.Socket_3.value = active_uv_layer_name
-                        mod.properties.inputs.Socket_5.value = self.world_offset
-                        mod.properties.inputs.Socket_6.value = self.axis_x
-                        mod.properties.inputs.Socket_7.value = self.axis_y
-                        mod.properties.inputs.Socket_9.value = self.world_scale
-                        mod.properties.inputs.Socket_10.value = self.scale_triplanar
-                        mod.properties.inputs.Socket_13.value = self.rotation_triplanar
-                    else:
-                        mod["Socket_3"] = active_uv_layer_name
-                        mod["Socket_5"] = self.world_offset
-                        mod["Socket_6"] = self.axis_x
-                        mod["Socket_7"] = self.axis_y
-                        mod["Socket_9"] = self.world_scale
-                        mod["Socket_10"] = self.scale_triplanar
-                        mod["Socket_13"] = self.rotation_triplanar
-                    bpy.context.object.data.update()
-                
-                    mod.show_group_selector = False
-
-                    if context.mode == 'EDIT_MESH':
-                        bpy.ops.mesh.attribute_set(value_bool=True)
-
-            if self.appy_triplanar == True:
-                for obj in bpy.context.selected_objects:
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.object.modifier_apply(modifier="Triplanar UV Mapping")
+                    bpy.ops.object.modifier_apply(modifier=TRIPLANAR_MOD)
 
             bpy.context.view_layer.objects.active = active_object
 
@@ -434,8 +525,9 @@ class ToolkitPanel(bpy.types.Operator):
             for obj in bpy.context.selected_objects:
                 if obj.type == 'MESH':
                     bpy.context.view_layer.objects.active = obj
-                    if bpy.context.object.modifiers.get("Triplanar UV Mapping") is not None:
-                        bpy.context.object.modifiers.remove(bpy.context.object.modifiers['Triplanar UV Mapping'])
+                    for name in (TRIPLANAR_MOD, "Triplanar UV Mapping"):  # the new modifier and the one from older versions
+                        if obj.modifiers.get(name) is not None:
+                            obj.modifiers.remove(obj.modifiers[name])
             bpy.context.view_layer.objects.active = active_object
 
         elif self.type == "offset_uv":
@@ -664,6 +756,13 @@ class ToolkitPanel(bpy.types.Operator):
             import time
             perf_time = time.time()
 
+            # collection instances: make their objects real first, so their modifiers can be applied too
+            instances = [o for o in bpy.context.selected_objects
+                         if o.type == 'EMPTY' and o.instance_type == 'COLLECTION' and o.instance_collection]
+            if instances:
+                made_real = make_instances_real(bpy.context, instances)
+                self.report({'INFO'}, f"Made {len(instances)} collection instance(s) real ({made_real} objects)")
+
             if self.convert_to_options == "Insta_Apply_Modifiers":
                 new_selected_objects = bpy.context.selected_objects
                 new_selected_meshes = [obj for obj in new_selected_objects if obj.type == 'MESH']
@@ -685,8 +784,7 @@ class ToolkitPanel(bpy.types.Operator):
                             bmesh.update_edit_mesh(obj.data)
                             
                         if self.remove_modifiers:
-                            for modifier in obj.modifiers:
-                                obj.modifiers.remove(modifier) 
+                            obj.modifiers.clear()
 
                     for obj in selected_curves:
                         name = obj.name
@@ -893,16 +991,25 @@ class ToolkitPanel(bpy.types.Operator):
                 bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
 
         elif self.type == "change_cylinder_segments_modifier":
+            obj = bpy.context.active_object
+            bm = bmesh.from_edit_mesh(obj.data)
+            profile = [v.co.copy() for v in bm.verts if v.select]
+            if not profile:
+                self.report({'WARNING'}, "Select the profile edges to revolve")
+                return {'CANCELLED'}
+            axis = self.screw_axis if self.screw_axis != "AUTO" else revolve_axis(profile)
+
             bpy.ops.mesh.select_all(action='INVERT')
             bpy.ops.mesh.delete(type='EDGE')
 
-            obj = bpy.context.active_object
-
             mod = obj.modifiers.new(type='SCREW', name='Screw')
+            mod.axis = axis
             mod.use_normal_calculate = True
             mod.use_merge_vertices = True
-            mod.steps = 32
+            mod.steps = self.screw_steps
+            mod.render_steps = self.screw_steps
             bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+            self.report({'INFO'}, f"Revolving around {axis}")
 
         elif self.type == "clear_custom_normals":
             selection = bpy.context.selected_objects
@@ -962,6 +1069,28 @@ class ToolkitPanel(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class OBJECT_OT_duplicate_linked_modifiers(bpy.types.Operator):
+    """Duplicate the selected objects sharing their modifier stack (a Geometry Nodes modifier reads the
+    original's), then move the copies"""
+    bl_idname = "object.duplicate_linked_modifiers"
+    bl_label = "Duplicate Linked Modifiers"
+    bl_options = {'REGISTER', 'UNDO'}
+    instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and bool(context.selected_objects)
+
+    def execute(self, context):
+        make_duplicate_linked(self, context)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        make_duplicate_linked(self, context)
+        bpy.ops.transform.translate('INVOKE_DEFAULT')
+        return {'FINISHED'}
+
+
 def toggle_realtime_booleans(self, context):
     # Update callbacks fire on every assignment, not only when the value changes.
     is_registered = ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered
@@ -983,35 +1112,6 @@ def click_rgb_enum(self, context):
     elif bpy.context.scene.RGB_Enum == 'B':
         bpy.ops.keyops.toolkit_panel(type="set_vertex_color", ovveride_color=True, ovveride_color_vec=(0.0, 0.0, 1.0, 1.0))
 
-class SmartExtrude(bpy.types.Operator):
-    bl_description = "Smart Extrude, this is a slow and outdated operator, a way faster and better version is in the works"
-    bl_idname = "mesh.keyops_smart_extrude"
-    bl_label = "Smart Extrude (Slow, Outdated)"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    offset: bpy.props.FloatProperty(name="Offset", default=0.1, min=0.0) # type: ignore
-    even_offset: bpy.props.BoolProperty(name="Even Offset", default=True) # type: ignore
-    scale_offset: bpy.props.FloatProperty(name="Scale Offset", default=1.001, min=0.0, max=2.0) # type: ignore
-    remove_doubles: bpy.props.FloatProperty(name="Remove Doubles", default=0.001, min=0.0, max=0.1) # type: ignore
-
-    def execute(self, context):
-        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-        bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
-        bpy.ops.mesh.flip_normals()
-        bpy.ops.transform.shrink_fatten(value=-0.00318323, use_even_offset=self.even_offset, mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False)
-        bpy.ops.transform.resize(value=(self.scale_offset, self.scale_offset, self.scale_offset), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
-        bpy.ops.mesh.extrude_region_shrink_fatten(MESH_OT_extrude_region={"use_normal_flip":False, "use_dissolve_ortho_edges":False, "mirror":False}, TRANSFORM_OT_shrink_fatten={"value":self.offset, "use_even_offset":self.even_offset, "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "release_confirm":False, "use_accurate":False})
-        bpy.ops.mesh.select_linked(delimit={'NORMAL'})
-        bpy.ops.mesh.intersect_boolean(operation='DIFFERENCE', use_swap=False, use_self=False, solver='FAST')
-        bpy.ops.mesh.remove_doubles(threshold=self.remove_doubles, use_unselected=False)
-
-        return {'FINISHED'}
-    
-    def register():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_extrude)
-    def unregister():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_extrude)
-        
 class ExtrudeEdgeByNormal(bpy.types.Operator):
     bl_idname = "mesh.extrude_edge_by_normal"
     bl_label = "Extrude Edge by Normal"
@@ -1057,6 +1157,10 @@ def draw_modifier_panel(self, context, draw_header=False):
             op = row.operator("keyops.add_modifier", text=f"FFD {n}x")
             op.subdivisions = n
             op.type = "LATTICE"
+        # a Geometry Nodes trim that follows the selected edges (Edit Mode)
+        row = grid.row(align=False)
+        row.enabled = context.mode == 'EDIT_MESH'
+        row.operator("keyops.edge_trim_live", text="Live Edge Trim", icon="MOD_EDGESPLIT")
 
         # UV
         col = box.column(align=False)
@@ -1098,9 +1202,10 @@ def draw_edge_flow(row):
 
 # Edit Toolkit layout helpers: every section is a label plus a column of separate (spaced) buttons,
 # two per row. A button wrapped in _wide() (or an odd one at the end) spans the whole row.
-def _op(idname, text, **props):
+def _op(idname, text, icon=None, **props):
+    """icon: one of Key Ops' own icons (icons/<name>.png), for its own operators."""
     def draw(layout):
-        op = layout.operator(idname, text=text)
+        op = layout.operator(idname, text=text, icon_value=get_icon(icon)) if icon else layout.operator(idname, text=text)
         for name, value in props.items():
             setattr(op, name, value)
     return draw
@@ -1155,15 +1260,8 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         row.label(text="Edit Toolkit", icon_value=get_icon("editmode"))
     sub = row.row(align=True)
     sub.alignment = 'RIGHT'
-    sub.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
-
-    if show_blender_ops:
-        row = box.row(align=True)
-        row.scale_x = 2.15
-        row.scale_y = 1.5
-        row.alignment = 'CENTER'
-        # Vertex, Edge, Face plus Element mode, as one centered row of modes
-        draw_mode_row(row, context)
+    # the filter: on = only Key Ops' own operators
+    sub.prop(prefs, "edit_toolkit_show_blender_ops", text="", icon='FILTER', invert_checkbox=True)
 
     vert_mode, edge_mode, face_mode = sel_mode
     fast_merge = feature_on("fast_merge")
@@ -1178,16 +1276,16 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             *loop_ring,
             _op("mesh.region_to_loop", "Boundary"), _op("mesh.loop_to_region", "Inner Region"),
             _op("mesh.faces_select_linked_flat", "By Angle") if face_mode else _op("mesh.edges_select_sharp", "Edge Angle"),
-            _op("keyops.select_similar", "Similar"),
+            _op("keyops.select_similar", "Similar", icon="ops_select_similar"),
             _op("mesh.select_nth", "Checker Deselect"),
             _op("mesh.select_non_manifold", "Non Manifold") if (vert_mode or edge_mode) else None,
             _op("mesh.select_face_by_sides", "Ngons", type='GREATER'),
-            _op("keyops.select_thin_triangles", "Thin Triangles"),
+            _op("keyops.select_thin_triangles", "Thin Triangles", icon="ops_thin_triangles"),
         ], first=True)
     else:
         _section(box, "Selection", [
-            _op("keyops.select_similar", "Similar"),
-            _op("keyops.select_thin_triangles", "Thin Triangles"),
+            _op("keyops.select_similar", "Similar", icon="ops_select_similar"),
+            _op("keyops.select_thin_triangles", "Thin Triangles", icon="ops_thin_triangles"),
         ], first=True)
 
     # Edit vertices / edges / polygons
@@ -1207,25 +1305,25 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         items["bevel"] = (_op("mesh.bevel", "Chamfer", affect='VERTICES') if vert_mode and not (edge_mode or face_mode)
                           else _op("mesh.bevel", "Bevel", affect='EDGES'))
         if fast_merge:
-            items["connect"] = _op("mesh.connect2", "Connect")
+            items["connect"] = _op("mesh.connect2", "Connect", icon="ops_connect")
         if face_mode:
             items["inset"] = _op("mesh.inset", "Inset")
             items["flip"] = _op("mesh.flip_normals", "Flip")
         if edge_mode or face_mode:
             items["bridge"] = _op("mesh.bridge_edge_loops", "Bridge")
         items["fill"] = _op("mesh.edge_face_add", "Fill")
-        items["flow"] = _op("mesh.set_mesh_edge_flow", "Set Flow")
+        items["flow"] = _op("mesh.set_mesh_edge_flow", "Set Flow", icon="ops_set_flow")
         items["dissolve"] = _op("mesh.dissolve_limited", "Limited Dissolve")
         if vert_mode or edge_mode:
-            items["resample"] = _op("keyops.resample_edges", "Resample Edges")
-            items["trim"] = _op("keyops.edge_trim", "Make Edge Trim")
+            items["resample"] = _op("keyops.resample_edges", "Resample Edges", icon="ops_resample_edges")
+            items["trim"] = _op("keyops.edge_trim", "Make Edge Trim", icon="ops_edge_trim")
         _section(box, title, list(items.values()))
     else:
         _section(box, "Edit Mesh", [
-            _op("mesh.connect2", "Connect") if fast_merge else None,
-            _op("mesh.set_mesh_edge_flow", "Set Flow"),
-            _op("keyops.resample_edges", "Resample Edges"),
-            _op("keyops.edge_trim", "Make Edge Trim"),
+            _op("mesh.connect2", "Connect", icon="ops_connect") if fast_merge else None,
+            _op("mesh.set_mesh_edge_flow", "Set Flow", icon="ops_set_flow"),
+            _op("keyops.resample_edges", "Resample Edges", icon="ops_resample_edges"),
+            _op("keyops.edge_trim", "Make Edge Trim", icon="ops_edge_trim"),
         ])
 
     # UV: Preserve UVs sits on the header row, right of the label
@@ -1239,12 +1337,12 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         _wide(lambda layout: layout.menu("VIEW3D_MT_uv_map", text="UV Unwrap")),
         _op("mesh.mark_seam", "Mark Seam", clear=False),
         _op("mesh.mark_seam", "Clear Seam", clear=True),
-        _wide(_op("keyops.seam_by_angle", "Seam by Angle")) if feature_on("uv_tools") else None,
+        _wide(_op("keyops.seam_by_angle", "Seam by Angle", icon="ops_seam_by_angle")) if feature_on("uv_tools") else None,
     ])
 
     # Vertex color
     _section(box, "Vertex Color", [
-        _op("keyops.toolkit_panel", "Set Color", type="set_vertex_color"),
+        _op("keyops.toolkit_panel", "Set Color", icon="ops_vertex_color", type="set_vertex_color"),
         lambda layout: layout.prop(context.scene.keyops, "vertex_color", text=""),
     ])
 
@@ -1274,21 +1372,26 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             _op("mesh.bisect", "Slice Plane"), _op("mesh.knife_tool", "Cut"),
             _op("mesh.subdivide", "Subdivide"), _op("mesh.unsubdivide", "Un-Subdivide"),
             *loop_tools,
-            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+            _op("keyops.mesh_cleanup", "Clean Up", icon="ops_cleanup"), _op("keyops.extract_geometry", "Extract", icon="ops_extract"),
             _op("mesh.hide", "Hide Selected"), _op("mesh.reveal", "Unhide All"),
             _op("mesh.hide", "Hide Unselected", unselected=True),
         ])
     else:
         _section(box, "Edit Geometry", [
-            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+            _op("keyops.mesh_cleanup", "Clean Up", icon="ops_cleanup"), _op("keyops.extract_geometry", "Extract", icon="ops_extract"),
         ])
 
-    # Cylinder
-    _section(box, "Cylinder", [
-        _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides")),
-        _op("keyops.toolkit_panel", "Halve Sides", type="un_subdivide_cylinder"),
-        _op("keyops.toolkit_panel", "Double Sides", type="subdivide_cylinder"),
-        _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", type="change_cylinder_segments_modifier")),
+    # Round shapes: sides and rings of cylinders, pipes and other revolved shapes
+    _section(box, "Rings & Sides", [
+        _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides", icon="ops_cylinder_sides")),
+        _op("keyops.toolkit_panel", "Halve Sides", icon="ops_halve_sides", type="un_subdivide_cylinder"),
+        _op("keyops.toolkit_panel", "Double Sides", icon="ops_double_sides", type="subdivide_cylinder"),
+        _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", icon="ops_revolve", type="change_cylinder_segments_modifier")),
+        _op("keyops.rebevel", "Re-Bevel", icon="ops_rebevel"),
+    ])
+    _section(box, "Transform", [
+        _op("keyops.slide_scale", "Slide Scale", icon="ops_slide_scale"),
+        _op("keyops.slide_scale", "Slide Rotate", icon="ops_slide_rotate", mode='ROTATE'),
     ])
 
 
@@ -1310,7 +1413,9 @@ class EditModePanel(bpy.types.Panel):
         layout = self.layout
         row = layout.row(align=True)
         row.label(text="Edit Mesh", icon_value=get_icon("editmode"))
-        row.popover(panel="EDIT_PT_Settings", text="", icon='PREFERENCES')
+        prefs = get_keyops_prefs()
+        if prefs is not None and hasattr(prefs, "edit_toolkit_show_blender_ops"):
+            row.prop(prefs, "edit_toolkit_show_blender_ops", text="", icon='FILTER', invert_checkbox=True)
 
     def draw(self, context):
         draw_edit_mode_panel(self, context, draw_header=False)
@@ -1345,7 +1450,8 @@ class ObjectModePanel(bpy.types.Panel):
 
         row = col.row(align=True)
         row.scale_y = 1.15
-        row.operator("keyops.toolkit_panel", text="Duplicate Linked Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
+        row.operator_context = 'INVOKE_DEFAULT'
+        row.operator("object.duplicate_linked_modifiers", text="Duplicate Linked Modifiers", icon="LINKED")
         row = col.row(align=False)
         row.scale_y = 1.15
         row.operator("keyops.toolkit_panel", text="Instant Apply All Modifiers",  icon_value=get_icon("mesh")).type = "Instant_Apply_Modifiers"
@@ -1395,17 +1501,29 @@ class EDIT_PT_Settings(bpy.types.Panel):
             col.label(text="Key Ops operators only", icon='INFO')
 
 
-classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll)
+classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll, OBJECT_OT_duplicate_linked_modifiers)
+
+
+def object_menu_duplicate(self, context):
+    """Object menu: Duplicate Linked Modifiers, the same command as its key, so the menu shows the shortcut."""
+    if not feature_on("toolkit_panel"):
+        return
+    layout = self.layout
+    layout.separator()
+    layout.operator_context = 'INVOKE_DEFAULT'
+    layout.operator("object.duplicate_linked_modifiers", text="Duplicate Linked Modifiers", icon='LINKED')
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     register_toolkit_panel_keymaps()
+    bpy.types.VIEW3D_MT_object.append(object_menu_duplicate)
     bpy.types.WindowManager.live_booleans = bpy.props.BoolProperty(name="Realtime Booleans", default=True, description="Wether to calculate Booleons in real time or not, if turned off, it will only calculate once you stoped moving the object, making interaction way smoother", update=toggle_realtime_booleans)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_object.remove(object_menu_duplicate)
     clear_registered_keymaps(registered_toolkit_panel_keymaps)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

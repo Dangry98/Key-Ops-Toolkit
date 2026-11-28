@@ -15,14 +15,15 @@ class SetFlow(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH' and context.edit_object is not None and context.edit_object.type == 'MESH'
+        return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
-        objects = set(context.selected_editable_objects) if context.selected_editable_objects else {context.object}
+        # Every mesh in Edit Mode, not just the active or selected ones; one entry per shared mesh.
+        objects = context.objects_in_mode_unique_data or [context.edit_object]
         valid_objects = []
 
         for obj in objects:
-            if obj.mode != 'EDIT' or obj.type != 'MESH':
+            if obj is None or obj.mode != 'EDIT' or obj.type != 'MESH':
                 continue
             bm = bmesh.from_edit_mesh(obj.data)
             bm.verts.ensure_lookup_table()

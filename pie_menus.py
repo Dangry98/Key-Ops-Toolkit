@@ -42,6 +42,7 @@ EDITORS = (
     ("Sequencer", "Video Sequencer", "In the Video Sequencer", 'SEQUENCE'),
     ("Text", "Text Editor", "In the Text Editor", 'TEXT'),
     ("Window", "Everywhere", "In every editor", 'WINDOW'),
+    ("Curve", "Edit Curve", "Only in curve Edit Mode", 'CURVE_DATA'),
 )
 
 MENU_TYPES = (
@@ -236,10 +237,10 @@ def _q_sections():
     edit = "mode == 'EDIT_MESH'"
     obj_mode = "mode == 'OBJECT'"
     has_obj = "mode == 'OBJECT' and obj"
-    # the active modifier, and its boolean settings when it's a boolean
-    active = "mode == 'OBJECT' and obj and obj.modifiers.active"
-    active_bool = active + " and obj.modifiers.active.type == 'BOOLEAN'"
-    mod = "object.modifiers.active."
+    # curves: Object Mode with a curve active, curve Edit Mode, or edges selected in mesh Edit Mode
+    curve_obj = "mode == 'OBJECT' and obj and obj.type == 'CURVE'"
+    curve_edit = "mode == 'EDIT_CURVE'"
+    edge_sel = "mode == 'EDIT_MESH' and tool.mesh_select_mode[1]"
     bool_op = "object.add_boolean_modifier_operator"
     # as the N panel: Blender 4.2 has no mouse wheel icon
     scroll_icon = "EVENT_CAPSLOCK" if bpy.app.version < (4, 3, 0) else "MOUSE_MMB_SCROLL"
@@ -250,6 +251,10 @@ def _q_sections():
     def setting(test, label, icon, path):
         # drawn the way Blender draws it: expanded rows don't fit in popup menus (the labels overlap)
         return (P, label, icon, path, "", test)
+
+    def value(test, label, icon, path, option):
+        # one button per choice, right in the menu (no submenu): it sets the setting to that option
+        return (P, label, icon, path, option, test, "VALUE")
 
     items = {
         "boolean": [
@@ -265,6 +270,7 @@ def _q_sections():
             op(edit, "Extract Geometry", "DUPLICATE", "keyops.extract_geometry"),
             op(edit, "Merge", "AUTOMERGE_OFF", "keyops.fast_merge"),
             op(edit, "Set Flow", "MOD_SMOOTH", "mesh.set_mesh_edge_flow"),
+            op(edit, "Slide Scale", "FULLSCREEN_EXIT", "keyops.slide_scale"),
             op(edit, "Resample Edges", "CURVE_PATH", "keyops.resample_edges"),
             op(edit, "Make Edge Trim", "MOD_EDGESPLIT", "keyops.edge_trim"),
             op(edit, "Mark Sharp", "SHARPCURVE", "mesh.mark_sharp"),
@@ -278,35 +284,32 @@ def _q_sections():
             op(mesh, "Solidify", "MOD_SOLIDIFY", "keyops.fast_solidify"),
             op(mesh, "Weighted Normal", "MOD_NORMALEDIT", "keyops.add_modifier", "type='WEIGHTED_NORMAL'"),
             op(mesh, "Triangulate", "MOD_TRIANGULATE", "keyops.add_modifier", "type='TRIANGULATE'"),
-            (SUB, "More Modifiers", "ADD", "preset:add_modifier", "", mesh),
             op("mode == 'OBJECT' and len(mods) > 0", "Apply All Modifiers", "keyops:mesh", "object.convert", "target='MESH'"),
-        ],
-        "active_modifier": [
-            setting(active, "Show in Viewport", "RESTRICT_VIEW_OFF", mod + "show_viewport"),
-            setting(active, "Show in Edit Mode", "EDITMODE_HLT", mod + "show_in_editmode"),
-            setting(active_bool, "Operation", "", mod + "operation"),
-            setting(active_bool, "Solver", "", mod + "solver"),
-            op(active, "Move Up", "TRIA_UP", "keyops.active_modifier", "action='MOVE_UP'"),
-            op(active, "Move Down", "TRIA_DOWN", "keyops.active_modifier", "action='MOVE_DOWN'"),
-            op(active, "Duplicate", "DUPLICATE", "keyops.active_modifier", "action='DUPLICATE'"),
-            op(active, "Apply", "CHECKMARK", "keyops.active_modifier", "action='APPLY'"),
-            op(active, "Remove", "X", "keyops.active_modifier", "action='REMOVE'"),
         ],
         "object": [
             op(obj_mode, "Smart Apply Scale", "FREEZE", "object.smart_apply_scale"),
+            op(obj_mesh, "Re-Align Rotation", "ORIENTATION_LOCAL", "keyops.realign_rotation"),
             op(obj_mode, "Snap to Floor", "VIEW_PERSPECTIVE", "keyops.snap_to_floor"),
             op(obj_mode, "Origin to Selection", "LAYER_USED", "keyops.origin_to_selection", "type='origin_to_geometry'"),
-            op(obj_mesh, "Shade Auto Smooth", "MOD_SMOOTH", "object.shade_auto_smooth"),
             op(obj_mesh, "Clean Up", "BRUSH_DATA", "keyops.mesh_cleanup"),
         ],
         "display": [
             setting(has_obj, "Wireframe", "SHADING_WIRE", "object.show_wire"),
             setting(has_obj, "In Front", "XRAY", "object.show_in_front"),
-            setting(has_obj, "Display As", "", "object.display_type"),
+            value(has_obj, "Bounds", "SHADING_BBOX", "object.display_type", "BOUNDS"),
+            value(has_obj, "Wire", "SHADING_WIRE", "object.display_type", "WIRE"),
+            value(has_obj, "Solid", "SHADING_SOLID", "object.display_type", "SOLID"),
+            value(has_obj, "Textured", "SHADING_TEXTURE", "object.display_type", "TEXTURED"),
+        ],
+        "curve": [
+            op(f"({curve_obj}) or ({curve_edit})", "Radius", "PROP_ON", "keyops.curve_radius"),
+            op(curve_obj, "Convert to Mesh", "keyops:mesh", "object.convert", "target='MESH'"),
+            op(edge_sel, "Edges to Curve", "CURVE_DATA", "keyops.edges_to_curve"),
         ],
     }
     shows = {"boolean": f"({booleans}) or ({has_bool}) or ({edit})", "mesh": edit, "modifiers": mesh,
-             "active_modifier": active, "object": obj_mode, "display": has_obj,
+             "object": obj_mode, "display": has_obj,
+             "curve": f"({curve_obj}) or ({curve_edit}) or ({edge_sel})",
              # one mesh selected in Object Mode: the modifier modals go to the top, booleans need two
              "single": obj_mesh + " and sel <= 1"}
     return items, shows
@@ -315,19 +318,22 @@ def _q_sections():
 # The Q Menu's sections: (key, title, icon). The one-column Q Menu shows the boolean actions that fit,
 # then opens each other section as a submenu (preset "q_<key>"); Q Menu (Columns) shows them side by side.
 Q_SECTIONS = (("boolean", "Boolean", "keyops:difference"), ("mesh", "Mesh", "keyops:editmode"),
-              ("modifiers", "Modifiers", "keyops:modifier"), ("active_modifier", "Active Modifier", "MODIFIER_ON"),
+              ("modifiers", "Modifiers", "keyops:modifier"),
               ("object", "Object", "keyops:mesh_cube"), ("display", "Display", "HIDE_OFF"))
+# the curve items have no section of their own (one or two at a time): they sit at the top when they apply
 
 
 def _q_menu_items():
     """One column: what fits right now at the top (booleans for several meshes, the modifier modals for
     one), then a submenu for each section."""
     items, shows = _q_sections()
-    out = list(items["boolean"])
+    # what fits right now first: Edges to Curve with edges selected, Radius on a curve
+    out = list(items["curve"])
+    out += list(items["boolean"])
     # Fast Mirror, Bevel, Array and Solidify, right at the top while one mesh is selected
     out += [it[:5] + (shows["single"],) for it in items["modifiers"][:4]]
     # a separator, only when there's something above it
-    out.append((N, "", "", "", "", f"({shows['boolean']}) or ({shows['single']})"))
+    out.append((N, "", "", "", "", f"({shows['curve']}) or ({shows['boolean']}) or ({shows['single']})"))
     for key, title, icon in Q_SECTIONS[1:]:
         out.append((SUB, title, icon, f"preset:q_{key}", "", shows[key]))
     return tuple(out)
@@ -336,9 +342,9 @@ def _q_menu_items():
 def _q_columns_items():
     """Q Menu (Columns): the sections side by side, each under its heading."""
     items, shows = _q_sections()
-    out = []
+    out = list(items["curve"])  # at the top, when they apply
     for key, title, icon in Q_SECTIONS:
-        if key in ("modifiers", "active_modifier", "object"):  # Mesh goes under Boolean, Display under Object
+        if key in ("modifiers", "object"):  # Mesh goes under Boolean, Display under Object
             out.append((BREAK, "", "", "", "", shows[key]))
         out.append((LABEL, title, icon, "", "", shows[key]))
         out.extend(items[key])
@@ -348,7 +354,7 @@ def _q_columns_items():
 def _q_submenu_presets():
     """The one-column Q Menu's submenus: hidden presets, added with the Q Menu."""
     items, _shows = _q_sections()
-    return tuple(dict(id=f"q_{key}", name=f"Q Menu: {title}", editor="Object Mode, Mesh", key="NONE",
+    return tuple(dict(id=f"q_{key}", name=f"Q Menu: {title}", editor="Object Mode, Mesh, Curve", key="NONE",
                       menu_type="MENU", optional=True, sub=True, styles=set(), items=tuple(items[key]))
                  for key, title, _icon in Q_SECTIONS[1:])
 
@@ -358,7 +364,9 @@ PRESETS = (
          styles={"BLENDER_PLUS", "INDUSTRY"}, items=(
              _op("UV Sphere", "SHADING_WIRE", "keyops.add_mesh", "mesh_type='UVSPHERE'"),
              _op("Cube", "MESH_CUBE", "keyops.add_mesh", "mesh_type='CUBE'"),
-             _op("Cylinder", "MESH_CYLINDER", "keyops.add_mesh", "mesh_type='CYLINDER'"),
+             # Blender's own cylinder: its Adjust Last Operation panel (vertices, cap fill, align...) shows;
+             # Mod Cylinder is the Screw-modifier one
+             _op("Cylinder", "MESH_CYLINDER", "mesh.primitive_cylinder_add"),
              _op("Plane", "MESH_PLANE", "keyops.add_mesh", "mesh_type='PLANE'"),
              _op("Mod Cylinder", "MOD_SCREW", "keyops.add_mesh", "mesh_type='MODCYLINDER'"),
              (M, "Other", "ADD", "VIEW3D_MT_add", ""),
@@ -435,9 +443,9 @@ PRESETS = (
     # two or more meshes are selected, then submenus for the modifiers, the active modifier, mesh and
     # object tools. Each item's Show If does the picking. Q Menu (Columns) shows it all side by side. In the list on new installs, switched off,
     # since it takes Blender's Quick Favorites key.
-    dict(id="q_menu", name="Q Menu", editor="Object Mode, Mesh", key="Q", menu_type="MENU",
+    dict(id="q_menu", name="Q Menu", editor="Object Mode, Mesh, Curve", key="Q", menu_type="MENU",
          styles=set(), items=_q_menu_items()),
-    dict(id="q_menu_columns", name="Q Menu (Columns)", editor="Object Mode, Mesh", key="Q", menu_type="MENU",
+    dict(id="q_menu_columns", name="Q Menu (Columns)", editor="Object Mode, Mesh, Curve", key="Q", menu_type="MENU",
          optional=True, styles=set(), items=_q_columns_items()),
     *_q_submenu_presets(),
 ) + (
@@ -872,7 +880,7 @@ _EDITOR_AREAS = {"3D View Generic": 'VIEW_3D', "Object Mode": 'VIEW_3D', "Mesh":
                  "Weight Paint": 'VIEW_3D', "UV Editor": 'IMAGE_EDITOR', "Image": 'IMAGE_EDITOR',
                  "Node Editor": 'NODE_EDITOR', "Graph Editor": 'GRAPH_EDITOR', "Dopesheet": 'DOPESHEET_EDITOR',
                  "Outliner": 'OUTLINER', "Property Editor": 'PROPERTIES', "Sequencer": 'SEQUENCE_EDITOR',
-                 "Text": 'TEXT_EDITOR', "Window": None}
+                 "Text": 'TEXT_EDITOR', "Window": None, "Curve": 'VIEW_3D'}
 
 
 def editor_ok(context, pie):
@@ -1152,6 +1160,8 @@ def _fill(pie, preset):
         it.kind, it.label, it.icon, it.idname, it.props = kind, label, icon, idname, props
         it.show_if = extra[0] if extra else ""
         it.setting_style = extra[1] if len(extra) > 1 else "AUTO"
+        if kind == P and it.setting_style in SETTING_SOURCE:
+            it.source, it.props = props, ""  # e.g. the option a One Option button sets
 
 
 def _pie_for_preset(preset_id, owner=""):
@@ -1242,7 +1252,7 @@ ITEM_FIELDS = ("kind", "label", "icon", "idname", "props", "script", "show_if",
                "call_mode", "enabled", "menu_style", "op_style", "enum_prop", "source", "index", "invert", "decorate",
                "sub_style")
 STEP_FIELDS = ("idname", "props", "interactive")
-PIE_SCHEMA = 13  # bump when the saved layout changes, and add a migration below
+PIE_SCHEMA = 15  # bump when the saved layout changes, and add a migration below
 
 
 def _extra(obj):
@@ -1462,10 +1472,42 @@ def _migrate_pies_12_to_13(data):
     return data
 
 
+def _migrate_pies_13_to_14(data):
+    """Schema 14: the Q Menu drops its Active Modifier submenu, More Modifiers and Shade Auto Smooth, shows
+    Display As as one button per choice, gains a Curve section and also opens in curve Edit Mode. Menus made
+    from the Q Menu presets are rebuilt from them (key and on/off stay); the old Active Modifier submenu goes.
+    The UV Islands pie works only in the UV Editor; Add Objects' Cylinder is Blender's own cylinder."""
+    data = _migrate_pies_9_to_10(data)
+    for p in data.get("pies", []):
+        # the Q UV Islands pie belongs to the UV Editor only (older setups could have it in more editors)
+        if p.get("preset") == "uv_islands" and p.get("editor") != "UV Editor":
+            p["editor"] = "UV Editor"
+        # Add Objects: Cylinder is Blender's own cylinder (with its own redo panel), not a copy of Mod Cylinder's
+        if p.get("preset") == "add_objects":
+            for it in p.get("items", []):
+                if isinstance(it, dict) and it.get("idname") == "keyops.add_mesh" \
+                        and it.get("props", "").replace(" ", "") == "mesh_type='CYLINDER'":
+                    it["idname"], it["props"] = "mesh.primitive_cylinder_add", ""
+        if p.get("preset") in ("q_menu", "q_menu_columns") or (
+                str(p.get("preset", "")).startswith("q_") and p.get("owner")):
+            if p.get("editor") == "Object Mode, Mesh":
+                p["editor"] = "Object Mode, Mesh, Curve"
+    data["pies"] = [p for p in data.get("pies", []) if not (isinstance(p, dict) and p.get("preset") == "q_active_modifier")]
+    return data
+
+
+def _migrate_pies_14_to_15(data):
+    """Schema 15: the Q Menu's Curve submenu goes; Edges to Curve and Radius sit at the top of the Q Menu when
+    they apply. Menus made from the Q Menu presets are rebuilt from them (key and on/off stay)."""
+    data = _migrate_pies_9_to_10(data)
+    data["pies"] = [p for p in data.get("pies", []) if not (isinstance(p, dict) and p.get("preset") == "q_curve")]
+    return data
+
+
 PIE_MIGRATIONS = {1: _migrate_pies_1_to_2, 2: _migrate_pies_2_to_3, 3: _migrate_pies_3_to_4, 4: _migrate_pies_4_to_5,
                   5: _migrate_pies_5_to_6, 6: _migrate_pies_6_to_7, 7: _migrate_pies_7_to_8, 8: _migrate_pies_8_to_9,
                   9: _migrate_pies_9_to_10, 10: _migrate_pies_10_to_11, 11: _migrate_pies_11_to_12,
-                  12: _migrate_pies_12_to_13}
+                  12: _migrate_pies_12_to_13, 13: _migrate_pies_13_to_14, 14: _migrate_pies_14_to_15}
 
 
 def load_from_disk():
@@ -2413,6 +2455,8 @@ def _in_editor(context, editor):
         return area == 'IMAGE_EDITOR' and context.mode == 'EDIT_MESH' and getattr(space, "mode", "") == 'UV'
     if editor == "Mesh":
         return area == 'VIEW_3D' and context.mode == 'EDIT_MESH'
+    if editor == "Curve":
+        return area == 'VIEW_3D' and context.mode in ('EDIT_CURVE', 'EDIT_SURFACE')
     return True  # the other keymaps only run in their own editor
 
 
@@ -2424,6 +2468,66 @@ def works_here(context, pie):
 def condition_ok(context, pie):
     """A menu's Show When test. Empty means always; a broken test is reported once and ignored."""
     return _tested(context, pie.uid, pie.condition, pie.name)
+
+
+# ---- Preview In: the preview in Custom Menus shows the menu as it looks in a chosen mode (items whose Poll is
+# false there are hidden), handy for big menus with many items that only show sometimes
+PREVIEW_MODES = (
+    ('EDITING', "Every Item", "Show every item, whatever its Poll says (for editing)", 'PREFERENCES', 0),
+    ('CURRENT', "As Now", "Test each Poll against Blender as it is now (mode, selection, active object)", 'TIME', 1),
+    ('OBJECT', "Object Mode", "", 'OBJECT_DATAMODE', 2),
+    ('EDIT_MESH', "Edit Mesh", "", 'EDITMODE_HLT', 3),
+    ('EDIT_CURVE', "Edit Curve", "", 'OUTLINER_DATA_CURVE', 4),
+    ('SCULPT', "Sculpt Mode", "", 'SCULPTMODE_HLT', 5),
+    ('PAINT_WEIGHT', "Weight Paint", "", 'WPAINT_HLT', 6),
+    ('PAINT_VERTEX', "Vertex Paint", "", 'VPAINT_HLT', 7),
+    ('PAINT_TEXTURE', "Texture Paint", "", 'TPAINT_HLT', 8),
+    ('EDIT_ARMATURE', "Edit Armature", "", 'ARMATURE_DATA', 9),
+    ('POSE', "Pose Mode", "", 'POSE_HLT', 10),
+)
+
+
+def _redraw_all_areas(self, context):
+    for win in context.window_manager.windows:
+        for area in win.screen.areas:
+            area.tag_redraw()
+
+
+class _PreviewContext:
+    """Blender's context with another mode, for testing Polls in the preview."""
+    def __init__(self, context, mode):
+        self._ctx, self.mode = context, mode
+
+    def __getattr__(self, name):
+        return getattr(self._ctx, name)
+
+
+def preview_hidden(item, owner=""):
+    """True when the preview's Preview In mode hides this item (its Poll is false there)."""
+    wm = bpy.context.window_manager
+    mode = getattr(wm, "keyops_preview_mode", 'EDITING')
+    if mode == 'EDITING' or not getattr(item, "show_if", "").strip():
+        return False
+    ctx = bpy.context if mode == 'CURRENT' else _PreviewContext(bpy.context, mode)
+    return not item_visible(ctx, item, owner)
+
+
+class KEYOPS_PT_menu_preview_mode(bpy.types.Panel):
+    bl_label = "Preview In"
+    bl_space_type = 'TOPBAR'
+    bl_region_type = 'HEADER'
+    bl_options = {'INSTANCED'}
+    bl_ui_units_x = 10
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Preview the menu as it shows in")
+        col = layout.column(align=True)
+        col.prop(context.window_manager, "keyops_preview_mode", expand=True)
+        note = layout.column(align=True)
+        note.active = False
+        note.label(text="Items whose Poll is false there")
+        note.label(text="are hidden from the preview")
 
 
 def item_visible(context, item, owner=""):
@@ -3472,6 +3576,8 @@ INSERT_KINDS = (
 ) + tuple((f"G:{g}", name, f"A new {name.lower()} group with one item in it. {desc}", icon)
           for g, name, desc, icon, _n in GROUP_TYPES) + (
     (BREAK, "Next Column", "The items after this go in the next column", 'CENTER_ONLY'),
+    ("HIDE_UI", "Hide Blender UI", "A button that hides one of Blender's own panels, menus or headers (press it "
+                                   "again to show it). Pick which one from a list", 'HIDE_ON'),
 )
 
 
@@ -3580,6 +3686,15 @@ class KEYOPS_OT_menu_item_insert(Operator):
             prefs.pie_slot = pos
             _changed()
             _redraw_all(context)
+            return {'FINISHED'}
+        if self.kind == "HIDE_UI":  # a button running keyops.toggle_ui_element: pick the element next
+            it = _insert_item(pie, pos, O)
+            it.idname, it.label, it.icon = "keyops.toggle_ui_element", "Hide Blender UI", 'HIDE_ON'
+            prefs.pie_slot = pos
+            _changed()
+            _redraw_all(context)
+            if context.window:
+                bpy.ops.keyops.pick_ui_element('INVOKE_DEFAULT', slot=pos)
             return {'FINISHED'}
         it = _insert_item(pie, pos, self.kind)  # a Button starts empty (no action yet)
         it.label = {LABEL: "Heading", BREAK: "Next Column", MACRO: "Macro"}.get(self.kind, "")
@@ -4008,7 +4123,7 @@ class KEYOPS_MT_item_add(bpy.types.Menu):
         layout = self.layout
         layout.operator_context = 'EXEC_DEFAULT'
         for n, (kind, name, _desc, icon) in enumerate(INSERT_KINDS):
-            if (kind.startswith("G:") and not INSERT_KINDS[n - 1][0].startswith("G:")) or kind == BREAK:
+            if (kind.startswith("G:") and not INSERT_KINDS[n - 1][0].startswith("G:")) or kind in (BREAK, "HIDE_UI"):
                 layout.separator()
             op = layout.operator("keyops.menu_item_insert", text=name, icon=icon)
             op.kind, op.at_end = kind, True
@@ -4207,6 +4322,278 @@ class KEYOPS_OT_value_remove(Operator):
             _values_changed()
             schedule_custom_props_sync()
         return {'FINISHED'}
+
+
+def _op_rna(idname):
+    """The operator's RNA properties (name -> property), or None when there's no such operator."""
+    mod, _dot, name = idname.strip().partition(".")
+    if not name or name not in dir(getattr(bpy.ops, mod, object())):
+        return None
+    try:
+        return getattr(getattr(bpy.ops, mod), name).get_rna_type().properties
+    except (AttributeError, KeyError, RuntimeError):
+        return None
+
+
+def _param_names(rna):
+    return [p.identifier for p in rna if p.identifier != "rna_type" and not p.is_hidden and not p.is_readonly]
+
+
+def _plain(value):
+    """A setting's value as a plain Python literal (tuples for vectors, sets for flag choices)."""
+    if isinstance(value, (bool, int, float, str, set)):
+        return value
+    try:
+        return tuple(_plain(v) for v in value)
+    except TypeError:
+        return value
+
+
+_params_saved = {}  # the operator's own "last used" values while the parameters dialog borrows them
+
+
+def _serialize_params(props):
+    """The options an operator's property set holds, as the "name=value, ..." text an item stores."""
+    rna = props.bl_rna.properties
+    parts = []
+    for n in _param_names(rna):
+        value = _plain(getattr(props, n))
+        if props.is_property_set(n) or value != _plain(rna[n].default if not getattr(rna[n], "is_array", False)
+                                                           else tuple(rna[n].default_array)):
+            parts.append(f"{n}={value!r}")
+    return ", ".join(parts)
+
+
+def _borrow_params(idname, target_props):
+    """Fill the operator's "last used" property set with an item's options (the old values are kept to put back)."""
+    props = bpy.context.window_manager.operator_properties_last(idname)
+    rna = props.bl_rna.properties
+    if idname not in _params_saved:
+        _params_saved[idname] = {n: _plain(getattr(props, n)) for n in _param_names(rna) if props.is_property_set(n)}
+    for n in _param_names(rna):
+        props.property_unset(n)
+    try:
+        for k, v in _parse_props(target_props).items():
+            if k in rna:
+                setattr(props, k, v)
+    except (SyntaxError, ValueError, TypeError, AttributeError):
+        pass
+    return props
+
+
+def _give_back_params(idname):
+    """Put the operator's own "last used" values back after borrowing them."""
+    try:
+        props = bpy.context.window_manager.operator_properties_last(idname)
+    except (RuntimeError, AttributeError):
+        _params_saved.pop(idname, None)
+        return
+    for n in _param_names(props.bl_rna.properties):
+        props.property_unset(n)
+    for n, v in _params_saved.pop(idname, {}).items():
+        try:
+            setattr(props, n, v)
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+
+# ---- operator parameters drawn inline in the item card (a dropdown, no popup dialog)
+# The fields are the operator's own "last used" property set, borrowed while the dropdown is open: Blender
+# draws every option exactly as its own redo panel does (ranges, units, dynamic choices). A draw can't write
+# data, so a timer copies the fields into the item's options when they change, and loads them when the
+# item, the step or the options text change.
+_inline = {"key": None, "idname": "", "synced": None, "pending": False, "last_run": 0}
+
+
+def _last_run_of(idname):
+    """The newest run of this operator in the window manager's history (0: none), to tell a run elsewhere,
+    which also writes the "last used" values, from a field changed in the dropdown."""
+    want = idname.split(".")[0].upper() + "_OT_" + idname.split(".")[-1]
+    try:
+        for op in reversed(bpy.context.window_manager.operators):
+            if op.bl_idname == want:
+                return op.as_pointer()
+    except (AttributeError, ReferenceError):
+        pass
+    return 0
+_open_step = {"slot": -1, "step": -1}  # the macro step whose parameters are shown
+
+
+def _inline_target(prefs, key):
+    uid, slot, step = key
+    pie = find_pie(uid)
+    if pie is None or not (0 <= slot < len(pie.items)):
+        return None
+    item = pie.items[slot]
+    if step >= 0:
+        return item.steps[step] if item.kind == MACRO and step < len(item.steps) else None
+    return item
+
+
+def _inline_close():
+    if _inline["idname"]:
+        _give_back_params(_inline["idname"])
+    _inline.update(key=None, idname="", synced=None)
+
+
+def _inline_sync():
+    """Timer: load the fields for the item now shown, or store edited fields in the item."""
+    _inline["pending"] = False
+    want = _inline.get("want")
+    prefs = get_keyops_prefs()
+    target = _inline_target(prefs, want) if want else None
+    idname = target.idname.strip() if target is not None else ""
+    if target is None or _op_rna(idname) is None:
+        _inline_close()
+    elif (want != _inline["key"] or idname != _inline["idname"] or target.props != _inline["synced"]
+          or _last_run_of(idname) != _inline["last_run"]):
+        # (a run of the operator elsewhere overwrote the fields: they're loaded from the item again)
+        # another item, operator or options typed in the text field: (re)load the fields from the item
+        if _inline["idname"] and _inline["idname"] != idname:
+            _give_back_params(_inline["idname"])
+        props = _borrow_params(idname, target.props)
+        _inline.update(key=want, idname=idname, synced=_serialize_params(props), last_run=_last_run_of(idname))
+        if target.props != _inline["synced"] and not target.props.strip():
+            _inline["synced"] = target.props = ""
+    else:
+        props = bpy.context.window_manager.operator_properties_last(idname)
+        text = _serialize_params(props)
+        if text != _inline["synced"]:
+            target.props = text
+            _inline["synced"] = text
+            _changed()
+    for win in bpy.context.window_manager.windows:
+        for area in win.screen.areas:
+            area.tag_redraw()
+    return None
+
+
+def _inline_request(key):
+    _inline["want"] = key
+    if not _inline["pending"]:
+        _inline["pending"] = True
+        bpy.app.timers.register(_inline_sync, first_interval=0.05)
+
+
+def draw_inline_params(layout, pie, slot, step, target, extra=None):
+    """The operator's options as fields, right in the card. Changing one stores it in the item."""
+    idname = target.idname.strip()
+    key = (pie.uid, slot, step)
+    col = layout.column()
+    if _inline["key"] != key or _inline["idname"] != idname:
+        _inline_request(key)
+        col.label(text="Loading...", icon='TIME')
+        return
+    props = bpy.context.window_manager.operator_properties_last(idname)
+    if target.props != _inline["synced"] or _serialize_params(props) != _inline["synced"]:
+        _inline_request(key)  # typed in the text field, or a field changed: sync on the next tick
+    col.use_property_split = True
+    col.use_property_decorate = False
+    names = _param_names(props.bl_rna.properties)
+    if not names and not extra:
+        _note(col, "This operator has no options")
+    for n in names:
+        # options the item sets are drawn normally, the rest (the operator's defaults) greyed out
+        r = col.row()
+        r.active = props.is_property_set(n)
+        r.prop(props, n)
+    if extra is not None:
+        extra(col)
+    if names:
+        col.operator("keyops.operator_params_reset", text="Reset to Defaults", icon='LOOP_BACK')
+
+
+class KEYOPS_OT_operator_params_reset(Operator):
+    """Clear the options this item runs its operator with: it runs with the operator's defaults"""
+    bl_idname = "keyops.operator_params_reset"
+    bl_label = "Reset Parameters"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        key = _inline["key"]
+        target = _inline_target(get_keyops_prefs(), key) if key else None
+        if target is None:
+            return {'CANCELLED'}
+        target.props = ""
+        _changed()
+        _inline_request(key)
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_macro_step_params(Operator):
+    """Show or hide the options this step runs its operator with"""
+    bl_idname = "keyops.macro_step_params"
+    bl_label = "Step Parameters"
+    bl_options = {'INTERNAL'}
+    slot: IntProperty() # type: ignore
+    step: IntProperty() # type: ignore
+
+    def execute(self, context):
+        if _open_step["slot"] == self.slot and _open_step["step"] == self.step:
+            _open_step.update(slot=-1, step=-1)
+        else:
+            _open_step.update(slot=self.slot, step=self.step)
+        return {'FINISHED'}
+
+
+class KEYOPS_OT_operator_params(Operator):
+    """Set the parameters this step (or button) runs its operator with: every option the operator has, as fields"""
+    bl_idname = "keyops.operator_params"
+    bl_label = "Operator Parameters"
+    bl_options = {'INTERNAL'}
+
+    slot: IntProperty(options={'SKIP_SAVE'}) # type: ignore
+    step: IntProperty(default=-1, options={'SKIP_SAVE'}) # type: ignore
+    op_idname: StringProperty(options={'SKIP_SAVE', 'HIDDEN'}) # type: ignore
+
+    def _target(self, context):
+        prefs = get_keyops_prefs()
+        item = _active_item(prefs, self.slot)
+        if item is None:
+            return None, None
+        if self.step >= 0:
+            if item.kind != MACRO or self.step >= len(item.steps):
+                return None, None
+            return item.steps[self.step], item.steps[self.step].idname
+        return item, item.idname
+
+    def invoke(self, context, event):
+        target, idname = self._target(context)
+        rna = _op_rna(idname or "")
+        if target is None or rna is None:
+            self.report({'WARNING'}, "Pick an operator first")
+            return {'CANCELLED'}
+        self.op_idname = idname.strip()
+        _inline_close()  # the dialog and the inline fields share the operator's property set
+        # the operator's "last used" values are borrowed for the dialog and put back afterwards
+        _borrow_params(self.op_idname, target.props)
+        return context.window_manager.invoke_props_dialog(self, width=380)
+
+    def draw(self, context):
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        layout = self.layout
+        layout.use_property_split = True
+        layout.label(text=self.op_idname, icon='TOOL_SETTINGS')
+        names = _param_names(props.bl_rna.properties)
+        if not names:
+            layout.label(text="This operator has no options")
+        for n in names:
+            layout.prop(props, n)
+
+    def _restore(self, context):
+        _give_back_params(self.op_idname)
+
+    def execute(self, context):
+        target, _idname = self._target(context)
+        props = context.window_manager.operator_properties_last(self.op_idname)
+        if target is not None:
+            target.props = _serialize_params(props)
+            _changed()
+        self._restore(context)
+        return {'FINISHED'}
+
+    def cancel(self, context):
+        self._restore(context)
 
 
 class KEYOPS_OT_macro_step_add(Operator):
@@ -5481,7 +5868,10 @@ class KEYOPS_OT_submenu_add(Operator):
         # A group is a popup menu drawn in place.
         kind = "PIE" if parent.menu_type == "PIE" and not self.group else "MENU"
         what = "Group" if self.group else ("Sub-pie" if kind == "PIE" else "Submenu")
+        parent_uid = parent.uid
         sub = _new_pie(prefs)
+        # adding to the list can move every menu in memory: find the parent again (the old reference can crash)
+        parent = next(p for p in prefs.pies if p.uid == parent_uid)
         sub["enabled"], sub["menu_type"] = False, next(t[4] for t in MENU_TYPES if t[0] == kind)
         sub.name, sub.key, sub.editor, sub.owner = f"{parent.name}: {what} {n}", "NONE", parent.editor, parent.uid
         sub.items.clear()
@@ -5563,6 +5953,12 @@ def draw_pies_tab(prefs, context, layout):
     mode = where.row(align=True)
     mode.ui_units_x = BAR_FIELD_UNITS
     mode.prop_menu_enum(pie, "only_mode_set", text=only_mode_text(pie), icon=only_mode_icon(pie))
+    _bar_label(where, "Preview")
+    pv = where.row(align=True)
+    pv.ui_units_x = BAR_FIELD_UNITS
+    wm = context.window_manager
+    pmode = next(m for m in PREVIEW_MODES if m[0] == wm.keyops_preview_mode)
+    pv.popover("KEYOPS_PT_menu_preview_mode", text=pmode[1], icon=pmode[3])
     if pie.menu_type == "PANEL":
         _bar_label(where, "Tab")
         tab = where.row(align=True)
@@ -5714,26 +6110,8 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
             r = _field(col, "Label")
             r.operator("keyops.pie_icon_picker", text="", **icon_kw(item.icon or 'ADD')).slot = slot
             _prop_hint(r, item, "label", "", "", "No label: icon only")
-            if k == P:
-                col.prop(item, "setting_style", text="Draw As")
-        if k == P and item.setting_style in SETTING_SOURCE:
-            name, hint = SETTING_SOURCE[item.setting_style]
-            _prop_hint(_field(col, name), item, "source", "", "", hint)
-        elif k == M:
-            col.prop(item, "menu_style", text="Draw As")
-        elif k == SUB:
-            col.row(align=True).prop(item, "sub_style", expand=True)
-            if item.sub_style == "INLINE":
-                r = col.row(align=True)
-                r.prop(item, "group_type", text="")
-                r.prop(item, "align", toggle=True, icon='SNAP_EDGE')
-        elif k == O:
-            col.prop(item, "op_style", text="Draw As")
-            if item.op_style != "BUTTON":
-                _prop_hint(_field(col, "Option"), item, "enum_prop", "", "",
-                           "The operator's choice option, e.g. type")
         if k == MACRO:  # its steps, stacked in the order they run
-            draw_macro_steps(col, item, slot)
+            draw_macro_steps(col, item, slot, pie)
 
     looks = look_options(pie, item)
     toggles = [(n, i) for n, i in (("emboss", 'MESH_PLANE'), ("alert", 'ERROR'), ("active", 'HIDE_OFF'),
@@ -5746,15 +6124,29 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
         draw_item_advanced(context, adv, pie, item, slot, looks)
         if item.kind == O:
             _field(adv, "Run As").prop(item, "call_mode", text="")
-        if has_operator_settings(item):
+            if item.idname.strip() == "keyops.toggle_ui_element":
+                adv.operator("keyops.pick_ui_element", text="Pick Blender UI to Hide", icon='HIDE_ON').slot = slot
+        inline = item.kind == O and item.idname.strip() != "keyops.toggle_ui_element" \
+            and bool(item.idname.strip()) and _op_rna(item.idname) is not None
+        if inline or has_operator_settings(item):
             col.separator(factor=0.6)
             if _foldout(col, prefs, "pie_show_op_params", "Operator Parameters"):
-                draw_operator_settings(prefs, col.box().column(), item)
+                # one panel: the operator's own options, then the settings Key Ops keeps for it (if any)
+                pbox = col.box().column()
+                extra = (lambda lay: draw_operator_settings(prefs, lay, item)) if has_operator_settings(item) else None
+                if inline:
+                    draw_inline_params(pbox, pie, slot, -1, item, extra)
+                elif extra is not None:
+                    extra(pbox)
     # how it's drawn: last, right above the menu's own settings
-    if toggles or "width" in looks:
+    draws_as = not _is_empty(item) and k in (P, M, SUB, O)
+    if toggles or "width" in looks or draws_as:
         col.separator(factor=0.6)
         if _foldout(col, prefs, "pie_show_drawing", "Drawing"):
-            line = col.box().row()  # the look toggles, then the size, on one row
+            dbox = col.box()
+            if draws_as:
+                draw_item_draw_as(dbox.column(), item, compact)
+            line = dbox.row()  # the look toggles, then the size, on one row
             if toggles:
                 r = line.row(align=True)
                 for name, icon in toggles:
@@ -5766,6 +6158,32 @@ def draw_item_card(prefs, context, layout, pie, compact=False):
                 r = line.row(align=True)
                 r.prop(item, "width", text="X")
                 r.prop(item, "height", text="Y")
+
+
+def draw_item_draw_as(col, item, compact=False):
+    """Draw As: how a setting, menu, submenu or operator item is drawn (a button, a dropdown, a group...),
+    with the extra field some styles need. Part of the item card's Drawing section."""
+    k = item.kind
+    if k == P:
+        col.prop(item, "setting_style", text="Draw As")
+        if item.setting_style in SETTING_SOURCE:
+            name, hint = SETTING_SOURCE[item.setting_style]
+            _prop_hint(_field(col, name), item, "source", "", "", hint)
+    elif k == M:
+        col.prop(item, "menu_style", text="Draw As")
+    elif k == SUB:
+        if compact:
+            col.prop(item, "sub_style", text="Draw As")
+        else:
+            col.row(align=True).prop(item, "sub_style", expand=True)
+        if item.sub_style == "INLINE":
+            r = col.row(align=True)
+            r.prop(item, "group_type", text="")
+            r.prop(item, "align", toggle=True, icon='SNAP_EDGE')
+    elif k == O:
+        col.prop(item, "op_style", text="Draw As")
+        if item.op_style != "BUTTON":
+            _prop_hint(_field(col, "Option"), item, "enum_prop", "", "", "The operator's choice option, e.g. type")
 
 
 def has_operator_settings(item):
@@ -6035,7 +6453,7 @@ def context_wm():
     return bpy.context.window_manager
 
 
-def draw_macro_steps(layout, item, slot):
+def draw_macro_steps(layout, item, slot, pie=None):
     box = layout.box()
     head = box.row()
     head.label(text="Steps")
@@ -6051,11 +6469,17 @@ def draw_macro_steps(layout, item, slot):
         op = r.operator("keyops.pie_slot_search", text=step_name(step) or "Pick an operator", icon='VIEWZOOM')
         op.slot, op.scope, op.step = slot, "ALL", n
         r.prop(step, "props", text="", placeholder="Options") if bpy.app.version >= (4, 1, 0) else r.prop(step, "props", text="")
+        shown = _open_step["slot"] == slot and _open_step["step"] == n and pie is not None
+        prm = r.operator("keyops.macro_step_params", text="", icon='DOWNARROW_HLT' if shown else 'PREFERENCES',
+                         depress=shown)
+        prm.slot, prm.step = slot, n
         r.prop(step, "interactive", text="", icon='RESTRICT_SELECT_OFF', toggle=True)
         for icon, d in (('TRIA_UP', -1), ('TRIA_DOWN', 1)):
             mv = r.operator("keyops.macro_step_move", text="", icon=icon)
             mv.step, mv.direction = n, d
         r.operator("keyops.macro_step_remove", text="", icon='X').step = n
+        if shown and _op_rna(step.idname or "") is not None:
+            draw_inline_params(box.box(), pie, slot, n, step)
     box.operator("keyops.macro_step_add", text="Add Step", icon='ADD')
 
 
@@ -6068,7 +6492,7 @@ classes = (KEYOPS_OT_panel_parent_pick, KEYOPS_MT_pie_submenu, KEYOPS_OT_submenu
            KEYOPS_OT_panel_to_menu, KEYOPS_MT_extend_here, *_here_menu_classes,
            KEYOPS_OT_item_ungroup, KEYOPS_MT_item_wrap,
            KEYOPS_OT_menu_item_move, KEYOPS_OT_slot_make_macro, KEYOPS_OT_macro_step_add, KEYOPS_OT_macro_step_remove,
-           KEYOPS_OT_macro_step_move, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
+           KEYOPS_OT_macro_step_move, KEYOPS_OT_operator_params, KEYOPS_PT_menu_preview_mode, KEYOPS_OT_operator_params_reset, KEYOPS_OT_macro_step_params, KEYOPS_OT_pie_new_popup, KEYOPS_OT_pie_move, KEYOPS_OT_component_mode, KEYOPS_OT_slot_swap, KEYOPS_OT_slot_copy, KEYOPS_OT_slot_paste, KEYOPS_OT_pie_filter_popup, KEYOPS_OT_pie_filter_clear, KEYOPS_OT_pie_select, KEYOPS_OT_pie_add, KEYOPS_OT_pie_remove,
            KEYOPS_OT_pie_reset, KEYOPS_OT_pie_set_key, KEYOPS_OT_pie_preset_popup, KEYOPS_OT_pie_slot_search,
            KEYOPS_OT_pie_slot_select, KEYOPS_PT_icon_palette, KeyOpsIconRow, KEYOPS_UL_icon_rows, KEYOPS_UL_menus, KEYOPS_MT_menu_list_specials, KEYOPS_OT_pie_icon_picker, KEYOPS_OT_panel_icon_picker, KEYOPS_OT_pie_set_icon, KEYOPS_OT_pie_icon_search,
            KEYOPS_OT_settings_export, KEYOPS_OT_settings_import)
@@ -6095,6 +6519,10 @@ def register():
         menu.append(_button_context_draw)
     bpy.types.WindowManager.keyops_export_menus = CollectionProperty(type=KeyOpsExportChoice)
     bpy.types.WindowManager.keyops_values = CollectionProperty(type=KeyOpsValue)
+    bpy.types.WindowManager.keyops_preview_mode = EnumProperty(
+        name="Preview In", items=PREVIEW_MODES, default='EDITING', options={'SKIP_SAVE'},
+        description="Show the preview as the menu looks in this mode: items whose Poll is false there are hidden",
+        update=_redraw_all_areas)
     bpy.types.WindowManager.keyops_menu_filter = StringProperty(
         name="Find Menu", description="Search menus by name or key", options={'TEXTEDIT_UPDATE'})
     bpy.types.WindowManager.keyops_menu_filter_types = EnumProperty(
@@ -6128,6 +6556,10 @@ def register():
 
 def unregister():
     remove_user_panels()
+    if bpy.app.timers.is_registered(_inline_sync):
+        bpy.app.timers.unregister(_inline_sync)
+    _inline["pending"] = False
+    _inline_close()
     menu = _button_context_menu()
     if menu is not None:
         try:
@@ -6146,6 +6578,7 @@ def unregister():
     del bpy.types.WindowManager.keyops_export_menus
     remove_custom_props()
     del bpy.types.WindowManager.keyops_values
+    del bpy.types.WindowManager.keyops_preview_mode
     del bpy.types.WindowManager.keyops_menu_filter
     del bpy.types.WindowManager.keyops_menu_filter_types
     del bpy.types.WindowManager.keyops_menu_filter_state

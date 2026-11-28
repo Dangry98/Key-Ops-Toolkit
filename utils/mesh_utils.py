@@ -369,6 +369,14 @@ class _Loop:
     def set_flow(self, tension, min_angle):
         for edge in self.edges:
             target = {}
+            if edge.is_wire:
+                # No faces: follow the unselected edges crossing the loop instead.
+                for vert in edge.verts:
+                    points = _wire_flow_points(vert)
+                    if points is not None:
+                        target[vert] = points
+                _apply_flow_targets(target, tension)
+                continue
             if edge.is_boundary:
                 continue
 
@@ -411,17 +419,61 @@ class _Loop:
 
                 target[center] = [p1, p2.co, p3.co, p4]
 
-            for vert, points in target.items():
-                p1, p2, p3, p4 = points
-                if p1 == p2 or p3 == p4:
-                    continue
+            _apply_flow_targets(target, tension)
 
-                d = (p2 - p3).length * 0.5
-                p1 = p2 + (d * (p1 - p2).normalized())
-                p4 = p3 + (d * (p4 - p3).normalized())
 
-                result = _hermite_3d(p1, p2, p3, p4, 0.5, -tension, 0)
-                vert.co = Vector(result)
+def _apply_flow_targets(target, tension):
+    for vert, points in target.items():
+        p1, p2, p3, p4 = points
+        if p1 == p2 or p3 == p4:
+            continue
+
+        d = (p2 - p3).length * 0.5
+        p1 = p2 + (d * (p1 - p2).normalized())
+        p4 = p3 + (d * (p4 - p3).normalized())
+
+        result = _hermite_3d(p1, p2, p3, p4, 0.5, -tension, 0)
+        vert.co = Vector(result)
+
+
+def _continue_wire(vert, came_from):
+    """Position one step further along the straightest edge leaving vert away from came_from, or None."""
+    incoming = vert.co - came_from.co
+    if incoming.length == 0.0:
+        return None
+    incoming.normalize()
+    best, best_dot = None, 0.5
+    for link in vert.link_edges:
+        other = link.other_vert(vert)
+        if other == came_from:
+            continue
+        direction = other.co - vert.co
+        if direction.length == 0.0:
+            continue
+        dot = incoming.dot(direction.normalized())
+        if dot > best_dot:
+            best, best_dot = other, dot
+    return best.co.copy() if best is not None else None
+
+
+def _wire_flow_points(vert):
+    """Hermite control points for a vertex on a selected edge without faces.
+
+    The two unselected edges at vert give the neighbours across the loop (p2, p3); the next
+    edges beyond them give p1 and p4, or a straight extension when the chain ends.
+    """
+    cross = [e for e in vert.link_edges if not e.select]
+    if len(cross) != 2:
+        return None
+    a = cross[0].other_vert(vert)
+    b = cross[1].other_vert(vert)
+    p1 = _continue_wire(a, vert)
+    p4 = _continue_wire(b, vert)
+    if p1 is None:
+        p1 = a.co - (b.co - a.co)
+    if p4 is None:
+        p4 = b.co - (a.co - b.co)
+    return [p1, a.co.copy(), b.co.copy(), p4]
 
 
 def _walk_boundary(start_edge, limit_to_edges=None):
@@ -565,7 +617,7 @@ def _find_edge_ring_neighbours(edgeloops, edge_to_loop):
 def _find_control_edgeloop(edgeloops, edge_to_loop):
     for edgeloop in edgeloops:
         for edge in edgeloop.edges:
-            if edge in edgeloop.edge_rings:
+            if edge in edgeloop.edge_rings or not edge.link_loops:
                 continue
 
             edge_ring = deque([edge.link_loops[0]])

@@ -39,6 +39,7 @@ paths_exclude_pattern = [
   "/tests/",
   "/scripts/",
   "/CLAUDE.local.md",
+  "/CLAUDE.md",
   "/.tmp",
   "/.gitignore",
   "/local/",

@@ -63,7 +63,7 @@ def run():
 
     # ---- fresh install (before the welcome screen)
     check("fresh install binds zero shortcuts", F.live_shortcut_count() == 0, str(F.live_shortcut_count()))
-    check("fresh install: pies listed but none active", len(p.pies) == 15 and PM.live_count() == 0,
+    check("fresh install: pies listed but none active", len(p.pies) == 14 and PM.live_count() == 0,
           f"{len(p.pies)} pies, {PM.live_count()} keys")
     feats, keys, repl = F.stats(p)
     check("fresh install still turns UI features on", feats >= 10, f"{feats} features")
@@ -328,15 +328,15 @@ def run():
     check("Q Menu is in the list on new installs, switched off", qm is not None and not qm.enabled)
     subs = [PM.find_pie(i.idname) for i in qm.items if i.kind == PM.SUB]
     check("Q Menu: one column, its sections as popup-menu submenus",
-          not any(i.kind in (PM.BREAK, PM.LABEL) for i in qm.items) and len(subs) == 5
+          not any(i.kind in (PM.BREAK, PM.LABEL) for i in qm.items) and len(subs) == 4
           and all(s is not None and s.menu_type == "MENU" and s.preset.startswith("q_") and not s.enabled for s in subs),
           str([s and s.preset for s in subs]))
     check("Q Menu submenus are not offered in Add Preset", all(PM.PRESET_BY_ID[s.preset].get("sub") for s in subs))
     check("submenus open on hover inside popup menus", hasattr(bpy.types, "KEYOPS_MT_pie_submenu"))
     bpy.ops.keyops.pie_add(preset="q_menu_columns")
     qc = p.pies[-1]
-    check("Q Menu (Columns): headings and four columns", qc.menu_type == "MENU"
-          and sum(1 for i in qc.items if i.kind == PM.BREAK) == 3 and sum(1 for i in qc.items if i.kind == PM.LABEL) == 6)
+    check("Q Menu (Columns): headings and three columns (curve items at the top, no Curve column)", qc.menu_type == "MENU"
+          and sum(1 for i in qc.items if i.kind == PM.BREAK) == 2 and sum(1 for i in qc.items if i.kind == PM.LABEL) == 5)
     every = [i for m in [qm, qc, *subs] for i in m.items]
     bad_ops = [i.idname for i in every if i.kind == PM.O
                and i.idname.partition(".")[2] not in dir(getattr(bpy.ops, i.idname.partition(".")[0]))]
@@ -354,9 +354,14 @@ def run():
     check("Q Menu: every Show If test reads", not bad_tests, str(bad_tests))
     check("tests can use len(), mods and sel", PM.safe_test("len(mods) >= 0 and sel >= 0 and len(C.selected_objects) == sel",
                                                          bpy.context))
-    more = next(i for s in subs for i in s.items if i.kind == PM.SUB)
-    check("Q Menu: More Modifiers opens the Add Modifier pie", PM.find_pie(more.idname) is not None
-          and PM.find_pie(more.idname).preset == "add_modifier")
+    check("Q Menu: no More Modifiers, no Active Modifier submenu, no Shade Auto Smooth",
+          not any(i.kind == PM.SUB for s in subs for i in s.items)
+          and not any(x.preset == "q_active_modifier" for x in p.pies)
+          and not any(i.idname == "object.shade_auto_smooth" for i in every))
+    top = list(qm.items)[:4]
+    check("Q Menu: no Curve submenu; Edges to Curve and Radius sit at the top when they apply; opens in curve Edit Mode",
+          not any(x.preset == "q_curve" for x in p.pies) and "Curve" in PM.editor_names(qm)
+          and any(i.idname == "keyops.edges_to_curve" for i in top) and any(i.idname == "keyops.curve_radius" for i in top))
     # only the Object section shown: the columns before it must not leave empty columns
     shown = [(n, i) for n, i in enumerate(qc.items) if i.kind == PM.BREAK or i.label == "Object"]
     check("hidden items never leave an empty column", len(PM.layout_tree(list(qc.items), shown)) == 1)
@@ -372,7 +377,7 @@ def run():
     n_before = len(p.pies)
     check("Q Menu's submenus belong to it and aren't listed on their own",
           all(get(u).owner == q_uid and not PM.listed(get(u)) for u in sub_uids) and PM.listed(get(q_uid))
-          and len(PM.menu_family(p, get(q_uid))) == 6)
+          and len(PM.menu_family(p, get(q_uid))) == 5)
     check("a submenu knows the menu above it", [x.uid for x in PM.owner_chain(p, get(sub_uids[0]))] == [q_uid])
     p.active_pie = at(q_uid)
     bpy.ops.keyops.submenu_add()
@@ -397,7 +402,7 @@ def run():
     copy_uid = p.pies[p.active_pie].uid
     family = PM.menu_family(p, get(copy_uid))
     copied = {x.uid for x in family}
-    check("Duplicate copies the menu with its own submenus", len(family) == 8 and copy_uid != q_uid
+    check("Duplicate copies the menu with its own submenus", len(family) == 7 and copy_uid != q_uid
           and PM.listed(get(copy_uid)) and all(x.owner in copied for x in family[1:]), str(len(family)))
     targets = [i.idname for x in family for i in x.items if i.kind == PM.SUB
                and PM.find_pie(i.idname) is not None and PM.find_pie(i.idname).preset != "add_modifier"]

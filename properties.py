@@ -52,11 +52,6 @@ class PolyCountProperties(PropertyGroup):
         description="Compute stats only for selected objects",
         default=False
     )
-    auto_update_polycount: BoolProperty(  # type: ignore
-        name="Auto Update",
-        description="Auto update the list, might be slow in big scenes",
-        default=True
-    )
     filter_list_show: EnumProperty(  # type: ignore
         name="List Show",
         description="Show",
@@ -113,21 +108,15 @@ class PolyCountProperties(PropertyGroup):
         default=150,
         min=1
     )
-    update_rate: IntProperty(  # type: ignore
-        name="Update Rate",
-        description="Update rate",
-        default=1,
-        min=1
-    )
     show_draw_time: BoolProperty(  # type: ignore
         name="Show Draw Time",
         description="Show the time it took to draw the list",
         default=True
     )
-    keyboard_navigation: BoolProperty(  # type: ignore
-        name="Keyboard Navigation",
-        description="Up/Down Arrow or W/S moves the active object through the list while hovering it (in the Toolkit N-panel or Scene Properties). Hold Shift to extend the selection",
-        default=True
+    search: StringProperty(  # type: ignore
+        name="Search",
+        description="Only list objects whose name contains this (not case sensitive)",
+        default="", options={'TEXTEDIT_UPDATE'}
     )
 
 

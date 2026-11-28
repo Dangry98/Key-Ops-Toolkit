@@ -98,7 +98,7 @@ class Rec:
             if "icon_value" in kw and not isinstance(kw["icon_value"], int):
                 raise LayoutError(f"{name}(icon_value={kw['icon_value']!r}) is not a number")
             entry = {"fn": name, "kw": kw, "text": kw.get("text"), "ctx": self._ctx}
-            if name in ("prop", "prop_menu_enum", "props_enum", "template_icon_view"):
+            if name in ("prop", "prop_menu_enum", "props_enum", "template_icon_view", "prop_enum"):
                 data, prop = kw.get("data"), kw.get("property")
                 rna = getattr(data, "bl_rna", None)
                 if rna is None or prop not in rna.properties:
@@ -135,6 +135,8 @@ def drawn_rows(log):
             look = "CHECKBOX" if rna.type == 'BOOLEAN' and not getattr(rna, "array_length", 0) else "FIELD"
             rows.append((look, e["text"] or ""))
         elif fn in ("operator", "popover"):
+            rows.append(("BUTTON", e["text"] or ""))
+        elif fn == "prop_enum":  # one option of a choice, as a button
             rows.append(("BUTTON", e["text"] or ""))
         elif fn == "label":
             rows.append(("LABEL", e["text"] or ""))
@@ -360,14 +362,12 @@ def run():
     cube.modifiers.new("Bevel", 'BEVEL')
     cube.modifiers.active = cube.modifiers.new("Boolean", 'BOOLEAN')
     rows, err, bad = q_rows(q)
-    check("Q Menu, an object with a boolean: Boolean Scroll and the Active Modifier submenu",
-          not err and "Boolean Scroll" in labels(rows) and ("SUBMENU", "Active Modifier") in rows, str(rows))
-    rows, err, bad = q_rows(subs["q_active_modifier"])
-    check("Active Modifier submenu: checkboxes, then Operation and Solver as submenus, all one column",
-          not err and not bad and rows[:4] == [("CHECKBOX", "Show in Viewport"), ("CHECKBOX", "Show in Edit Mode"),
-                                               ("SUBMENU", "Operation"), ("SUBMENU", "Solver")], str(rows))
+    check("Q Menu, an object with a boolean: Boolean Scroll, no Active Modifier submenu",
+          not err and "Boolean Scroll" in labels(rows) and ("SUBMENU", "Active Modifier") not in rows, str(rows))
     rows, err, bad = q_rows(subs["q_display"])
-    check("Display submenu: Display As is a submenu, not a field", not err and ("SUBMENU", "Display As") in rows, str(rows))
+    check("Display submenu: one button per display type, no Display As submenu (no third level)",
+          not err and not bad and not any(look == "SUBMENU" for look, _t in rows)
+          and all(t in labels(rows) for t in ("Bounds", "Wire", "Solid", "Textured")), str(rows))
     real_visible = PM.item_visible
     PM.item_visible = lambda *a, **k: True  # the editor's preview shows every item, whatever its Show If says
     for key, sub in subs.items():
@@ -477,7 +477,8 @@ def run():
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
     lists = [e["kw"] for e in log if e["fn"] == "template_list"]
-    icon_ops = [e for e in log if e["fn"] == "operator"]
+    # icon buttons outside the list (the header's "No Icon" button doesn't count)
+    icon_ops = [e for e in log if e["fn"] == "operator" and e.get("text") != "No Icon"]
     # always a list, so it keeps its scroll bar: a grid list, or (5.4+, no grid lists) a row list
     check("icon palette: drawn as a scrollable list with only real Blender calls",
           not err and lists and not icon_ops and lists[0].get("maxrows") == PM.ICON_ROWS

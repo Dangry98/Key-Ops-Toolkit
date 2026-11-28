@@ -4,6 +4,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
 from mathutils import Vector, Matrix
+from ..utils.modifier_order import place_shape_modifier, sort_shading_last
 from ..utils.utilities import get_blender_key_icon
 
 AXES = "XYZ"
@@ -324,13 +325,9 @@ def get_mirror_origin_object(context, targets=None):
 
 
 def move_before_weighted_normal(obj, mod):
-    modifiers = obj.modifiers
-    names = [m.name for m in modifiers]
-    mod_index = names.index(mod.name)
-    for index, other in enumerate(modifiers):
-        if other.type == 'WEIGHTED_NORMAL' and index < mod_index:
-            modifiers.move(mod_index, index)
-            return
+    """Above the shading modifiers (Triangulate, Weighted Normal, Smooth by Angle) and pinned ones."""
+    place_shape_modifier(obj, mod)
+    sort_shading_last(obj)
 
 
 def get_or_create_mirror_modifier(obj, new_modifier, mirror_object):
@@ -1121,6 +1118,11 @@ class FastMirrorBlockGizmo(bpy.types.Gizmo):
         self.draw_custom_shape(self.fill_shape, select_id=select_id)
 
 
+GIZMO_GAP_PX = 40.0   # blocks sit this many pixels outside the object's bounding box
+GIZMO_MIN_PX = 45.0   # and at least this far from its origin on screen (axes pointing at the view)
+GIZMO_EDGE_PX = 30.0  # kept this far inside the viewport
+
+
 class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
     bl_idname = "KEYOPS_GGT_fast_mirror"
     bl_label = "Fast Mirror Gizmo"
@@ -1256,21 +1258,16 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
         if center_2d is None or face_2d is None:
             return face_world
 
+        # A fixed number of pixels beyond the bounding box, whatever the zoom: the blocks sit just outside
+        # the object and keep their place on screen (no blending between zoom levels, which made them jump).
         base_screen_distance = (face_2d - center_2d).length
-        outward_target = base_screen_distance + 31.5
-        # Keep inward mode farther out so close zoom does not pull gizmos too deep into the object.
-        inward_target = min(max(base_screen_distance * 0.35, 20.0), 250.0)
-        target_screen_distance = (outward_target * (1.0 - zoom_blend)) + (inward_target * zoom_blend)
+        target_screen_distance = max(base_screen_distance + GIZMO_GAP_PX, GIZMO_MIN_PX)
 
-        to_face_2d = face_2d - center_2d
-        max_viewport_distance = self._max_distance_to_viewport_edge(center_2d, to_face_2d, region, padding=20.0)
-
-        # Keep a minimum separation, but never exceed the viewport cap.
-        min_separation_px = 25.0
-        if max_viewport_distance is not None:
-            target_screen_distance = min(max(target_screen_distance, min_separation_px), max_viewport_distance)
-        else:
-            target_screen_distance = max(target_screen_distance, min_separation_px)
+        # only when that would leave the viewport, pull it in to the edge
+        max_viewport_distance = self._max_distance_to_viewport_edge(center_2d, face_2d - center_2d, region,
+                                                                    padding=GIZMO_EDGE_PX)
+        if max_viewport_distance is not None and target_screen_distance > max_viewport_distance:
+            target_screen_distance = max(max_viewport_distance, GIZMO_MIN_PX)
 
         start_distance = max(0.0, (face_world - center_world).dot(direction_world))
         solved_world_distance = self._solve_world_distance_for_screen_target(
@@ -1324,16 +1321,7 @@ class FastMirrorGizmoGroup(bpy.types.GizmoGroup):
         active_arrows.clear()
         active_arrows.extend(self.arrows)
 
-        region = context.region
-        rv3d = context.region_data
-        zoom_blend = 0.0
-        if region is not None and rv3d is not None:
-            object_screen_radius = self._compute_object_screen_radius(region, rv3d, matrix_world, center, corners)
-            if object_screen_radius is not None:
-                zoom_start_px = 220.0
-                zoom_range_px = 320.0
-                zoom_t = (object_screen_radius - zoom_start_px) / zoom_range_px
-                zoom_blend = self._smoothstep01(zoom_t)
+        zoom_blend = 0.0  # kept for the signature; placement is a fixed screen offset now
 
         for gizmo, axis_index, keep_negative in self.arrows:
             self._apply_axis_color(gizmo, AXES[axis_index], keep_negative)

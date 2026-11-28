@@ -741,7 +741,7 @@ def build_blender_pie(pie, hover=None):
             aligned |= d in ("N", "S", "E", "W")
             diagonal |= d not in ("N", "S", "E", "W")
             continue
-        empty = PM._is_empty(item)
+        empty = PM._is_empty(item) or PM.preview_hidden(item, pie.uid)
         text, icon, default = texts[i]
         styled = not empty and item.kind != PM.LABEL and _styled(item)
         dim = False
@@ -949,7 +949,10 @@ def build_menu(pie, hover=None, sub=False):
     # columns of rows; a row is a list of item indices (Same Row joins the one before)
     columns = [[]]
     box_open = None
+    hidden = {i for i, it in enumerate(items) if it.kind not in PM.LAYOUT_KINDS and PM.preview_hidden(it, pie.uid)}
     for i, it in enumerate(items):
+        if i in hidden:
+            continue  # Preview In: its Poll is false in that mode
         if it.kind == PM.BREAK:
             columns[-1].append(("MARK", i, "Next Column"))
             columns.append([])
@@ -983,7 +986,7 @@ def build_menu(pie, hover=None, sub=False):
         # no layout items: they fill the Columns row by row, like grid_flow
         ncol = max(1, pie.columns)
         columns = [[] for _ in range(ncol)]
-        for n, i in enumerate(range(len(items))):
+        for n, i in enumerate(i for i in range(len(items)) if i not in hidden):
             columns[n % ncol].append(("ROW", [i], None))
     ncols = len(columns)
     gap = 0 if as_menu else int(u * 0.4)
@@ -1582,6 +1585,46 @@ def chain_item(index):
         return None
     p = PM.find_pie(_chain[k - 1])
     return (p, i) if p is not None else None
+
+
+def edit_chain_menu(index):
+    """Make the popup menu of a preview item shown beside the edited one the edited menu, its item selected.
+    True when it switched."""
+    found = chain_item(index)
+    if found is None:
+        return False
+    p, i = found
+    prefs = _prefs()
+    if p.menu_type != "MENU" or p.uid not in _chain:
+        return False
+    prefs.active_pie = list(prefs.pies).index(p)
+    prefs.pie_slot = max(0, min(i, len(p.items) - 1))
+    return True
+
+
+def move_item_to_menu(src_pie, src, dst_pie, pos):
+    """Move one item from a menu into another menu open beside it in the preview, at pos. Groups stay put
+    (they move inside their own menu only), and a submenu can't go into itself."""
+    PM = _pm()
+    it = src_pie.items[src]
+    if it.kind in (PM.BOX, PM.BOX_END, PM.BREAK):
+        return False
+    target = PM.find_pie(it.idname) if it.kind == PM.SUB else None
+    if target is not None and dst_pie.uid in [x.uid for x in PM.menu_family(_prefs(), target)]:
+        return False  # a submenu can't go into itself or a menu inside it
+    data = PM._item_to_data(it)
+    new = dst_pie.items.add()
+    PM._item_from_data(new, data)
+    new.same_row = False
+    dst_pie.items.move(len(dst_pie.items) - 1, max(0, min(pos, len(dst_pie.items) - 1)))
+    if src + 1 < len(src_pie.items) and src_pie.items[src + 1].same_row and not it.same_row:
+        src_pie.items[src + 1].same_row = False
+    src_pie.items.remove(src)
+    prefs = _prefs()
+    prefs.active_pie = list(prefs.pies).index(dst_pie)  # the moved item stays selected, in its new menu
+    prefs.pie_slot = max(0, min(pos, len(dst_pie.items) - 1))
+    PM._changed()
+    return True
 
 
 def build_marking_chain(pie, prefs):
@@ -2708,6 +2751,13 @@ def _do_drop(st, src):
         prefs.pie_slot = dst
     else:
         kind, el, axis = st.drop
+        if el.index >= SUB_STRIDE:  # dropped into another menu open beside it: the item moves there
+            found = chain_item(el.index)
+            if found is not None and found[0].uid != pie.uid:
+                dst, i = found
+                pos = i if kind in ("before", "beside_before") else i + 1
+                move_item_to_menu(pie, src, dst, pos)
+            return
         items = list(pie.items)
         moved_row = items[src].same_row
         if src + 1 < len(items) and items[src + 1].same_row and not moved_row:
@@ -2928,7 +2978,13 @@ class KEYOPS_OT_menu_canvas(bpy.types.Operator):
             el = _item_under(st, mx, my)
             if el is None:
                 return {'PASS_THROUGH'}
-            if el.index >= SUB_STRIDE:  # a submenu shown beside it: only for looking, its button above edits it
+            if el.index >= SUB_STRIDE:
+                # a menu shown beside the edited one (a submenu, or the menu it opens from): edit that one now,
+                # with this item selected; the menus around it stay open
+                if edit_chain_menu(el.index):
+                    PM_ = _pm()
+                    PM_._redraw_all(context)
+                    reg.tag_redraw()
                 return {'RUNNING_MODAL'}
             zone = _zone(st, el, mx, my)
             st.drag = {"src": el.index, "start": (mx, my), "grab": (mx - el.x, my - el.y), "active": False,

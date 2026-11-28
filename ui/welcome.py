@@ -83,13 +83,23 @@ def first_screen(p):
 
 
 def schedule_welcome():
+    """Only the first-install setup screen opens by itself. What's New never pops up on its own: the
+    extensions platform treats update notifications inside Blender as advertising. It's one click away
+    in the add-on's Preferences (KEYOPS_OT_show_whats_new)."""
     if bpy.app.background:
         return
-    kind = first_screen(get_keyops_prefs())
-    if kind == 'WELCOME':
+    if first_screen(get_keyops_prefs()) == 'WELCOME':
         bpy.app.timers.register(_show_welcome, first_interval=1.0)
-    elif kind == 'WHATS_NEW':
-        bpy.app.timers.register(_show_whats_new, first_interval=1.0)
+
+
+class KEYOPS_OT_show_whats_new(bpy.types.Operator):
+    """Show what changed in this version of Key Ops"""
+    bl_idname = "keyops.show_whats_new"
+    bl_label = "What's New"
+
+    def execute(self, context):
+        _invoke_welcome(True)
+        return {'FINISHED'}
 
 
 class KEYOPS_OT_welcome_wait_for_splash(bpy.types.Operator):
@@ -285,6 +295,7 @@ classes = (
     KEYOPS_OT_shortcut_group_restore,
     KEYOPS_OT_shortcut_group_set_key,
     KEYOPS_OT_dismiss_whats_new,
+    KEYOPS_OT_show_whats_new,
     KEYOPS_OT_shortcut_cheatsheet,
 )
 

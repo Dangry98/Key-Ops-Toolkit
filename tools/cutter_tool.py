@@ -121,7 +121,8 @@ def _snap_vertices(context, objects, cache=None):
     return np.concatenate(chunks) if chunks else np.empty((0, 3), dtype=np.float32)
 # Operator settings mirrored from the tool, so the D popup and shortcuts edit one place
 SETTINGS = ("operation", "shape", "align", "solver", "segments", "snap_increment", "live", "apply",
-            "bevel", "bevel_width", "bevel_segments", "bevel_profile", "mirror_x", "mirror_y", "mirror_z")
+            "bevel", "bevel_width", "bevel_segments", "bevel_profile", "mirror_x", "mirror_y", "mirror_z",
+            "array_count", "array_axis", "array_gap")
 
 SHAPE_ITEMS = (
     ('BOX', "Box", "Drag a rectangle", 'MESH_PLANE', 0),
@@ -567,6 +568,11 @@ Add mode makes a new object from the shape instead"""
     mirror_x: BoolProperty(name="Mirror X", description="Mirror the cutter across the X axis of the object it starts on", default=False)  # type: ignore
     mirror_y: BoolProperty(name="Mirror Y", description="Mirror the cutter across the Y axis of the object it starts on", default=False)  # type: ignore
     mirror_z: BoolProperty(name="Mirror Z", description="Mirror the cutter across the Z axis of the object it starts on", default=False)  # type: ignore
+    array_count: IntProperty(name="Array", description="Copies of the shape in a row (1: no array). R adds one, Shift R removes one. Arrayed before mirroring", default=1, min=1, max=64)  # type: ignore
+    array_axis: EnumProperty(name="Array Direction", description="The direction the copies go, along the shape's own sides", items=(
+        ('X', "Along X", "Along the shape's first side (the width of a box)"),
+        ('Y', "Along Y", "Along the shape's second side (the height of a box)")), default='X')  # type: ignore
+    array_gap: FloatProperty(name="Array Gap", description="Space between the copies, as a share of the shape's size in that direction", default=0.5, min=0.0, soft_max=4.0, subtype='FACTOR')  # type: ignore
     parent: BoolProperty(name="Parent Boolean", description="Parent the cutter to the object it cuts", default=False, options={'SKIP_SAVE'})  # type: ignore
     depth_amount: FloatProperty(name="Depth", description="How far the cutter goes in, away from the view. In Add mode, how far the new object comes out of the surface, negative goes into it", default=0.5, soft_min=-100.0, soft_max=100.0, subtype='DISTANCE', options={'SKIP_SAVE'})  # type: ignore
 
@@ -575,6 +581,8 @@ Add mode makes a new object from the shape instead"""
     outline: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     target_names: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
     mirror_pivot: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
+    # drawn from the grid floor into selected objects: the depth may go either way, like Add
+    free_depth: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})  # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -603,6 +611,7 @@ Add mode makes a new object from the shape instead"""
         row.prop(self, "mirror_x", text="X", toggle=True)
         row.prop(self, "mirror_y", text="Y", toggle=True)
         row.prop(self, "mirror_z", text="Z", toggle=True)
+        draw_array_settings(layout, self)
         if not is_add and context.mode == 'OBJECT':
             layout.prop(self, "apply")
 
@@ -623,7 +632,8 @@ Add mode makes a new object from the shape instead"""
         depth = self.depth_amount
         if abs(depth) < MIN_DEPTH:
             depth = math.copysign(MIN_DEPTH, depth)
-        self.depth = depth if is_add else -abs(depth)  # negative Add depth goes into the surface
+        # negative Add depth goes into the surface; a cut from the floor keeps its side too
+        self.depth = depth if (is_add or self.free_depth) else -abs(depth)
         self.cutter = None
         self.created = []
         self.mirror_object = bpy.data.objects.get(self.mirror_pivot) if self.mirror_pivot else None
@@ -685,14 +695,59 @@ Add mode makes a new object from the shape instead"""
         center = self._profile_center()
         verts, faces = build_prism([p - center for p in profile], z_range[0], z_range[1])
         to_local = obj.matrix_world.inverted_safe()
-        for mirror in self._mirror_matrices():
-            matrix = to_local @ mirror @ self._cutter_matrix(center)
+        mirrors = self._mirror_matrices()
+        pivot = getattr(self, "mirror_object", None)
+        axes = [i for i, on in enumerate((self.mirror_x, self.mirror_y, self.mirror_z)) if on]
+        all_new = []
+        sides = self._mirror_sides(self._cutter_matrix(center) @ Vector((0.0, 0.0, 0.0)))
+        arrays = self._array_matrices(profile)
+        for mirror, keep, array in ((m, k, a) for a in arrays for m, k in zip(mirrors, sides)):
+            matrix = to_local @ mirror @ array @ self._cutter_matrix(center)
             flipped = matrix.determinant() < 0.0  # a mirrored copy would be inside out
             new_verts = [bm.verts.new(matrix @ Vector(co)) for co in verts]
+            new_faces = []
             for face in faces:
                 indices = reversed(face) if flipped else face
-                bm.faces.new([new_verts[i] for i in indices]).select_set(True)
+                f = bm.faces.new([new_verts[i] for i in indices])
+                f.select_set(True)
+                new_faces.append(f)
+            if len(mirrors) > 1 and pivot is not None:
+                # bisect each copy at the mirror planes, keeping its own side, so copies meet instead of overlapping
+                to_pivot = pivot.matrix_world.inverted_safe() @ obj.matrix_world
+                from_pivot = to_pivot.inverted_safe()
+                for axis in axes:
+                    n_piv = Vector((0.0, 0.0, 0.0))
+                    n_piv[axis] = keep[axis]
+                    plane_co = from_pivot @ Vector((0.0, 0.0, 0.0))
+                    plane_no = (from_pivot.to_3x3() @ n_piv).normalized()
+                    geom = [g for g in set(new_verts) | {e for f in new_faces if f.is_valid for e in f.edges}
+                            | {f for f in new_faces if f.is_valid} if g.is_valid]
+                    res = bmesh.ops.bisect_plane(bm, geom=geom, plane_co=plane_co, plane_no=plane_no,
+                                                 clear_inner=True, dist=1e-6)
+                    new_verts = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert) and g.is_valid] or new_verts
+                    new_faces = [g for g in res["geom"] if isinstance(g, bmesh.types.BMFace) and g.is_valid]
+            all_new += [v for v in new_verts if v.is_valid]
+        if len(mirrors) > 1 or (len(arrays) > 1 and self.array_gap <= 1e-6):
+            bmesh.ops.remove_doubles(bm, verts=[v for v in all_new if v.is_valid], dist=1e-5)
         bmesh.update_edit_mesh(obj.data)
+
+    def _mirror_sides(self, centre_world):
+        """For each matrix of _mirror_matrices(): per mirror axis, the side (+1 / -1, in the mirror object's
+        space) that copy keeps when it is cut at the mirror plane. Worked out from the original shape's centre
+        and flipped for each mirrored copy, so a shape centred exactly on the plane keeps both halves."""
+        pivot = getattr(self, "mirror_object", None)
+        axes = [i for i, on in enumerate((self.mirror_x, self.mirror_y, self.mirror_z)) if on]
+        if pivot is None or not axes:
+            return [{} for _m in self._mirror_matrices()]
+        pm = pivot.matrix_world
+        to_pivot = pm.inverted_safe()
+        c = to_pivot @ centre_world
+        base = {a: (1.0 if c[a] >= 0.0 else -1.0) for a in axes}
+        out = []
+        for mirror in self._mirror_matrices():
+            m = to_pivot @ mirror @ pm  # a diagonal of +-1 in the mirror object's space
+            out.append({a: base[a] * (1.0 if m[a][a] > 0.0 else -1.0) for a in axes})
+        return out
 
     def _mirror_matrices(self):
         """World matrices for the cutter and each mirrored copy. Mirroring happens in the space of
@@ -711,6 +766,47 @@ Add mode makes a new object from the shape instead"""
             matrices.append(pivot.matrix_world @ Matrix.Diagonal(scale) @ to_pivot)
         return matrices
 
+    def _array_matrices(self, profile=None):
+        """World translations for the shape and each arrayed copy (the first is the shape itself), along the
+        shape's own X or Y in the drawing plane, spaced by its size there plus the gap."""
+        count = max(1, int(getattr(self, "array_count", 1)))
+        profile = profile if profile is not None else (self._fixed_profile or self.profile())
+        if count <= 1 or not profile:
+            return [Matrix.Identity(4)]
+        k = 0 if self.array_axis == 'X' else 1
+        vals = [p[k] for p in profile]
+        size = max(vals) - min(vals)
+        if size < 1e-9:
+            return [Matrix.Identity(4)]
+        axis = Vector((1.0, 0.0, 0.0)) if k == 0 else Vector((0.0, 1.0, 0.0))
+        step = (self.plane.to_3x3() @ axis) * (size * (1.0 + self.array_gap))
+        return [Matrix.Translation(step * i) for i in range(count)]
+
+    def _update_array_modifier(self):
+        """Array modifier on the cutter for the Array settings, right before the Mirror modifier (or last)."""
+        mod = next((m for m in self.cutter.modifiers if m.type == 'ARRAY'), None)
+        if int(self.array_count) <= 1:
+            if mod is not None:
+                self.cutter.modifiers.remove(mod)
+            return
+        if mod is None:
+            mod = self.cutter.modifiers.new(name="Array", type='ARRAY')
+        mod.count = int(self.array_count)
+        mod.use_relative_offset = True
+        mod.use_constant_offset = False
+        offset = 1.0 + self.array_gap
+        mod.relative_offset_displace = (offset, 0.0, 0.0) if self.array_axis == 'X' else (0.0, offset, 0.0)
+        mod.use_merge_vertices = self.array_gap <= 1e-6  # touching copies: one piece
+        mods = list(self.cutter.modifiers)
+        mirror = next((i for i, m in enumerate(mods) if m.type == 'MIRROR'), None)
+        want = mirror if mirror is not None and mirror < mods.index(mod) else None
+        if want is not None:
+            if hasattr(self.cutter.modifiers, "move"):
+                self.cutter.modifiers.move(mods.index(mod), want)
+            else:
+                with bpy.context.temp_override(object=self.cutter):
+                    bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=want)
+
     def _update_mirror_modifier(self):
         """Mirror modifier on the cutter for the Mirror X / Y / Z settings."""
         axes = (self.mirror_x, self.mirror_y, self.mirror_z)
@@ -724,6 +820,13 @@ Add mode makes a new object from the shape instead"""
             mod = self.cutter.modifiers.new(name="Mirror", type='MIRROR')
         mod.use_axis = axes
         mod.mirror_object = pivot
+        # Bisect at the mirror plane, keeping the cutter's own side: a cutter that crosses the plane would
+        # otherwise overlap its mirrored copy, and booleans with overlapping cutters fail
+        side = pivot.matrix_world.inverted_safe() @ self.cutter.matrix_world.translation
+        mod.use_bisect_axis = axes
+        mod.use_bisect_flip_axis = tuple(on and side[i] < 0.0 for i, on in enumerate(axes))
+        mod.use_clip = False
+        mod.use_mirror_merge = True
 
     def _store_outline(self, profile):
         """Box and circle store their bounds (circle segments stay editable on redo), ngon its points."""
@@ -752,6 +855,16 @@ Add mode makes a new object from the shape instead"""
         seg = self.segments
         return [center + Vector((hx * math.cos(i * math.tau / seg), hy * math.sin(i * math.tau / seg)))
                 for i in range(seg)]
+
+    def _is_bevel_inner(self, profile, i):
+        """Is profile point i inside a bevelled corner? (Not where the corner's arc meets a straight side: there the
+        side's line stays a full line.) The box's sides run along the plane's X and Y."""
+        n = len(profile)
+        d1, d2 = profile[i] - profile[i - 1], profile[(i + 1) % n] - profile[i]
+
+        def along_side(d):
+            return abs(d.x) < 1e-9 or abs(d.y) < 1e-9
+        return not along_side(d1) and not along_side(d2)
 
     def _bevel_radius(self, hx, hy):
         return self.bevel_width * 2.0 * min(hx, hy)
@@ -799,11 +912,16 @@ Add mode makes a new object from the shape instead"""
         self.mirror_object = hit[3] if hit and hit[3] in self.targets else (self.targets[0] if self.targets else None)
         self.mirror_pivot = self.mirror_object.name if self.mirror_object else ""
 
+        self.free_depth = False
         if hit is None:
-            # Nothing under the cursor: always Add a new mesh, built up from the grid floor
+            # Nothing under the cursor: drawn on the grid floor. With objects selected it cuts them (the depth
+            # may go up or down from the floor); with nothing to cut it adds a new mesh
             self.on_floor = True
-            self.operation = 'ADD'
-        elif self.operation != 'ADD':
+            if not self.targets:
+                self.operation = 'ADD'
+            else:
+                self.free_depth = True
+        if self.operation != 'ADD' and self.targets:
             # Fast or Manifold to suit what is cut, switched on the tool so the header shows it
             solver = pick_boolean_solver(context, self.targets, self.solver)
             if solver != self.solver:
@@ -1003,6 +1121,11 @@ Add mode makes a new object from the shape instead"""
             mesh.from_pydata(verts, [], faces)
             _set_side_bevel_weights(mesh, len(local))
             ensure_bevel_modifier(self.cutter, self._bevel_radius(hx, hy), self.bevel_segments, self.bevel_profile)
+            # live, not only on confirm: where the bevels meet (full width) their ends are welded together
+            if self._bevel_overlaps(profile):
+                ensure_weld_modifier(self.cutter)
+            else:
+                remove_modifiers(self.cutter, 'WELD')
         else:
             local = [p - center for p in profile]
             verts, faces = build_prism(local, z_range[0], z_range[1])
@@ -1010,8 +1133,10 @@ Add mode makes a new object from the shape instead"""
 
         if self.shape != 'BOX' or not self.bevel:
             remove_modifiers(self.cutter, 'BEVEL')
+            remove_modifiers(self.cutter, 'WELD')
         mesh.update()
         self.cutter.matrix_world = matrix
+        self._update_array_modifier()
         self._update_mirror_modifier()
 
     def _create_cutter(self, context):
@@ -1059,6 +1184,8 @@ Add mode makes a new object from the shape instead"""
     def _update_live(self, context):
         if not self.live or context.mode != 'OBJECT':
             return  # Edit Mode cuts are applied on confirm, the overlay is the preview
+        if self.phase == 'DRAW' and not self.has_dragged:
+            return  # a plain click selects: nothing is built until the mouse is dragged
         profile = self.profile()
         z = self.z_range(profile) if profile else None
         if z is None or (not self.targets and self.operation != 'ADD'):
@@ -1090,7 +1217,8 @@ Add mode makes a new object from the shape instead"""
         if not self.targets and self.operation != 'ADD':
             self.report({'INFO'}, "Nothing to cut")
             return {'CANCELLED'}
-        self.depth_amount = self.depth if self.operation == 'ADD' else abs(self.depth)  # Add keeps its side
+        # Add (and a cut from the floor) keeps its side
+        self.depth_amount = self.depth if (self.operation == 'ADD' or self.free_depth) else abs(self.depth)
         self.target_names = TARGET_SEPARATOR.join(o.name for o in self.targets)
         return self.execute(context)
 
@@ -1139,8 +1267,8 @@ Add mode makes a new object from the shape instead"""
     def _apply_settings(self, context, values):
         """Apply changed settings to the running cut. Returns True when something changed."""
         values = {k: v for k, v in values.items() if getattr(self, k) != v}
-        if self.on_floor:
-            values.pop('operation', None)  # started on the floor: always Add, there is nothing to cut
+        if self.on_floor and not self.targets:
+            values.pop('operation', None)  # started on the floor with nothing to cut: always Add
         if 'shape' in values:
             new, old = values['shape'], self.shape
             if self.phase == 'EXTRUDE' and 'NGON' in (new, old):
@@ -1318,6 +1446,10 @@ Add mode makes a new object from the shape instead"""
         elif event.type == 'L' and key_press:
             changed |= self._set_setting(context, "live", not self.live)
 
+        elif event.type == 'R' and event.value == 'PRESS' and not (event.ctrl or event.alt or event.oskey):
+            count = max(1, min(64, self.array_count + (-1 if event.shift else 1)))
+            changed |= self._set_setting(context, "array_count", count)
+
         elif event.type == 'A' and key_press and self.operation != 'ADD' and context.mode == 'OBJECT':
             changed |= self._set_setting(context, "apply", not self.apply)
 
@@ -1352,8 +1484,8 @@ Add mode makes a new object from the shape instead"""
                         self.snap_point = None
                     if had_snap != self.snap_point:
                         self.region.tag_redraw()
-                    if self.operation == 'ADD':
-                        # Add goes either way: out of the surface or into it, never flat
+                    if self.operation == 'ADD' or self.free_depth:
+                        # Add (and a cut drawn on the floor) goes either way: out of the surface or into it
                         if abs(depth) < MIN_DEPTH:
                             depth = math.copysign(MIN_DEPTH, depth)
                     else:
@@ -1374,7 +1506,16 @@ Add mode makes a new object from the shape instead"""
                     self._cancel(context)
                     return self._click_select(context, event)
                 return self._end_draw(context, mouse)
-            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
+            if self.phase == 'DRAW' and self.shape == 'NGON' and event.value == 'RELEASE' and len(self.points) == 1:
+                # the press that started the tool: a click selects, a drag draws the first side
+                if not self.has_dragged:
+                    self._cancel(context)
+                    return self._click_select(context, event)
+                p = self._mouse_to_plane(mouse, event.ctrl)
+                if p is not None and (p - self.points[-1]).length > 1e-6:
+                    self.points.append(p)
+                    changed = True
+            elif self.phase == 'DRAW' and self.shape == 'NGON' and event.value in {'PRESS', 'DOUBLE_CLICK'}:
                 # Close the ngon by clicking the first point, the last point again, or double clicking
                 if len(self.points) >= 3 and (event.value == 'DOUBLE_CLICK'
                                               or self._near_point(mouse, self.points[0])
@@ -1448,6 +1589,7 @@ Add mode makes a new object from the shape instead"""
                 items += [(('MOUSE_MMB_SCROLL',), f"Bevel Segments: {self.bevel_segments}"),
                           (('EVENT_P',), f"Profile: {self.bevel_profile:.2f}")]
         items.append((('EVENT_ONEKEY', 'EVENT_TWOKEY', 'EVENT_THREEKEY'), f"Mirror: {self._mirror_text()}"))
+        items.append((('EVENT_R',), f"Array: {self.array_count}" if self.array_count > 1 else "Array"))
         if context.mode == 'OBJECT':
             items.append((('EVENT_L',), f"Live: {'On' if self.live else 'Off'}"))
             if self.operation != 'ADD':
@@ -1524,40 +1666,123 @@ Add mode makes a new object from the shape instead"""
             for i in range(n):
                 lines += (ring[i], ring[(i + 1) % n])
             coords = ring
+            thin = []
         else:
             bottom = [plane @ Vector((p.x, p.y, z[0])) for p in profile]
             top = [plane @ Vector((p.x, p.y, z[1])) for p in profile]
             cap = tessellate_polygon([top])
             coords = top + bottom
             tris = list(cap) + [(a + n, b + n, c + n) for a, b, c in cap]
-            lines = []
-            rounded = self.shape == 'CIRCLE' or (self.shape == 'BOX' and self.bevel)
+            lines, thin = [], []
+            circle = self.shape == 'CIRCLE'
+            bevelled = self.shape == 'BOX' and self.bevel
             for i in range(n):
                 j = (i + 1) % n
                 tris += [(i, j, n + j), (i, n + j, n + i)]
                 lines += (top[i], top[j], bottom[i], bottom[j])
-                if not rounded or i % max(1, n // 8) == 0:
+                if circle and i % max(1, n // 8) != 0:
+                    continue
+                if bevelled and self._is_bevel_inner(profile, i):
+                    thin += (top[i], bottom[i])  # each bevel segment shows, in a thinner line
+                else:
                     lines += (top[i], bottom[i])
 
-        # Mirrored copies (1 / 2 / 3) are drawn as more of the same shape
+        # Mirrored copies (1 / 2 / 3): cut at the mirror planes and joined like the real cut, so copies that
+        # reach into each other draw as one piece
+        # Arrayed copies (R) come first, then each is mirrored, like the cutter's Array and Mirror modifiers
         mirrors = self._mirror_matrices()
-        all_coords, all_tris = [], []
-        for mirror in mirrors:
-            offset = len(all_coords)
-            all_coords += [mirror @ p for p in coords]
-            all_tris += [(a + offset, b + offset, c + offset) for a, b, c in tris]
-        lines = [mirror @ p for mirror in mirrors for p in lines]
+        centre = sum(coords, Vector()) / len(coords)
+        all_coords, all_tris, all_lines, all_thin = [], [], [], []
+        for array in self._array_matrices(profile):
+            c = [array @ p for p in coords]
+            joined = self._joined_mirror_preview(c, z is None, n, centre) if len(mirrors) > 1 else None
+            if joined is not None:
+                pos, tri, ln, th = joined
+                offset = len(all_coords)
+                all_coords += pos
+                all_tris += [(a + offset, b + offset, d + offset) for a, b, d in tri]
+                all_lines += ln
+                all_thin += th
+                continue
+            for mirror in mirrors:
+                offset = len(all_coords)
+                all_coords += [mirror @ p for p in c]
+                all_tris += [(a + offset, b + offset, d + offset) for a, b, d in tris]
+                all_lines += [mirror @ array @ p for p in lines]
+                all_thin += [mirror @ array @ p for p in thin]
+        lines, thin = all_lines, all_thin
         fill = batch_for_shader(fill_shader, 'TRIS', {"pos": all_coords}, indices=all_tris)
 
         self._batches = {
             "fill": fill,
             "lines": batch_for_shader(line_shader, 'LINES', {"pos": lines}),
+            "thin": batch_for_shader(line_shader, 'LINES', {"pos": thin}) if thin else None,
             "fill_shader": fill_shader,
             "line_shader": line_shader,
             "points": point_coords,
         }
         if point_coords:
             self._build_point_batch()
+
+    def _joined_mirror_preview(self, coords, flat, n, centre=None):
+        """The preview shape with its mirrored copies, each cut at the mirror planes (keeping its own side) and
+        welded together, as the cut itself does. Returns (positions, triangles, line points) or None.
+        coords: the shape in world space, the n top (or flat) points first, then the n bottom points."""
+        pivot = getattr(self, "mirror_object", None)
+        axes = [i for i, on in enumerate((self.mirror_x, self.mirror_y, self.mirror_z)) if on]
+        if pivot is None or not axes:
+            return None
+        pm = pivot.matrix_world
+        plane_co = pm.translation.copy()
+        bm = bmesh.new()
+        try:
+            all_verts = []
+            # the sides come from the drawn shape's centre (like the Mirror modifier's bisect), also for arrayed copies
+            sides = self._mirror_sides(centre if centre is not None else sum(coords, Vector()) / len(coords))
+            for mirror, keep in zip(self._mirror_matrices(), sides):
+                flipped = mirror.determinant() < 0.0
+                vs = [bm.verts.new(mirror @ p) for p in coords]
+                if flat:
+                    polys = [list(range(n))]
+                else:
+                    polys = [list(range(n)), list(range(2 * n - 1, n - 1, -1))]
+                    polys += [[j, i, n + i, n + j] for i in range(n) for j in [(i + 1) % n]]
+                faces = []
+                for poly in polys:
+                    try:
+                        faces.append(bm.faces.new([vs[i] for i in (reversed(poly) if flipped else poly)]))
+                    except ValueError:  # a degenerate side (two equal points)
+                        pass
+                geom = vs + list({e for f in faces for e in f.edges}) + faces
+                for axis in axes:
+                    side = Vector((0.0, 0.0, 0.0))
+                    side[axis] = keep[axis]
+                    plane_no = (pm.to_3x3() @ side).normalized()
+                    geom = list(dict.fromkeys(g for g in geom if g.is_valid))
+                    res = bmesh.ops.bisect_plane(bm, geom=geom, plane_co=plane_co, plane_no=plane_no,
+                                                 clear_inner=True, dist=1e-6)
+                    geom = [g for g in res["geom"] if g.is_valid]
+                all_verts += [g for g in geom if isinstance(g, bmesh.types.BMVert)]
+            bmesh.ops.remove_doubles(bm, verts=[v for v in all_verts if v.is_valid], dist=1e-5)
+            bm.normal_update()
+            if not bm.faces:
+                return None
+            positions = [v.co.copy() for v in bm.verts]
+            bm.verts.index_update()
+            tris = [tuple(lp.vert.index for lp in tri) for tri in bm.calc_loop_triangles()]
+            lines, thin = [], []
+            for e in bm.edges:
+                lf = e.link_faces
+                # outline: open edges and creases; gentle bends (bevel segments) in a thinner line; edges between
+                # faces in one plane (the seams where the copies meet, the joins inside a cap) stay hidden
+                angle = lf[0].normal.angle(lf[1].normal, 0.0) if len(lf) == 2 else 9.0
+                if angle > 0.35:
+                    lines += (e.verts[0].co.copy(), e.verts[1].co.copy())
+                elif angle > 0.01:
+                    thin += (e.verts[0].co.copy(), e.verts[1].co.copy())
+            return positions, tris, lines, thin
+        finally:
+            bm.free()
 
     def _build_point_batch(self):
         shader = point_shader()
@@ -1575,8 +1800,8 @@ Add mode makes a new object from the shape instead"""
         except ReferenceError:
             return
         batches = self._batches
-        if not batches:
-            return
+        if not batches or (self.phase == 'DRAW' and not self.has_dragged):
+            return  # nothing shows until the mouse is dragged (a plain click selects)
 
         color = OPERATION_COLORS.get(self.operation, (1.0, 1.0, 1.0))
         gpu.state.blend_set('ALPHA')
@@ -1598,6 +1823,10 @@ Add mode makes a new object from the shape instead"""
                 line_shader.uniform_float("lineWidth", width)
                 line_shader.uniform_float("color", (*color, line_alpha))
                 batches["lines"].draw(line_shader)
+                if batches.get("thin") is not None:
+                    line_shader.uniform_float("lineWidth", width * 0.5)
+                    line_shader.uniform_float("color", (*color, line_alpha * 0.55))
+                    batches["thin"].draw(line_shader)
 
         gpu.state.depth_test_set('NONE')
         if "point_batch" in batches:
@@ -1794,6 +2023,15 @@ def draw_bevel_settings(layout, props, with_keys=False):
         col.prop(props, "bevel_profile", text="Profile    P" if with_keys else "Profile")
 
 
+def draw_array_settings(layout, props, with_keys=False):
+    """Array count, direction and gap (direction and gap only once there are copies)."""
+    col = layout.column(align=True)
+    col.prop(props, "array_count", text="Array    R / Shift R" if with_keys else "Array")
+    if props.array_count > 1:
+        col.row(align=True).prop(props, "array_axis", expand=True)
+        col.prop(props, "array_gap", text="Gap")
+
+
 def draw_cutter_options(layout, props, context):
     """Tool settings with their modal shortcuts, used by the D popup."""
     col = layout.column(align=True)
@@ -1818,6 +2056,7 @@ def draw_cutter_options(layout, props, context):
     row.prop(props, "mirror_x", text="X", toggle=True)
     row.prop(props, "mirror_y", text="Y", toggle=True)
     row.prop(props, "mirror_z", text="Z", toggle=True)
+    draw_array_settings(layout, props, with_keys=True)
 
     is_add = props.operation == 'ADD'
     col = layout.column(align=True)
@@ -1893,6 +2132,7 @@ class WorkSpaceCutter(bpy.types.WorkSpaceTool):
         row.prop(props, "mirror_x", text="X", toggle=True)
         row.prop(props, "mirror_y", text="Y", toggle=True)
         row.prop(props, "mirror_z", text="Z", toggle=True)
+        layout.prop(props, "array_count")
         is_add = props.operation == 'ADD'
         layout.prop(props, "align", text="")
         if not is_add:

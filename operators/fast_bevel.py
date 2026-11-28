@@ -4,6 +4,11 @@ from math import radians, degrees
 from mathutils import Vector
 from bpy_extras import view3d_utils
 
+from ..utils.modifier_order import can_move, place_shape_modifier, sort_shading_last
+
+# number row 1 / 2 / 3 (while not typing a value): bevel types
+PRESET_KEYS = {'ONE': 1, 'TWO': 2, 'THREE': 3}
+
 # Newer Blender features are used when available:
 #   - 4.3+: edit mode bevels are limited by a custom edge attribute
 #     (BevelModifier.edge_weight / vertex_weight) instead of a vertex group,
@@ -37,6 +42,63 @@ _running_op = None  # the FastBevel instance whose keymap is drawn in the status
 
 
 from ..utils.utilities import safe_icon as _valid_icon  # noqa: E402
+
+
+def _shade_smooth(obj):
+    """Hardened normals only show on smooth faces: shade a fully flat mesh smooth by angle (edges sharper than
+    30 degrees stay hard). A mesh that already has smooth faces is left as its owner shaded it.
+    Returns the indices of the edges marked sharp when it changed the shading (for _shade_flat), else None."""
+    if obj.type != 'MESH':
+        return None
+    edit = obj.mode == 'EDIT'
+    bm = bmesh.from_edit_mesh(obj.data) if edit else bmesh.new()
+    if not edit:
+        bm.from_mesh(obj.data)
+    try:
+        if any(f.smooth for f in bm.faces):
+            return None
+        limit = radians(30.0)
+        marked = []
+        for e in bm.edges:
+            if e.smooth and e.is_manifold and e.calc_face_angle(0.0) > limit:
+                e.smooth = False
+                marked.append(e.index)
+        for f in bm.faces:
+            f.smooth = True
+        if edit:
+            bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+        else:
+            bm.to_mesh(obj.data)
+            obj.data.update()
+    finally:
+        if not edit:
+            bm.free()
+    return marked
+
+
+def _shade_flat(obj, marked):
+    """Undo _shade_smooth: flat faces again, and the edges it marked sharp unmarked."""
+    if obj.type != 'MESH':
+        return
+    edit = obj.mode == 'EDIT'
+    bm = bmesh.from_edit_mesh(obj.data) if edit else bmesh.new()
+    if not edit:
+        bm.from_mesh(obj.data)
+    try:
+        bm.edges.ensure_lookup_table()
+        for i in marked:
+            if i < len(bm.edges):
+                bm.edges[i].smooth = True
+        for f in bm.faces:
+            f.smooth = False
+        if edit:
+            bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+        else:
+            bm.to_mesh(obj.data)
+            obj.data.update()
+    finally:
+        if not edit:
+            bm.free()
 
 
 def _enum_items(mod, prop):
@@ -108,7 +170,7 @@ def _draw_status(header, context):
         item(('EVENT_SHIFT', 'EVENT_C'), "Loop Slide" + check(mod.loop_slide))
         item(('EVENT_N',), "Harden Normals" + check(mod.harden_normals))
         item(('EVENT_M',), f"Miter ({_nice(mod.miter_outer)})")
-    item(('EVENT_ONE', 'EVENT_TWO', 'EVENT_THREE'), "Edge / Vertex / Conversion")
+    item(('EVENT_ONE', 'EVENT_TWO', 'EVENT_THREE'), "Hard Normals / Vertex / Conversion")
     item(('EVENT_X',), "Half of Previous")
     item(('EVENT_V',), "Toggle Viewport")
     item(('EVENT_Z',), "Wireframe")
@@ -304,17 +366,10 @@ class FastBevel(bpy.types.Operator):
         return mod
 
     def sort_new(self, obj, mod):
-        """Keep normal / triangulate / pinned modifiers below the new bevel."""
-        idx = obj.modifiers.find(mod.name)
-        for i, m in enumerate(obj.modifiers):
-            if i >= idx:
-                break
-            keep_below = m.type in {'WEIGHTED_NORMAL', 'TRIANGULATE'} or getattr(m, "use_pin_to_last", False)
-            if m.type == 'NODES' and any(n in m.name for n in ("Smooth by Angle", "Auto Smooth")):
-                keep_below = True
-            if keep_below:
-                obj.modifiers.move(idx, i)
-                break
+        """The new bevel goes above the shading modifiers (Triangulate, Weighted Normal, Smooth by Angle) and
+        the pinned ones, and the shading modifiers end up in shading order, so the bevel shades right."""
+        place_shape_modifier(obj, mod)
+        sort_shading_last(obj)
 
     # --- edit mode selection ---
 
@@ -501,7 +556,7 @@ class FastBevel(bpy.types.Operator):
         for obj, mod in self.target_mods():
             idx = obj.modifiers.find(mod.name)
             new = idx + direction
-            if 0 <= new < len(obj.modifiers):
+            if can_move(obj, mod, new):  # never into the modifiers pinned to the end
                 obj.modifiers.move(idx, new)
 
     def toggle(self, prop, label):
@@ -535,15 +590,34 @@ class FastBevel(bpy.types.Operator):
         if value is not None:
             self.report({'INFO'}, f"Bevel Angle: {value}°")
 
+    def unshade(self, objs=None):
+        """Put back the flat shading key 1 changed (all objects, or just `objs`)."""
+        shaded = getattr(self, "shaded", None) or {}
+        for name in list(shaded):
+            obj = bpy.data.objects.get(name)
+            if objs is not None and obj not in objs:
+                continue
+            if obj is not None:
+                _shade_flat(obj, shaded[name])
+            del shaded[name]
+
     def preset(self, number):
+        if not hasattr(self, "shaded"):
+            self.shaded = {}
+        if number != 1:  # another type: no hardened normals, so the smooth shading key 1 added goes again
+            self.unshade([obj for obj, _mod in self.target_mods()])
         for obj, mod in self.target_mods():
             if number == 1:
+                # one segment with hardened normals: a chamfer that shades like a rounded edge
                 mod.affect = 'EDGES'
-                mod.harden_normals = False
+                mod.segments = 1
+                mod.harden_normals = True
                 mod.profile_type = 'SUPERELLIPSE'
                 mod.profile = 0.5
-                if mod.segments <= 2:
-                    mod.segments = 4
+                if obj.name not in self.shaded:
+                    marked = _shade_smooth(obj)
+                    if marked is not None:
+                        self.shaded[obj.name] = marked
             elif number == 2:
                 mod.affect = 'VERTICES'
                 mod.profile_type = 'SUPERELLIPSE'
@@ -555,7 +629,7 @@ class FastBevel(bpy.types.Operator):
                 mod.profile_type = 'SUPERELLIPSE'
                 mod.profile = 1.0
                 mod.segments = 2
-        self.report({'INFO'}, ("Edge Bevel", "Vertex Bevel", "Conversion Bevel")[number - 1])
+        self.report({'INFO'}, ("Hard Normals Bevel", "Vertex Bevel", "Conversion Bevel")[number - 1])
         self.capture_base()
 
     def half_of_previous(self, double):
@@ -763,8 +837,8 @@ class FastBevel(bpy.types.Operator):
         elif t == 'Z':
             self.toggle_wire()
 
-        elif t in {'ONE', 'TWO', 'THREE'}:
-            self.preset(('ONE', 'TWO', 'THREE').index(t) + 1)
+        elif t in PRESET_KEYS and not event.shift:
+            self.preset(PRESET_KEYS[t])  # Hard Normals / Vertex / Conversion
 
         elif t == 'X':
             self.half_of_previous(double=event.shift)
@@ -836,6 +910,7 @@ class FastBevel(bpy.types.Operator):
         _redraw_ui(context)
 
     def restore(self):
+        self.unshade()  # cancelled: the shading goes back as it was
         # Remove bevels we created
         for obj, name in self.created:
             mod = obj.modifiers.get(name)

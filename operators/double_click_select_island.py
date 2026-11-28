@@ -86,11 +86,13 @@ class DoubleClickSelectIsland(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         # Only bound in the Mesh, UV Editor, Curve and Curves keymaps, all edit-mode
-        return (
-            context.object is not None and
-            context.area is not None and
-            context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
-        )
+        if context.object is None or context.area is None or context.mode not in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}:
+            return False
+        # in the 3D View in edge-only select mode a double click selects a full edge loop instead (SelectEdgeLoop)
+        if context.mode == 'EDIT_MESH' and context.area.type == 'VIEW_3D' \
+                and tuple(context.tool_settings.mesh_select_mode) == (False, True, False):
+            return False
+        return True
 
     def invoke(self, context, event):
         global first_invoked
@@ -251,7 +253,56 @@ def unregister():
     clear_registered_keymaps(registered_double_click_select_island_keymaps)
     bpy.utils.unregister_class(DoubleClickSelectIsland)
     bpy.utils.unregister_class(SelectEdgeLoop)
+def _straightest(v, e, faces_ok=True):
+    """The edge that carries a loop on from edge e through vertex v: on a plain grid vertex (four edges, all
+    quads) the opposite edge; at poles, triangles and n-gons the straightest one (within 50 degrees)."""
+    others = [x for x in v.link_edges if x is not e]
+    if not others:
+        return None
+    if len(v.link_edges) == 4 and all(len(f.verts) == 4 for f in v.link_faces) and len(v.link_faces) == 4:
+        opposite = [x for x in others if not set(x.link_faces) & set(e.link_faces)]
+        if len(opposite) == 1:
+            return opposite[0]
+    if e.is_boundary:  # a border: follow the border
+        border = [x for x in others if x.is_boundary]
+        if len(border) == 1:
+            return border[0]
+    d_in = (v.co - e.other_vert(v).co)
+    if d_in.length < 1e-12:
+        return None
+    d_in.normalize()
+    best, best_dot = None, 0.64  # cos(50 degrees)
+    for x in others:
+        if x.is_boundary != e.is_boundary and e.is_boundary:
+            continue
+        d = x.other_vert(v).co - v.co
+        if d.length < 1e-12:
+            continue
+        dot = d_in.dot(d.normalized())
+        if dot > best_dot:
+            best, best_dot = x, dot
+    return best
+
+
+def full_loop(start):
+    """Every edge of the loop through `start`, walking both ways until it closes or nothing carries on."""
+    loop = [start]
+    seen = {start}
+    for v0 in start.verts:
+        e, v = start, v0
+        while True:
+            nxt = _straightest(v, e)
+            if nxt is None or nxt in seen:
+                break
+            seen.add(nxt)
+            loop.append(nxt)
+            e, v = nxt, nxt.other_vert(v)
+    return loop
+
+
 class SelectEdgeLoop(bpy.types.Operator):
+    """Double click an edge (edge select mode): select its whole loop, carrying on through poles, triangles and
+    n-gons where Blender's loop select stops"""
     bl_idname = "keyops.select_edge_loop"
     bl_label = "KeyOps: Select Edge Loop"
     bl_options = {'INTERNAL', 'UNDO'}
@@ -261,10 +312,23 @@ class SelectEdgeLoop(bpy.types.Operator):
         return (
             context.active_object and
             context.active_object.type == 'MESH' and
+            context.mode == 'EDIT_MESH' and
             context.scene.tool_settings.mesh_select_mode[1] and
             context.area is not None
         )
 
     def execute(self, context):
-        bpy.ops.mesh.loop_select("INVOKE_DEFAULT", extend=True)
+        done = False
+        for obj in [o for o in context.objects_in_mode_unique_data if o.type == 'MESH']:
+            bm = bmesh.from_edit_mesh(obj.data)
+            act = bm.select_history.active
+            if not isinstance(act, bmesh.types.BMEdge) or obj != context.edit_object:
+                continue
+            for e in full_loop(act):
+                e.select_set(True)
+            bm.select_history.add(act)
+            bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+            done = True
+        if not done:  # nothing picked by the first click: Blender's own loop select
+            bpy.ops.mesh.loop_select("INVOKE_DEFAULT", extend=True)
         return {'FINISHED'}

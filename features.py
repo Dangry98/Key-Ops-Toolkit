@@ -18,7 +18,7 @@ import bpy
 
 from .operators import (
     auto_delete, double_click_select_island, fast_merge, legacy_shortcuts, material_index, maya_navigation,
-    maya_pivot, modi_key, optional_keys, outliner_options, poly_count_list, quick_export, snap_to_floor,
+    maya_pivot, modi_key, optional_keys, outliner_options, poly_count_list, quick_export, smart_extrude, snap_to_floor,
     toggle_retopology, toolkit_panel, uv_tools, viewport_menu,
 )
 from .tools import cutter_tool, fast_loop_cut, merge_tool
@@ -92,6 +92,9 @@ FEATURES = (
     Feature("cutter_tool", "Cutter Tool", "TOOLS",
             "Draw a box, circle or ngon to boolean-cut objects. Toolbar tool.",
             "modeling-tools.html#cutter"),
+    Feature("push_pull", "Push / Pull", "TOOLS",
+            "Drag faces out or in: square walls stretch, otherwise it extrudes and merges or cuts. Toolbar tool.",
+            "modeling-tools.html#push-pull"),
     Feature("fast_merge", "Merge / Connect", "MODELING",
             "Merge to nearest or active vertex, and connect, with one key.",
             "extras.html#fast-merge",
@@ -217,6 +220,7 @@ SET_ENABLED = {
     "merge_tool": merge_tool.set_enabled,                # toolbar tools
     "cutter_tool": cutter_tool.set_enabled,
     "fast_loop_cut": fast_loop_cut.set_enabled,
+    "push_pull": smart_extrude.set_enabled,
 }
 
 # The shortcuts each feature adds: the lists its module keeps of the keymap items it registered

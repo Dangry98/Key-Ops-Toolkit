@@ -2,6 +2,8 @@ import bpy
 from bpy_extras import view3d_utils
 from mathutils import Vector, geometry
 
+from ..utils.modifier_order import can_move, place_shape_modifier, sort_shading_last
+
 ARRAY_SLOTS = ("Array", "Array.001", "Array.002")
 AXIS_NAMES = ("X", "Y", "Z")
 EPS = 1e-6
@@ -38,7 +40,8 @@ def _draw_status(header, context):
     item(('EVENT_R',), "Relative" + (" ✓" if op.relative else ""))
     item(('EVENT_C',), "Constant" + ("" if op.relative else " ✓"))
     item(('EVENT_V',), "To Cursor" + (" ✓" if op.to_cursor else ""))
-    row.label(text="1 / 2 / 3")
+    item(('EVENT_ONE',), "End to End")
+    row.label(text="Shift 1 / 2 / 3")
     row.label(text=f"Array Slot ({op.active_name})")
     row.separator(factor=2.0)
     item(('EVENT_Q', 'EVENT_W'), "Modifier Up / Down")
@@ -52,7 +55,7 @@ class FastArray(bpy.types.Operator):
     bl_description = ("Add or adjust an Array modifier interactively.\n"
                       "Drag to set the offset, scroll for count, X/Y/Z for axis, "
                       "R/C for relative/constant, V to end the array at the mouse cursor, "
-                      "1/2/3 for up to three arrays")
+                      "1 to line the copies up end to end, Shift 1/2/3 for up to three arrays")
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     @classmethod
@@ -154,12 +157,9 @@ class FastArray(bpy.types.Operator):
             mod.use_relative_offset = False
             mod.use_constant_offset = True
 
-        # Keep Weighted Normal modifiers at the bottom of the stack
-        idx = obj.modifiers.find(mod.name)
-        for i, m in enumerate(obj.modifiers):
-            if m.type == 'WEIGHTED_NORMAL' and i < idx:
-                obj.modifiers.move(idx, i)
-                break
+        # above the shading and pinned modifiers, so the copies shade right
+        place_shape_modifier(obj, mod)
+        sort_shading_last(obj)
 
     def active_mods(self):
         for obj in self.objects:
@@ -249,6 +249,27 @@ class FastArray(bpy.types.Operator):
         self.capture_base()
         self.report({'INFO'}, "Relative Offset" if relative else "Constant Offset")
 
+    def snap_end_to_end(self, context):
+        """Each copy starts exactly where the one before ends: an offset of the mesh's own length along the
+        array's axes, measured from the start of the mesh (its bounding box), not from its origin."""
+        self.to_cursor = False
+        for obj, mod in self.active_mods():
+            vec = mod.relative_offset_displace if self.relative else mod.constant_offset_displace
+            size = None if self.relative else self.array_input_size(context, obj, mod)
+            new = [0.0, 0.0, 0.0]
+            for i in range(3):
+                if self.axes[i]:
+                    sign = -1.0 if vec[i] < -EPS else 1.0
+                    new[i] = sign * (1.0 if self.relative else size[i])
+            if self.relative:
+                mod.relative_offset_displace = new
+            else:
+                mod.constant_offset_displace = new
+            if mod.count < 2:
+                mod.count = 2
+        self.capture_base()
+        self.report({'INFO'}, "End to End")
+
     def change_count(self, step):
         for obj, mod in self.active_mods():
             mod.count = max(1, mod.count + step)
@@ -257,7 +278,7 @@ class FastArray(bpy.types.Operator):
         for obj, mod in self.active_mods():
             idx = obj.modifiers.find(mod.name)
             new = idx + direction
-            if 0 <= new < len(obj.modifiers):
+            if can_move(obj, mod, new):  # never into the modifiers pinned to the end
                 obj.modifiers.move(idx, new)
 
     def current_count(self):
@@ -435,8 +456,11 @@ class FastArray(bpy.types.Operator):
         elif event.type == 'V':
             self.toggle_to_cursor(context, snap=event.ctrl)
 
-        elif event.type in {'ONE', 'TWO', 'THREE'}:
+        elif event.type in {'ONE', 'TWO', 'THREE'} and event.shift:
             self.activate_slot(('ONE', 'TWO', 'THREE').index(event.type))
+
+        elif event.type == 'ONE':
+            self.snap_end_to_end(context)
 
         elif event.type == 'Q':
             self.move_modifier(-1)
