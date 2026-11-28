@@ -4,7 +4,7 @@
 #
 #   scripts/test.sh -b /path/to/blender [-t tests/x.py ...] [--gui] [--full]
 #
-# BLENDER env var works instead of -b. --gui also runs tests/gui_modal_smoke.py in a real window
+# BLENDER env var works instead of -b. --gui also runs every tests/gui_*.py in a real window
 # (under xvfb-run when no DISPLAY is set).
 set -u
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -x "$blender" ] || { echo "FAIL no blender: pass -b <path> or set BLENDER"; exit 2; }
-[ ${#tests[@]} -eq 0 ] && tests=(tests/test_registration.py tests/test_redesign.py tests/test_menu_drawing.py tests/test_ui_draw.py tests/test_kit_coverage.py)
+[ ${#tests[@]} -eq 0 ] && tests=(tests/test_registration.py tests/test_redesign.py tests/test_menu_drawing.py tests/test_ui_draw.py tests/test_kit_coverage.py tests/test_backlog.py tests/test_edge_trim.py tests/test_cylinder_sides.py tests/test_push_pull.py)
 echo "blender: $blender"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/keyops-test-XXXXXX")"
@@ -49,8 +49,8 @@ for t in "${tests[@]}"; do
 done
 
 if [ $gui -eq 1 ]; then
-    t=tests/gui_modal_smoke.py
-    log="$work/gui_modal_smoke.py.log"
+  for t in tests/gui_*.py; do
+    log="$work/$(basename "$t").log"
     run=("$blender" --factory-startup --enable-event-simulate --python "$repo/$t")
     if [ -z "${DISPLAY:-}" ]; then run=(xvfb-run -a -s "-screen 0 1600x1000x24" "${run[@]}"); fi
     "${run[@]}" >"$log" 2>&1
@@ -60,6 +60,7 @@ if [ $gui -eq 1 ]; then
     if [ $full -eq 1 ]; then cat "$log"; else grep -E '^FAIL |^SKIP |Traceback|Error|^  File ' "$log" | head -40; fi
     if [ $code -eq 0 ] && [ "$fail" -eq 0 ] && [ "$tb" -eq 0 ] && [ "$done_" -eq 1 ]; then s="OK  "; else s="FAIL"; failed=$((failed + 1)); fi
     echo "$s $t  pass=$pass fail=$fail tracebacks=$tb exit=$code"
+  done
 fi
 
 echo "logs: $work"

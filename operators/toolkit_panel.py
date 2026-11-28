@@ -11,7 +11,6 @@ from .none_live_booleans import ENTERING_TRANSFORM_OT_None_Live_Booleans
 from .add_modifier import BooleanScroll, AddBooleanModifier
 from ..utils.node_groups import get_node_group
 
-from .subobject_modes import draw_mode_row
 
 BLENDER_VERSION = bpy.app.version
 
@@ -48,8 +47,8 @@ def register_toolkit_panel_keymaps():
 
     # Alt+3 Snap to Floor: added by snap_to_floor.register_snap_to_floor
 
-    kmi = km.keymap_items.new('keyops.toolkit_panel', 'D', 'PRESS', alt=True, shift=True)
-    kmi.properties.type = 'duplicate_linked_modifiers_and_move'
+    # its own object.* operator, so the menu entry and the Toolkit buttons show the shortcut on hover
+    kmi = km.keymap_items.new('object.duplicate_linked_modifiers', 'D', 'PRESS', alt=True, shift=True)
     registered_toolkit_panel_keymaps.append((km, kmi))
 
     kmi = km.keymap_items.new('object.add_boolean_modifier_operator', 'NUMPAD_MINUS', 'PRESS', ctrl=True)
@@ -1070,6 +1069,28 @@ class ToolkitPanel(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class OBJECT_OT_duplicate_linked_modifiers(bpy.types.Operator):
+    """Duplicate the selected objects sharing their modifier stack (a Geometry Nodes modifier reads the
+    original's), then move the copies"""
+    bl_idname = "object.duplicate_linked_modifiers"
+    bl_label = "Duplicate Linked Modifiers"
+    bl_options = {'REGISTER', 'UNDO'}
+    instance: bpy.props.BoolProperty(name="Instanced", description="Might provde better viewport performance, but some modifiers and exporters will not work", default=False) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and bool(context.selected_objects)
+
+    def execute(self, context):
+        make_duplicate_linked(self, context)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        make_duplicate_linked(self, context)
+        bpy.ops.transform.translate('INVOKE_DEFAULT')
+        return {'FINISHED'}
+
+
 def toggle_realtime_booleans(self, context):
     # Update callbacks fire on every assignment, not only when the value changes.
     is_registered = ENTERING_TRANSFORM_OT_None_Live_Booleans.is_registered
@@ -1091,35 +1112,6 @@ def click_rgb_enum(self, context):
     elif bpy.context.scene.RGB_Enum == 'B':
         bpy.ops.keyops.toolkit_panel(type="set_vertex_color", ovveride_color=True, ovveride_color_vec=(0.0, 0.0, 1.0, 1.0))
 
-class SmartExtrude(bpy.types.Operator):
-    bl_description = "Smart Extrude, this is a slow and outdated operator, a way faster and better version is in the works"
-    bl_idname = "mesh.keyops_smart_extrude"
-    bl_label = "Smart Extrude (Slow, Outdated)"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    offset: bpy.props.FloatProperty(name="Offset", default=0.1, min=0.0) # type: ignore
-    even_offset: bpy.props.BoolProperty(name="Even Offset", default=True) # type: ignore
-    scale_offset: bpy.props.FloatProperty(name="Scale Offset", default=1.001, min=0.0, max=2.0) # type: ignore
-    remove_doubles: bpy.props.FloatProperty(name="Remove Doubles", default=0.001, min=0.0, max=0.1) # type: ignore
-
-    def execute(self, context):
-        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-        bpy.ops.mesh.duplicate_move(MESH_OT_duplicate={"mode":1}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((0, 0, 0), (0, 0, 0), (0, 0, 0)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_elements":{'INCREMENT'}, "use_snap_project":False, "snap_target":'CLOSEST', "use_snap_self":True, "use_snap_edit":True, "use_snap_nonedit":True, "use_snap_selectable":False, "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "use_duplicated_keyframes":False, "view2d_edge_pan":False, "release_confirm":False, "use_accurate":False, "use_automerge_and_split":False})
-        bpy.ops.mesh.flip_normals()
-        bpy.ops.transform.shrink_fatten(value=-0.00318323, use_even_offset=self.even_offset, mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False)
-        bpy.ops.transform.resize(value=(self.scale_offset, self.scale_offset, self.scale_offset), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False, snap=False, snap_elements={'INCREMENT'}, use_snap_project=False, snap_target='CLOSEST', use_snap_self=True, use_snap_edit=True, use_snap_nonedit=True, use_snap_selectable=False)
-        bpy.ops.mesh.extrude_region_shrink_fatten(MESH_OT_extrude_region={"use_normal_flip":False, "use_dissolve_ortho_edges":False, "mirror":False}, TRANSFORM_OT_shrink_fatten={"value":self.offset, "use_even_offset":self.even_offset, "mirror":False, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "release_confirm":False, "use_accurate":False})
-        bpy.ops.mesh.select_linked(delimit={'NORMAL'})
-        bpy.ops.mesh.intersect_boolean(operation='DIFFERENCE', use_swap=False, use_self=False, solver='FAST')
-        bpy.ops.mesh.remove_doubles(threshold=self.remove_doubles, use_unselected=False)
-
-        return {'FINISHED'}
-    
-    def register():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.prepend(menu_extrude)
-    def unregister():
-        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(menu_extrude)
-        
 class ExtrudeEdgeByNormal(bpy.types.Operator):
     bl_idname = "mesh.extrude_edge_by_normal"
     bl_label = "Extrude Edge by Normal"
@@ -1165,6 +1157,10 @@ def draw_modifier_panel(self, context, draw_header=False):
             op = row.operator("keyops.add_modifier", text=f"FFD {n}x")
             op.subdivisions = n
             op.type = "LATTICE"
+        # a Geometry Nodes trim that follows the selected edges (Edit Mode)
+        row = grid.row(align=False)
+        row.enabled = context.mode == 'EDIT_MESH'
+        row.operator("keyops.edge_trim_live", text="Live Edge Trim", icon="MOD_EDGESPLIT")
 
         # UV
         col = box.column(align=False)
@@ -1206,9 +1202,10 @@ def draw_edge_flow(row):
 
 # Edit Toolkit layout helpers: every section is a label plus a column of separate (spaced) buttons,
 # two per row. A button wrapped in _wide() (or an odd one at the end) spans the whole row.
-def _op(idname, text, **props):
+def _op(idname, text, icon=None, **props):
+    """icon: one of Key Ops' own icons (icons/<name>.png), for its own operators."""
     def draw(layout):
-        op = layout.operator(idname, text=text)
+        op = layout.operator(idname, text=text, icon_value=get_icon(icon)) if icon else layout.operator(idname, text=text)
         for name, value in props.items():
             setattr(op, name, value)
     return draw
@@ -1266,13 +1263,6 @@ def draw_edit_mode_panel(self, context, draw_header=False):
     # the filter: on = only Key Ops' own operators
     sub.prop(prefs, "edit_toolkit_show_blender_ops", text="", icon='FILTER', invert_checkbox=True)
 
-    # Vertex, Edge, Face plus Element mode, as one centered row of modes (always: you need them either way)
-    row = box.row(align=True)
-    row.scale_x = 2.15
-    row.scale_y = 1.5
-    row.alignment = 'CENTER'
-    draw_mode_row(row, context)
-
     vert_mode, edge_mode, face_mode = sel_mode
     fast_merge = feature_on("fast_merge")
 
@@ -1286,16 +1276,16 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             *loop_ring,
             _op("mesh.region_to_loop", "Boundary"), _op("mesh.loop_to_region", "Inner Region"),
             _op("mesh.faces_select_linked_flat", "By Angle") if face_mode else _op("mesh.edges_select_sharp", "Edge Angle"),
-            _op("keyops.select_similar", "Similar"),
+            _op("keyops.select_similar", "Similar", icon="ops_select_similar"),
             _op("mesh.select_nth", "Checker Deselect"),
             _op("mesh.select_non_manifold", "Non Manifold") if (vert_mode or edge_mode) else None,
             _op("mesh.select_face_by_sides", "Ngons", type='GREATER'),
-            _op("keyops.select_thin_triangles", "Thin Triangles"),
+            _op("keyops.select_thin_triangles", "Thin Triangles", icon="ops_thin_triangles"),
         ], first=True)
     else:
         _section(box, "Selection", [
-            _op("keyops.select_similar", "Similar"),
-            _op("keyops.select_thin_triangles", "Thin Triangles"),
+            _op("keyops.select_similar", "Similar", icon="ops_select_similar"),
+            _op("keyops.select_thin_triangles", "Thin Triangles", icon="ops_thin_triangles"),
         ], first=True)
 
     # Edit vertices / edges / polygons
@@ -1315,25 +1305,25 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         items["bevel"] = (_op("mesh.bevel", "Chamfer", affect='VERTICES') if vert_mode and not (edge_mode or face_mode)
                           else _op("mesh.bevel", "Bevel", affect='EDGES'))
         if fast_merge:
-            items["connect"] = _op("mesh.connect2", "Connect")
+            items["connect"] = _op("mesh.connect2", "Connect", icon="ops_connect")
         if face_mode:
             items["inset"] = _op("mesh.inset", "Inset")
             items["flip"] = _op("mesh.flip_normals", "Flip")
         if edge_mode or face_mode:
             items["bridge"] = _op("mesh.bridge_edge_loops", "Bridge")
         items["fill"] = _op("mesh.edge_face_add", "Fill")
-        items["flow"] = _op("mesh.set_mesh_edge_flow", "Set Flow")
+        items["flow"] = _op("mesh.set_mesh_edge_flow", "Set Flow", icon="ops_set_flow")
         items["dissolve"] = _op("mesh.dissolve_limited", "Limited Dissolve")
         if vert_mode or edge_mode:
-            items["resample"] = _op("keyops.resample_edges", "Resample Edges")
-            items["trim"] = _op("keyops.edge_trim", "Make Edge Trim")
+            items["resample"] = _op("keyops.resample_edges", "Resample Edges", icon="ops_resample_edges")
+            items["trim"] = _op("keyops.edge_trim", "Make Edge Trim", icon="ops_edge_trim")
         _section(box, title, list(items.values()))
     else:
         _section(box, "Edit Mesh", [
-            _op("mesh.connect2", "Connect") if fast_merge else None,
-            _op("mesh.set_mesh_edge_flow", "Set Flow"),
-            _op("keyops.resample_edges", "Resample Edges"),
-            _op("keyops.edge_trim", "Make Edge Trim"),
+            _op("mesh.connect2", "Connect", icon="ops_connect") if fast_merge else None,
+            _op("mesh.set_mesh_edge_flow", "Set Flow", icon="ops_set_flow"),
+            _op("keyops.resample_edges", "Resample Edges", icon="ops_resample_edges"),
+            _op("keyops.edge_trim", "Make Edge Trim", icon="ops_edge_trim"),
         ])
 
     # UV: Preserve UVs sits on the header row, right of the label
@@ -1347,12 +1337,12 @@ def draw_edit_mode_panel(self, context, draw_header=False):
         _wide(lambda layout: layout.menu("VIEW3D_MT_uv_map", text="UV Unwrap")),
         _op("mesh.mark_seam", "Mark Seam", clear=False),
         _op("mesh.mark_seam", "Clear Seam", clear=True),
-        _wide(_op("keyops.seam_by_angle", "Seam by Angle")) if feature_on("uv_tools") else None,
+        _wide(_op("keyops.seam_by_angle", "Seam by Angle", icon="ops_seam_by_angle")) if feature_on("uv_tools") else None,
     ])
 
     # Vertex color
     _section(box, "Vertex Color", [
-        _op("keyops.toolkit_panel", "Set Color", type="set_vertex_color"),
+        _op("keyops.toolkit_panel", "Set Color", icon="ops_vertex_color", type="set_vertex_color"),
         lambda layout: layout.prop(context.scene.keyops, "vertex_color", text=""),
     ])
 
@@ -1382,25 +1372,26 @@ def draw_edit_mode_panel(self, context, draw_header=False):
             _op("mesh.bisect", "Slice Plane"), _op("mesh.knife_tool", "Cut"),
             _op("mesh.subdivide", "Subdivide"), _op("mesh.unsubdivide", "Un-Subdivide"),
             *loop_tools,
-            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+            _op("keyops.mesh_cleanup", "Clean Up", icon="ops_cleanup"), _op("keyops.extract_geometry", "Extract", icon="ops_extract"),
             _op("mesh.hide", "Hide Selected"), _op("mesh.reveal", "Unhide All"),
             _op("mesh.hide", "Hide Unselected", unselected=True),
         ])
     else:
         _section(box, "Edit Geometry", [
-            _op("keyops.mesh_cleanup", "Clean Up"), _op("keyops.extract_geometry", "Extract"),
+            _op("keyops.mesh_cleanup", "Clean Up", icon="ops_cleanup"), _op("keyops.extract_geometry", "Extract", icon="ops_extract"),
         ])
 
     # Round shapes: sides and rings of cylinders, pipes and other revolved shapes
     _section(box, "Rings & Sides", [
-        _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides")),
-        _op("keyops.toolkit_panel", "Halve Sides", type="un_subdivide_cylinder"),
-        _op("keyops.toolkit_panel", "Double Sides", type="subdivide_cylinder"),
-        _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", type="change_cylinder_segments_modifier")),
-        _op("keyops.rebevel", "Re-Bevel"), _op("keyops.rebevel", "Remove Bevel", remove=True),
+        _wide(_op("keyops.set_cylinder_sides", "Change Number of Sides", icon="ops_cylinder_sides")),
+        _op("keyops.toolkit_panel", "Halve Sides", icon="ops_halve_sides", type="un_subdivide_cylinder"),
+        _op("keyops.toolkit_panel", "Double Sides", icon="ops_double_sides", type="subdivide_cylinder"),
+        _wide(_op("keyops.toolkit_panel", "Revolve Edges (Screw Modifier)", icon="ops_revolve", type="change_cylinder_segments_modifier")),
+        _op("keyops.rebevel", "Re-Bevel", icon="ops_rebevel"),
     ])
     _section(box, "Transform", [
-        _wide(_op("keyops.slide_scale", "Slide Scale (along edges)")),
+        _op("keyops.slide_scale", "Slide Scale", icon="ops_slide_scale"),
+        _op("keyops.slide_scale", "Slide Rotate", icon="ops_slide_rotate", mode='ROTATE'),
     ])
 
 
@@ -1459,7 +1450,8 @@ class ObjectModePanel(bpy.types.Panel):
 
         row = col.row(align=True)
         row.scale_y = 1.15
-        row.operator("keyops.toolkit_panel", text="Duplicate Linked Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
+        row.operator_context = 'INVOKE_DEFAULT'
+        row.operator("object.duplicate_linked_modifiers", text="Duplicate Linked Modifiers", icon="LINKED")
         row = col.row(align=False)
         row.scale_y = 1.15
         row.operator("keyops.toolkit_panel", text="Instant Apply All Modifiers",  icon_value=get_icon("mesh")).type = "Instant_Apply_Modifiers"
@@ -1509,7 +1501,7 @@ class EDIT_PT_Settings(bpy.types.Panel):
             col.label(text="Key Ops operators only", icon='INFO')
 
 
-classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll)
+classes = (ToolkitPanel, EDIT_PT_Settings, AddModifier, AddBooleanModifier, BooleanScroll, OBJECT_OT_duplicate_linked_modifiers)
 
 
 def object_menu_duplicate(self, context):
@@ -1519,8 +1511,7 @@ def object_menu_duplicate(self, context):
     layout = self.layout
     layout.separator()
     layout.operator_context = 'INVOKE_DEFAULT'
-    layout.operator("keyops.toolkit_panel", text="Duplicate Linked Modifiers",
-                    icon='LINKED').type = "duplicate_linked_modifiers_and_move"
+    layout.operator("object.duplicate_linked_modifiers", text="Duplicate Linked Modifiers", icon='LINKED')
 
 
 def register():

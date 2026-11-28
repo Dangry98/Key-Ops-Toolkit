@@ -53,7 +53,8 @@ def _from_selection(me):
     if not faces:
         return None
     n = sum((p.normal * p.area for p in faces), Vector())
-    if n.length < 1e-9:
+    area = sum(p.area for p in faces)
+    if n.length < 0.1 * area or n.length < 1e-9:  # faces facing every way (a whole closed part): no up
         return None
     best, best_len = None, -1.0
     for p in faces:
@@ -110,9 +111,11 @@ class KEYOPS_OT_realign_rotation(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     source: EnumProperty(name="From", default='AUTO', items=(
-        ('AUTO', "Auto", "Selected faces if the mesh has any, else the shape (tightest box, largest flat area)"),
+        ('AUTO', "Auto", "In Edit Mode the selected faces, if some are; otherwise the shape (tightest box, largest "
+                         "flat area)"),
         ('SHAPE', "Shape", "The tightest box around the mesh, snapped to its largest flat area"),
-        ('SELECTION', "Selected Faces", "Up is the selected faces' normal, X their longest edge"))) # type: ignore
+        ('SELECTION', "Selected Faces", "Up is the selected faces' normal, X their longest edge (also from Object "
+                                        "Mode: the faces last selected in Edit Mode)"))) # type: ignore
     turn: IntProperty(name="Turn", default=0, min=-3, max=3,
                       description="Turn the new axes around their up axis in 90 degree steps") # type: ignore
     flip: BoolProperty(name="Flip Up", default=False, description="Turn the new axes upside down") # type: ignore
@@ -140,7 +143,10 @@ class KEYOPS_OT_realign_rotation(bpy.types.Operator):
                 continue
             seen.add(me)
             rot = None
-            if self.source in {'AUTO', 'SELECTION'}:
+            # Auto reads the face selection only in Edit Mode, where you can see it, and only when it is part of
+            # the mesh (a fresh primitive has every face selected); Selected Faces reads it in any mode
+            selected = sum(1 for p in me.polygons if p.select)
+            if self.source == 'SELECTION' or (self.source == 'AUTO' and was_edit and 0 < selected < len(me.polygons)):
                 rot = _from_selection(me)
             if rot is None and self.source in {'AUTO', 'SHAPE'}:
                 rot = _auto(me)
@@ -155,6 +161,8 @@ class KEYOPS_OT_realign_rotation(bpy.types.Operator):
             if self.turn:
                 rot = rot @ Matrix.Rotation(math.radians(90 * self.turn), 3, 'Z')
             self._apply(context, obj, rot)
+            if obj.data is not me:  # it got its own mesh: the others still sharing the old one get their turn
+                seen.discard(me)
             done += 1
         if was_edit:
             bpy.ops.object.mode_set(mode='EDIT')
@@ -169,11 +177,15 @@ class KEYOPS_OT_realign_rotation(bpy.types.Operator):
         """Turn obj (and every object sharing its mesh) by rot in its own space; the mesh turns back."""
         me = obj.data
         users = [o for o in bpy.data.objects if o.data == me]
-        sx, sy, sz = obj.matrix_world.to_scale()
+        sx, sy, sz = obj.scale
         uniform = abs(sx - sy) < 1e-6 and abs(sy - sz) < 1e-6
         r4 = rot.to_4x4()
         if not uniform:
-            # a turn inside an unevenly scaled object would shear it: bake the scale into the mesh first
+            # a turn inside an unevenly scaled object would shear it: bake the scale into the mesh first. Objects
+            # sharing the mesh with a different scale can't share the baked mesh: this one gets its own copy
+            if any((Vector(o.scale) - Vector(obj.scale)).length > 1e-6 for o in users):
+                obj.data = me = me.copy()
+                users = [obj]
             s4 = Matrix.Diagonal((*obj.scale, 1.0))
             me.transform(s4)
             for o in users:

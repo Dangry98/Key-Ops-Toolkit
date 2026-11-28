@@ -7,7 +7,7 @@ A demo script imports this, builds a list of steps and calls run(steps). Each st
     ("press", type) / ("release", type)
     ("move", x, y, seconds)            glide the mouse to (x, y) in area-relative pixels
     ("click", button)                  LEFTMOUSE / RIGHTMOUSE press + release
-    ("drag", (x0, y0), (x1, y1), seconds, button)
+    ("drag", (x0, y0), (x1, y1), seconds, button, {"shift": True})
     ("shot", path)                     save a screenshot of the window
     ("area", type)                     later steps act in the largest area of this type
     ("text", "Some caption")           show a caption at the bottom of the viewport (for videos)
@@ -64,6 +64,19 @@ def to_window(x, y=None):
 def ev(etype, value='NOTHING', **kw):
     x, y = state["mouse"] or to_window(0.5, 0.5)
     window().event_simulate(etype, value, x=x, y=y, **kw)
+
+
+_MOD_KEYS = {"shift": 'LEFT_SHIFT', "ctrl": 'LEFT_CTRL', "alt": 'LEFT_ALT'}
+
+
+def mod_keys(mods, value):
+    """Press / release the modifier keys themselves: drags and clicks read the window's modifier state, which
+    only real modifier key events change (the event's own shift/ctrl flags are not enough)."""
+    held = {}
+    for name, key in _MOD_KEYS.items():
+        if mods.get(name):
+            held[name] = True
+            ev(key, value, **(held if value == 'PRESS' else {}))
 
 
 # ---------------------------------------------------------------- caption overlay for videos
@@ -141,9 +154,11 @@ def _steps_gen(steps):
         elif kind == "click":
             button = step[1] if len(step) > 1 else 'LEFTMOUSE'
             mods = step[2] if len(step) > 2 else {}
+            mod_keys(mods, 'PRESS')
             ev(button, 'PRESS', **mods)
             yield 0.05
             ev(button, 'RELEASE', **mods)
+            mod_keys(mods, 'RELEASE')
             yield 0.15
         elif kind == "drag":
             a_pt = step[1]() if callable(step[1]) else step[1]
@@ -151,10 +166,12 @@ def _steps_gen(steps):
             (xa, ya), (xb, yb) = a_pt, b_pt
             secs = step[3] if len(step) > 3 else 0.6
             button = step[4] if len(step) > 4 else 'LEFTMOUSE'
+            mods = step[5] if len(step) > 5 else {}
             state["mouse"] = to_window(xa, ya)
-            ev('MOUSEMOVE')
+            mod_keys(mods, 'PRESS')
+            ev('MOUSEMOVE', **mods)
             yield 0.05
-            ev(button, 'PRESS')
+            ev(button, 'PRESS', **mods)
             yield 0.05
             x0, y0 = state["mouse"]
             x1, y1 = to_window(xb, yb)
@@ -162,9 +179,10 @@ def _steps_gen(steps):
             for i in range(1, n + 1):
                 t = i / n
                 state["mouse"] = (int(x0 + (x1 - x0) * t), int(y0 + (y1 - y0) * t))
-                ev('MOUSEMOVE')
+                ev('MOUSEMOVE', **mods)
                 yield 0.02
-            ev(button, 'RELEASE')
+            ev(button, 'RELEASE', **mods)
+            mod_keys(mods, 'RELEASE')
             yield 0.15
         elif kind == "shot":
             _redraw()

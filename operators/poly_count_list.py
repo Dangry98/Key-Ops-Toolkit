@@ -18,8 +18,10 @@ polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
 ev = []
 total_tris = 0
-latest_updateded_objects_in_depsgrapth = []
+latest_updateded_objects_in_depsgrapth = set()  # names of objects changed since the list was last built
 list_cache = {}
+_list_changed = [True]  # something changed (an edit, an object added or removed, a selection): rebuild on draw
+_list_signature = [None]
 obj_lookup_cache = {}
 
 def _get_modifier_times(ob_eval, mod): # we should not call it per modifier, but only once per object
@@ -149,12 +151,8 @@ def get_poly_count(context, force_update_all=False):
     # replace mesh cache with just global polycount cache
     total_tris = 0
 
-    allowed = set(getattr(props, "type_filter", {'MESH', 'CURVE', 'FONT', 'META'}))
-    if 'CURVE' in allowed:
-        allowed.add('SURFACE')
-    show_hidden = getattr(props, "show_hidden", True)
-    filter_type = [obj for obj in filter_type if obj.type in allowed
-                   and (show_hidden or not is_hidden(obj, c.view_layer))]
+    allowed = {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}  # objects with geometry to count
+    filter_type = [obj for obj in filter_type if obj.type in allowed]
     
     for obj in filter_type:
         tris = 0
@@ -162,6 +160,7 @@ def get_poly_count(context, force_update_all=False):
         edges = 0
         faces = 0
         if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
+            # only objects changed since the last build are measured again; the rest come from the cache
             ms = 0
             if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}:
                 eval_obj = obj.evaluated_get(depsgraph)
@@ -188,7 +187,7 @@ def get_poly_count(context, force_update_all=False):
         polycount.append((obj.name, tris, verts, edges, faces, ms))  # Store directly in polycount list, we should not receate it each time, instead the list_cache should be used everwhere!
     # print("Time taken to get polycount: {:.4f} ms".format((time.time() - start_time) * 1000))
 
-    latest_updateded_objects_in_depsgrapth = []
+    latest_updateded_objects_in_depsgrapth = set()
 
     if show_collection_instances:
         for obj in c.scene.objects:
@@ -221,29 +220,52 @@ def get_poly_count(context, force_update_all=False):
 
 @persistent
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
-    global latest_updateded_objects_in_depsgrapth, list_cache
-    scene_tab_is_open = False
-    
-    for window in bpy.context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
-                latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
-                scene_tab_is_open = True
-                break
-            
-    if 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode:
-        latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
-        scene_tab_is_open = True
-
-    if not scene_tab_is_open:
-        # reset list_cache, since it will need to be recomputed once the scene tab is opened again
+    """Remember every object that changed until the list is drawn again (not just the last update), so the list
+    is always up to date and only those objects are measured again."""
+    global list_cache
+    shown = 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode
+    if not shown:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
+                    shown = True
+                    break
+    if not shown:
+        # not on screen: start over (measure everything) the next time it is shown
         if list_cache:
             list_cache.clear()
+        _list_changed[0] = True
+        return
+    for update in depsgraph.updates:
+        if isinstance(update.id, bpy.types.Object):
+            latest_updateded_objects_in_depsgrapth.add(update.id.name)
+        _list_changed[0] = True
+
+
+def _signature(context, props):
+    """What decides which objects are listed and how: when it changes, the list is rebuilt."""
+    sel = len(context.selected_objects) if props.polycount_use_selection_only else -1
+    coll = props.my_collection.name if getattr(props, "my_collection", None) else ""
+    return (len(context.scene.objects), sel, props.filter_by, coll, props.child_collection,
+            props.show_only_enabled_collections, props.show_collection_instances, tuple(sorted(props.filter_list_show)),
+            polycount_sorting, polycount_sorting_ascending)
+
+
+def refresh_if_needed(context):
+    """Rebuild the list when something changed since the last draw; otherwise the draw reuses it as it is."""
+    props = context.scene.keyops.polycount_props
+    sig = _signature(context, props)
+    if _list_changed[0] or sig != _list_signature[0] or not polycount:
+        polycount.clear()
+        get_poly_count(context)
+        _list_changed[0] = False
+        _list_signature[0] = sig
+
 
 class PolyCountList(bpy.types.Operator):
     bl_idname = "keyops.poly_count_list"
     bl_label = "Poly Count List"
-    bl_description = "Refresh the polycount list, only needed if auto update is off"
+    bl_description = "Measure every object again (the list keeps itself up to date; this starts it over)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -262,6 +284,12 @@ def register():
     bpy.utils.register_class(POLYCOUNT_OT_walk)
     bpy.utils.register_class(POLYCOUNT_OT_toggle_hide)
     bpy.utils.register_class(POLYCOUNT_OT_hide_key)
+    bpy.utils.register_class(POLYCOUNT_OT_select_all)
+    bpy.utils.register_class(POLYCOUNT_OT_show_all)
+    bpy.utils.register_class(POLYCOUNT_OT_item_action)
+    menu = _button_context_menu()
+    if menu is not None:
+        menu.append(draw_list_context_menu)
     register_polycount_keymaps()
 
 
@@ -272,6 +300,15 @@ def unregister():
     bpy.utils.unregister_class(POLYCOUNT_OT_refresh)
     bpy.utils.unregister_class(POLYCOUNTILST_PT_Settings)
     clear_registered_keymaps(registered_polycount_keymaps)
+    menu = _button_context_menu()
+    if menu is not None:
+        try:
+            menu.remove(draw_list_context_menu)
+        except ValueError:
+            pass
+    bpy.utils.unregister_class(POLYCOUNT_OT_item_action)
+    bpy.utils.unregister_class(POLYCOUNT_OT_show_all)
+    bpy.utils.unregister_class(POLYCOUNT_OT_select_all)
     bpy.utils.unregister_class(POLYCOUNT_OT_hide_key)
     bpy.utils.unregister_class(POLYCOUNT_OT_toggle_hide)
     bpy.utils.unregister_class(POLYCOUNT_OT_walk)
@@ -307,12 +344,7 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
     show_ms = 'MS' in filter_list_show
 
     ui_updates += 1
-    
-    if props.auto_update_polycount:
-        if ui_updates >= props.update_rate:
-            polycount.clear()
-            get_poly_count(context)
-            ui_updates = 0
+    refresh_if_needed(context)  # always up to date: rebuilt only when something changed, from the cache
 
     if not properteries_panel:
         row = layout.row(align=True)
@@ -330,32 +362,14 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
             # row.label(text=objects)
             
             # sub.enabled = False
-        if props.show_draw_time:  
+        if props.show_draw_time:
             sub = row.row(align=True)
             sub.alignment = 'LEFT'
-            if last_draw_time * 1000 > 30:
-                sub.alert = True
-            ms = "{:.1f} ms".format(last_draw_time * 1000)
-            if not properteries_panel:
-                sub.label(text=ms)
+            sub.alert = last_draw_time * 1000 > 30
+            sub.label(text=ms)
         
 
-    if len(polycount) > 2500 and props.auto_update_polycount:
-        row = layout.row(align=True)
-    #     row.label(text="Warning: > 500 objects, auto update might be slow", icon="ERROR")
-    #     # update_rate = props.update_rate
-    #     row.scale_x = 0.4
-    #     row.prop(props, "update_rate", text="Update Rate")
-
-    # if redraw time is over 0.05s, show that update rate can be changed
-        row.label(text="Auto Update might be slow", icon="INFO")
-        # update_rate = props.update_rate
-        row.scale_x = 0.45
-        row.prop(props, "update_rate", text="Update Rate")
-
     row = layout.row(align=True)
-    row.prop(props, "auto_update_polycount", text="Auto", icon="FILE_REFRESH", toggle=False)
-    # row.popover(panel="POLYCOUNT_PT_AutoUpdate_Settings", icon="PREFERENCES", text="")
     row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
     row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
     row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
@@ -365,8 +379,6 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
         row.prop(props, "search", text="", icon='VIEWZOOM', placeholder="Search objects")
     else:
         row.prop(props, "search", text="", icon='VIEWZOOM')
-    if len(getattr(props, "type_filter", ())) < 4:  # some types filtered out: say so
-        row.prop(props, "type_filter", text="", icon_only=True)
 
     col_flow = layout.column_flow(columns=0, align=True)
     row = col_flow.row(align=True)
@@ -442,6 +454,7 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
         curve_icon = get_icon("curve")
         
         found_active = False
+        view_layer_names = context.view_layer.objects
         needle = search.strip().lower()
         toggle_op = POLYCOUNT_OT_toggle_hide.bl_idname
         shown = 0
@@ -466,9 +479,13 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
                 hidden = object.hide_viewport or object.hide_get()
             except RuntimeError:  # not in this view layer
                 hidden = True
-            # an eye per row: hidden objects are greyed out, the eye shows them again (whatever hid them)
-            row.operator(toggle_op, text="", icon=EYE_ICONS[hidden], emboss=False).name = obj_name
+            # the eye only on hidden objects (it shows them again, whatever hid them); a blank keeps rows lined up
             if hidden:
+                row.operator(toggle_op, text="", icon=EYE_ICONS[True], emboss=False).name = obj_name
+            else:
+                row.label(text="", icon='BLANK1')
+            # greyed out: anything you can't select from the list (hidden, unselectable, not in the view layer)
+            if hidden or object.hide_select or object.name not in view_layer_names:
                 row.active = False
 
             if show_obj_type:
@@ -527,6 +544,9 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
         # print(time.time() - start)
 
     last_draw_time = time.time() - draw_time
+    ms = "{:.1f} ms".format(last_draw_time * 1000)  # shown next time (the header draws before the list)
+
+
 class KEYOPS_PT_poly_count_list_scene_panel(bpy.types.Panel):
     bl_label = "Polycount List"
     bl_idname = "KEYOPS_PT_poly_count_list_panel"
@@ -582,9 +602,6 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row.label(text="Length:")
         row.prop(props, "max_list_length", text="")
 
-        if props.auto_update_polycount:
-            row.label(text="Redraw")
-            row.prop(props, "update_rate", text="")
 
         row = layout.row()
         row = layout.row()
@@ -598,9 +615,6 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row.alignment = 'LEFT'
         row.prop(props, "show_obj_type", text="Object Type")
         row.prop(props, "show_draw_time", text="Draw Time")
-        row = layout.row()
-        row.alignment = 'LEFT'
-        row.prop(props, "keyboard_navigation", text="Keyboard Navigation (Up/Down, W/S)")
 
         row = layout.row(align=True)
         row = layout.row(align=True)
@@ -609,11 +623,9 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row.scale_x = 2.1
         row.prop(props, "filter_list_show")
 
-        row = layout.row()
-        row.label(text="Object Types:")
-        row = layout.row(align=True)
-        row.prop(props, "type_filter", expand=True)
-        layout.prop(props, "show_hidden")
+        col = layout.column(align=True)
+        col.label(text="Keys over the list: Up/Down or W/S (Shift: extend), A / Alt A select all / none,", icon='INFO')
+        col.label(text="H hide, Alt H show all. Click, Ctrl click toggle, Shift click range, right-click for more.")
 
         row = layout.row()
         row.label(text="Filter Objects by:")
@@ -638,22 +650,6 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
             row.label(text="Show:")
             row.prop(props, "show_collection_instances", text="Instances")
             row.prop(props, "child_collection", text="Recursively")
-
-class POLYCOUNT_PT_AutoUpdate_Settings(bpy.types.Panel):
-    bl_label = "Auto Update Settings"
-    bl_idname = "POLYCOUNT_PT_AutoUpdate_Settings"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'WINDOW'
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        props = context.scene.keyops.polycount_props
-
-        row = layout.row()
-        row.label(text="Auto Update Settings:")
-        row = layout.row()
-        row.prop(props, "auto_update_polycount", text="Auto Update")
 
 class POLYCOUNT_OT_refresh(bpy.types.Operator):
     bl_idname = "keyops.polycount_user_interaction"
@@ -695,7 +691,16 @@ class POLYCOUNT_OT_refresh(bpy.types.Operator):
             elif obj.name not in context.view_layer.objects:
                 self.report({'WARNING'}, "Object not in an enabled collection or view layer")
             else:
+                # a new active object can make a Properties editor jump to another tab: put it back where it was
+                tabs = [(a.spaces.active, a.spaces.active.context) for a in (context.screen.areas if context.screen
+                        else ()) if a.type == 'PROPERTIES']
                 click_select(context, obj, shift="Shift" in ev, ctrl="Ctrl" in ev)
+                for space, tab in tabs:
+                    if space.context != tab:
+                        try:
+                            space.context = tab
+                        except TypeError:
+                            pass  # that tab doesn't exist for the new active object
         else:
             if self.poly_sort == polycount_sorting:
                 polycount_sorting_ascending = not polycount_sorting_ascending
@@ -783,9 +788,9 @@ class POLYCOUNT_OT_walk(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         scene = context.scene
-        if context.mode != 'OBJECT' or scene is None or not hasattr(scene, "polycount_props"):
+        if context.mode != 'OBJECT' or scene is None or not hasattr(scene, "keyops"):
             return False
-        if not scene.keyops.polycount_props.keyboard_navigation or not polycount:
+        if not polycount:
             return False
         space, region = context.space_data, context.region
         if space is None or region is None:
@@ -795,8 +800,9 @@ class POLYCOUNT_OT_walk(bpy.types.Operator):
         if space.type == 'VIEW_3D':
             if region.type != 'UI' or 'POLYCOUNT_LIST' not in getattr(context.window_manager, "toolkit_panel_mode", set()):
                 return False
+            # the Toolkit tab (Blender may not report the tab here: then UNSUPPORTED, or nothing)
             category = getattr(region, "active_panel_category", None)
-            return category in {None, 'Toolkit'}
+            return category in {None, 'Toolkit', 'UNSUPPORTED', ''}
         return False
 
     def execute(self, context):
@@ -831,6 +837,139 @@ class POLYCOUNT_OT_walk(bpy.types.Operator):
                 if area.type in {'PROPERTIES', 'VIEW_3D'}:
                     area.tag_redraw()
         return {'FINISHED'}
+
+class POLYCOUNT_OT_select_all(bpy.types.Operator):
+    """A over the Polycount List: select every listed object; Alt A: deselect them"""
+    bl_idname = "keyops.polycount_select_all"
+    bl_label = "Polycount List Select All"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    action: EnumProperty(items=[('SELECT', "Select", ""), ('DESELECT', "Deselect", "")], default='SELECT') # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return POLYCOUNT_OT_walk.poll(context)
+
+    def execute(self, context):
+        for obj in get_list_objects(context):
+            if not obj.hide_select:
+                obj.select_set(self.action == 'SELECT')
+        _redraw_lists(context)
+        return {'FINISHED'}
+
+
+class POLYCOUNT_OT_show_all(bpy.types.Operator):
+    """Alt H over the Polycount List: show every listed object again"""
+    bl_idname = "keyops.polycount_show_all"
+    bl_label = "Polycount List Show All"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return POLYCOUNT_OT_walk.poll(context)
+
+    def execute(self, context):
+        hidden = [o for o in get_list_objects(context, include_hidden=True) if is_hidden(o, context.view_layer)]
+        set_hidden(context, hidden, False)
+        return {'FINISHED'}
+
+
+ITEM_ACTIONS = (
+    ('SELECT_ONLY', "Select Only", "Select just this object", 'RESTRICT_SELECT_OFF'),
+    ('SELECT_HIERARCHY', "Select Hierarchy", "Select this object and all its children", 'OUTLINER'),
+    ('TOGGLE_HIDE', "Hide / Show", "Hide this object, or show it again", 'HIDE_OFF'),
+    ('ISOLATE', "Isolate", "Hide every other object in the list", 'VIEWZOOM'),
+    ('FRAME', "Frame in View", "Select it and frame it in the 3D View", 'ZOOM_SELECTED'),
+    ('MODIFIERS', "Modifiers On / Off", "Turn this object's modifiers off in the viewport, or on again",
+     'MODIFIER'),
+    ('COPY_NAME', "Copy Name", "Copy the object's name", 'COPYDOWN'),
+    ('DELETE', "Delete", "Delete this object", 'X'),
+)
+
+
+class POLYCOUNT_OT_item_action(bpy.types.Operator):
+    """Polycount List right-click menu actions"""
+    bl_idname = "keyops.polycount_item_action"
+    bl_label = "Polycount List Item"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    name: StringProperty(options={'SKIP_SAVE'})  # type: ignore
+    action: EnumProperty(items=[(a, n, d, i, k) for k, (a, n, d, i) in enumerate(ITEM_ACTIONS)]) # type: ignore
+
+    @classmethod
+    def description(cls, context, props):
+        return next((d for a, _n, d, _i in ITEM_ACTIONS if props and a == props.action), cls.__doc__)
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if obj is None:
+            return {'CANCELLED'}
+        vl = context.view_layer
+        a = self.action
+        if a in {'SELECT_ONLY', 'SELECT_HIERARCHY', 'FRAME'}:
+            if context.mode != 'OBJECT' or obj.name not in vl.objects:
+                self.report({'WARNING'}, "Only in Object Mode, for objects in the view layer")
+                return {'CANCELLED'}
+            deselect_all(context)
+            obj.select_set(True)
+            vl.objects.active = obj
+            if a == 'SELECT_HIERARCHY':
+                for child in obj.children_recursive:
+                    if child.name in vl.objects:
+                        child.select_set(True)
+            if a == 'FRAME':
+                for area in (context.screen.areas if context.screen else ()):
+                    if area.type == 'VIEW_3D':
+                        region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+                        if region is not None:
+                            with context.temp_override(area=area, region=region):
+                                bpy.ops.view3d.view_selected()
+                            break
+        elif a == 'TOGGLE_HIDE':
+            set_hidden(context, [obj], not is_hidden(obj, vl))
+        elif a == 'ISOLATE':
+            others = [o for o in get_list_objects(context, include_hidden=True) if o != obj]
+            set_hidden(context, others, True)
+            set_hidden(context, [obj], False)
+        elif a == 'MODIFIERS':
+            on = not any(m.show_viewport for m in obj.modifiers)
+            for m in obj.modifiers:
+                m.show_viewport = on
+        elif a == 'COPY_NAME':
+            context.window_manager.clipboard = obj.name
+        elif a == 'DELETE':
+            bpy.data.objects.remove(obj)
+        _redraw_lists(context)
+        return {'FINISHED'}
+
+
+def draw_list_context_menu(self, context):
+    """Right-click on a row of the Polycount List: actions for that object."""
+    op = getattr(context, "button_operator", None)
+    if op is None or getattr(op, "bl_rna", None) is None or op.bl_rna.identifier != "KEYOPS_OT_polycount_user_interaction":
+        return
+    name = getattr(op, "make_active", "")
+    if not name or name not in bpy.data.objects:
+        return
+    layout = self.layout
+    layout.separator()
+    layout.label(text=name, icon='OBJECT_DATA')
+    for a, n, _d, icon in ITEM_ACTIONS:
+        item = layout.operator(POLYCOUNT_OT_item_action.bl_idname, text=n, icon=icon)
+        item.name = name
+        item.action = a
+
+
+def _button_context_menu():
+    """Blender's right-click menu for buttons (its class name changed over the versions)."""
+    return getattr(bpy.types, "UI_MT_button_context_menu", None) or getattr(bpy.types, "WM_MT_button_context", None)
+
+
+def _redraw_lists(context):
+    for area in (context.screen.areas if context.screen else ()):
+        if area.type in {'PROPERTIES', 'VIEW_3D', 'OUTLINER'}:
+            area.tag_redraw()
+
 
 EYE_ICONS = {False: 'HIDE_OFF', True: 'HIDE_ON'}
 
@@ -906,6 +1045,12 @@ def register_polycount_keymaps():
                 registered_polycount_keymaps.append((km, kmi))
         kmi = km.keymap_items.new(POLYCOUNT_OT_hide_key.bl_idname, 'H', 'PRESS')
         registered_polycount_keymaps.append((km, kmi))
+        kmi = km.keymap_items.new(POLYCOUNT_OT_show_all.bl_idname, 'H', 'PRESS', alt=True)
+        registered_polycount_keymaps.append((km, kmi))
+        for alt, action in ((False, 'SELECT'), (True, 'DESELECT')):
+            kmi = km.keymap_items.new(POLYCOUNT_OT_select_all.bl_idname, 'A', 'PRESS', alt=alt)
+            kmi.properties.action = action
+            registered_polycount_keymaps.append((km, kmi))
 
 def trim_numbers(number):
     if number < 1000:

@@ -20,7 +20,7 @@ def set_default_panels():
         wm.toolkit_panel_mode |= {'OBJECT'}
 
     if feature_on("toolkit_panel"):
-        wm.toolkit_panel_mode |= {'MODIFIERS'}
+        wm.toolkit_panel_mode |= {'EDIT', 'MODIFIERS'}
 
         
 def get_toolkit_panel_items(scene, context):
@@ -29,9 +29,10 @@ def get_toolkit_panel_items(scene, context):
     
     items = []
     if feature_on("toolkit_panel") or feature_on("quick_bake_name") or feature_on("toggle_retopology"):
-        items.append(('OBJECT', "", "Show Object panel", get_icon("mesh_cube"), 1))
+        items.append(('OBJECT', "", "Object Toolkit (in Object Mode)", get_icon("mesh_cube"), 1))
     if feature_on("toolkit_panel"):
-        items.append(('MODIFIERS', "", "Show Modifiers panel", get_icon("modifier"), 2))
+        items.append(('EDIT', "", "Edit Toolkit (in Edit Mode)", get_icon("editmode"), 32))
+        items.append(('MODIFIERS', "", "Modifier Toolkit", get_icon("modifier"), 2))
     if feature_on("auto_lod"):
         items.append(('LOD', "", "Show LOD panel", get_icon("mesh_icosphere2"), 4))
     if feature_on("cad_decimate"):
@@ -84,13 +85,13 @@ def draw_object_panel_clean(self, context):
             if type_:
                 op.type = type_
     row = col.row(align=True)
-    row.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
-    row.operator("keyops.realign_rotation", text="Re-Align Rotation", icon="ORIENTATION_LOCAL")
+    row.operator("keyops.parent_used_objects", text="Parent Used", icon="CON_CHILDOF")
+    row.operator("keyops.realign_rotation", text="Re-Align", icon="ORIENTATION_LOCAL")
 
     _subheading(col, "Duplicate Linked")
     row = col.row(align=True)
     row.operator("object.duplicate_move_linked", text="Mesh", icon="LINKED")
-    row.operator("keyops.toolkit_panel", text="Modifiers", icon="LINKED").type = "duplicate_linked_modifiers"
+    row.operator("object.duplicate_linked_modifiers", text="Modifiers", icon="LINKED")
 
     if context and context.mode == 'OBJECT':
         _subheading(col, "Boolean")
@@ -143,15 +144,15 @@ def draw_object_panel(self, context):
 
     row = col.row(align=True)
     row.scale_y = 1.4
-    row.operator("keyops.parent_used_objects", text="Parent Used Objects", icon="CON_CHILDOF")
-    row.operator("keyops.realign_rotation", text="Re-Align Rotation", icon="ORIENTATION_LOCAL")
+    row.operator("keyops.parent_used_objects", text="Parent Used", icon="CON_CHILDOF")
+    row.operator("keyops.realign_rotation", text="Re-Align", icon="ORIENTATION_LOCAL")
 
     row = col.row(align=True)
     row.label(text="Duplicate Linked")
     row = col.row(align=True)
     row.scale_y = 1.3
     row.operator("object.duplicate_move_linked", text="Mesh", icon = "LINKED")
-    row.operator("keyops.toolkit_panel", text="Modifiers", icon = "LINKED").type = "duplicate_linked_modifiers"
+    row.operator("object.duplicate_linked_modifiers", text="Modifiers", icon="LINKED")
     
     
     if context and context.mode == 'OBJECT':
@@ -294,6 +295,7 @@ class NewToolkitPanel(bpy.types.Panel):
         # row.scale_y = 1.25
 
         object = 'OBJECT' in wm.toolkit_panel_mode
+        edit = 'EDIT' in wm.toolkit_panel_mode
         modifiers = 'MODIFIERS' in wm.toolkit_panel_mode
         lod = 'LOD' in wm.toolkit_panel_mode
         cad_decimate = 'CAD_DECIMATE' in wm.toolkit_panel_mode
@@ -305,16 +307,20 @@ class NewToolkitPanel(bpy.types.Panel):
         # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon_value=get_icon("mod_decim"), depress=cad_decimate, emboss=cad_decimate).type = "CAD_DECIMATE"
         # row.operator("keyops.toggle_toolkit_panel_enum", text="", icon="SORTSIZE", depress=polycount_list, emboss=polycount_list).type = "POLYCOUNT_LIST"
         
-        if object:
-            prefs = get_keyops_prefs()
+        # Object Toolkit in Object Mode, Edit Toolkit in Edit Mode: each with its own button
+        in_edit = context.mode == 'EDIT_MESH'
+        if (object and not in_edit) or (edit and in_edit):
             draw_retopology_panel(self, context, draw_header=True)
-            if context.mode == 'OBJECT':
-                if feature_on("toolkit_panel"):
-                    draw_object_panel(self, context)
-                draw_quick_bake_name(self, context, draw_header=True)
-            elif context.mode == 'EDIT_MESH':
-                if feature_on("toolkit_panel"):
-                    draw_edit_mode_panel(self, context, draw_header=True)
+        if object and not in_edit:
+            if feature_on("toolkit_panel"):
+                draw_object_panel(self, context)
+            draw_quick_bake_name(self, context, draw_header=True)
+        if edit and in_edit and feature_on("toolkit_panel"):
+            draw_edit_mode_panel(self, context, draw_header=True)
+        if (object and in_edit and not edit) or (edit and not in_edit and not object):
+            hint = layout.row()
+            hint.active = False
+            hint.label(text="Edit Toolkit: in Edit Mode" if edit else "Object Toolkit: in Object Mode", icon='INFO')
         if modifiers:
             draw_modifier_panel(self, context, draw_header=True)
         if lod:

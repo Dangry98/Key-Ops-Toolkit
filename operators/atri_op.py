@@ -12,6 +12,7 @@ import bmesh
 import bpy.types
 
 from ..utils.pref_utils import feature_on
+from . import atri_view as V
 
 # attribute data type -> (bmesh layer collection name, kind of value)
 LAYERS = {
@@ -215,10 +216,121 @@ def _run_boolean_fallback(context, action, domain):
     return 1, 0, None
 
 
+_quiet = {"on": False}  # set while Key Ops itself changes the value field: don't assign it to the selection
+
+
 def _live_update(self, context):
     """Changing the value field applies it to the selection right away, like before."""
+    if _quiet["on"]:
+        return
     if context.mode == 'EDIT_MESH' and _active_attribute(context) is not None:
         run(context, "ASSIGN")
+        V.mark_dirty()
+
+
+# ---- the value fields follow a Geometry Nodes input that reads the active attribute (min, max, units)
+VALUE_PROPS = {"INT": "integer_value", "FLOAT": "float_value", "COLOR": "float_color_value",
+               "VECTOR": "keyops_vector_value", "VECTOR2": "keyops_vector_value"}
+_spec_now = {"key": None}
+
+
+def _define_value_props(spec=None):
+    """(Re)define the value fields; with spec, using a Geometry Nodes input's min, max and subtype."""
+    wm = bpy.types.WindowManager
+    spec = spec or {}
+    lo, hi, sub = spec.get("min"), spec.get("max"), spec.get("subtype", 'NONE')
+    sock = spec.get("socket", "")
+
+    def lim(kw, as_int=False):
+        if lo is not None and hi is not None and lo <= hi:
+            if as_int:
+                kw.update(min=max(int(lo), -2**31), max=min(int(hi), 2**31 - 1))
+            else:
+                kw.update(min=float(lo), max=float(hi))
+        return kw
+
+    def make(factory, kw, subtype):
+        try:
+            return factory(**kw, subtype=subtype)
+        except (TypeError, ValueError):
+            return factory(**kw)
+
+    fkw = lim({"name": spec.get("name", "Float Value"), "default": 1.0, "update": _live_update}) \
+        if sock == "NodeSocketFloat" else {"name": "Float Value", "default": 1.0, "update": _live_update}
+    wm.float_value = make(bpy.props.FloatProperty, fkw, sub if sock == "NodeSocketFloat" else 'NONE')
+    ikw = lim({"name": spec.get("name", "Integer Value"), "default": 0, "update": _live_update}, True) \
+        if sock == "NodeSocketInt" else {"name": "Integer Value", "default": 0, "update": _live_update}
+    wm.integer_value = make(bpy.props.IntProperty, ikw, sub if sock == "NodeSocketInt" else 'NONE')
+    vkw = lim({"name": spec.get("name", "Vector Value"), "size": 3, "default": (0.0, 0.0, 0.0), "update": _live_update}) \
+        if sock == "NodeSocketVector" else {"name": "Vector Value", "size": 3, "default": (0.0, 0.0, 0.0), "update": _live_update}
+    wm.keyops_vector_value = make(bpy.props.FloatVectorProperty, vkw, sub if sock == "NodeSocketVector" else 'NONE')
+
+
+def _spec_key(spec):
+    return None if spec is None else (spec["socket"], spec["subtype"], spec["min"], spec["max"], spec["name"])
+
+
+def _apply_spec(spec):
+    """Timer: redefine the fields for a new Geometry Nodes input, keeping (clamped) values, without assigning."""
+    wm = bpy.context.window_manager
+    keep = {p: (tuple(getattr(wm, p)) if p in ("float_color_value", "keyops_vector_value") else getattr(wm, p))
+            for p in ("float_value", "integer_value", "keyops_vector_value")}
+    _define_value_props(spec)
+    _quiet["on"] = True
+    try:
+        for p, v in keep.items():
+            try:
+                setattr(wm, p, v)  # a property's own min / max clamp the old value
+            except (TypeError, ValueError, OverflowError):
+                pass
+    finally:
+        _quiet["on"] = False
+    _spec_now["key"] = _spec_key(spec)
+    for win in wm.windows:
+        for area in win.screen.areas:
+            if area.type == 'PROPERTIES':
+                area.tag_redraw()
+    return None
+
+
+def _follow_socket(spec):
+    if _spec_key(spec) != _spec_now["key"]:
+        bpy.app.timers.register(lambda: _apply_spec(spec), first_interval=0.0)
+
+
+class KEYOPS_OT_atri_pick(bpy.types.Operator):
+    """Put the active element's value (or the value the selection shares) in the Value field"""
+    bl_idname = "keyops.atri_pick"
+    bl_label = "Use Active Value"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        attr = _active_attribute(context)
+        kind = LAYERS.get(attr.data_type, (None, None))[1] if attr else None
+        data = V.take_snapshot(context.active_object, positions=False) if kind else None
+        value = V.active_value(data)
+        if value is None or kind not in VALUE_PROPS:
+            self.report({'WARNING'}, "No active element, and the selection holds different values")
+            return {'CANCELLED'}
+        wm = context.window_manager
+        prop = VALUE_PROPS[kind]
+        _quiet["on"] = True
+        try:
+            if kind in ("INT", "FLOAT"):
+                setattr(wm, prop, (int if kind == "INT" else float)(value))
+            elif kind == "VECTOR2":
+                cur = list(wm.keyops_vector_value)
+                cur[:2] = [float(x) for x in value[:2]]
+                wm.keyops_vector_value = cur
+            else:
+                setattr(wm, prop, [float(x) for x in value])
+        finally:
+            _quiet["on"] = False
+        return {'FINISHED'}
 
 
 def draw_custom_button(self, context):
@@ -232,6 +344,10 @@ def draw_custom_button(self, context):
     attr = obj.data.attributes.active
     if attr is not None and attr.data_type in LAYERS:
         kind = LAYERS[attr.data_type][1]
+        # the value field follows a Geometry Nodes input reading this attribute (its min, max and units)
+        _mod, sock = V.linked_socket(obj, attr.name) if kind in ("INT", "FLOAT", "VECTOR") else (None, None)
+        spec = V.socket_spec(sock)
+        _follow_socket(spec)
         row = layout.row(align=True)
         row.operator("keyops.atri_op", text="Assign").type = "Assign"
         row.operator("keyops.atri_op", text="Remove").type = "Remove"
@@ -239,14 +355,36 @@ def draw_custom_button(self, context):
             row.operator("keyops.atri_op", text="Select").type = "Select"
             row.operator("keyops.atri_op", text="Deselect").type = "Deselect"
         if kind != "BOOL":
-            prop = {"INT": "integer_value", "FLOAT": "float_value", "COLOR": "float_color_value",
-                    "VECTOR": "keyops_vector_value", "VECTOR2": "keyops_vector_value"}[kind]
-            layout.row().prop(wm, prop, text="Value")
+            r = layout.row(align=True)
+            r.prop(wm, VALUE_PROPS[kind], text="Value")
+            r.operator("keyops.atri_pick", text="", icon='EYEDROPPER')
+        # one quiet line: the active element's value, and whether the selection holds several values
+        active, sel_text = V.summary(V.snapshot(context), spec["unit"] if spec else None)
+        r = layout.row()
+        r.active = False
+        r.label(text=f"Active: {active}" if active is not None else "No active element")
+        if sel_text.startswith("Mixed"):
+            r.label(text=sel_text.split(":")[0])
+        if attr.data_type in ('FLOAT_COLOR', 'BYTE_COLOR') and attr.domain in ('POINT', 'CORNER'):
+            layout.operator("keyops.atri_show", text="Show in Viewport", icon='SHADING_SOLID')
 
     row = layout.row(align=True)
-    row.operator("keyops.atri_op", text="Vertex Group", icon="VERTEXSEL").type = "Vertex"
-    row.operator("keyops.atri_op", text="Edge Group", icon="EDGESEL").type = "Edge"
-    row.operator("keyops.atri_op", text="Face Group", icon="FACESEL").type = "Face"
+    row.operator("keyops.atri_op", text="Vertex", icon="VERTEXSEL").type = "Vertex"
+    row.operator("keyops.atri_op", text="Edge", icon="EDGESEL").type = "Edge"
+    row.operator("keyops.atri_op", text="Face", icon="FACESEL").type = "Face"
+
+
+class KEYOPS_OT_atri_show(bpy.types.Operator):
+    """Show this color attribute in the viewport with Blender's own Solid shading (Color: Attribute)"""
+    bl_idname = "keyops.atri_show"
+    bl_label = "Show in Viewport"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        if not V.show_in_viewport(context, _active_attribute(context)):
+            self.report({'WARNING'}, "Only color attributes on points or face corners can be shown")
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class AtriOP(bpy.types.Operator):
@@ -294,6 +432,7 @@ class AtriOP(bpy.types.Operator):
             if action not in ("ASSIGN", "REMOVE", "SELECT", "DESELECT"):
                 return {'CANCELLED'}
             done, touched, err = run(context, action)
+        V.mark_dirty()
         if err:
             self.report({'WARNING'}, err)
             return {'CANCELLED'}
@@ -305,14 +444,19 @@ class AtriOP(bpy.types.Operator):
 
 def register():
     bpy.utils.register_class(AtriOP)
+    bpy.utils.register_class(KEYOPS_OT_atri_pick)
+    bpy.utils.register_class(KEYOPS_OT_atri_show)
     bpy.types.DATA_PT_mesh_attributes.append(draw_custom_button)
-    bpy.types.WindowManager.float_value = bpy.props.FloatProperty(name="Float Value", default=1.0, update=_live_update)
     bpy.types.WindowManager.float_color_value = bpy.props.FloatVectorProperty(size=4, subtype="COLOR", name="Float Color Value", default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, update=_live_update)
-    bpy.types.WindowManager.integer_value = bpy.props.IntProperty(name="Integer Value", default=0, update=_live_update)
-    bpy.types.WindowManager.keyops_vector_value = bpy.props.FloatVectorProperty(size=3, name="Vector Value", default=(0.0, 0.0, 0.0), update=_live_update)
+    _define_value_props()
+    _spec_now["key"] = None
+    V.register()
 
 
 def unregister():
+    V.unregister()
+    bpy.utils.unregister_class(KEYOPS_OT_atri_pick)
+    bpy.utils.unregister_class(KEYOPS_OT_atri_show)
     bpy.utils.unregister_class(AtriOP)
     bpy.types.DATA_PT_mesh_attributes.remove(draw_custom_button)
     del bpy.types.WindowManager.float_value

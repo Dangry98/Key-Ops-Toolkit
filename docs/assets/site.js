@@ -19,12 +19,13 @@ const NAV = [
   { page: "modeling-tools.html", title: "Modeling Tools", items: [
     ["merge-tool", "Merge Tool"], ["fast-loop-cut", "Fast Loop Cut"], ["cutter", "Cutter"], ["fast-mirror", "Fast Mirror"],
     ["fast-bevel", "Fast Bevel"], ["fast-array", "Fast Array"], ["fast-solidify", "Fast Solidify"], ["booleans", "Booleans"],
-    ["snap-to-floor", "Snap to Floor"], ["select-similar", "Select Similar"], ["x-ray-select", "X-Ray Select"],
+    ["snap-to-floor", "Snap to Floor"], ["select-similar", "Select Similar"], ["push-pull", "Push / Pull"],
+    ["slide-scale", "Slide Scale"], ["edge-trim", "Make Edge Trim"], ["rebevel", "Re-Bevel"], ["x-ray-select", "X-Ray Select"],
   ]},
   { page: "pie-menus.html", title: "Pie Menus", items: [
     ["add-objects-pie", "Add Objects Pie"], ["add-modifier-pie", "Add Modifier Pie"], ["cursor-pie", "Cursor Pie"],
     ["flatten-pie", "Flatten Pie"], ["workspace-pie", "Workspace Pie"], ["view-camera-pie", "View Camera Pie"],
-    ["utility-pie", "Utility Pie"], ["uv-pies", "UV Pies"], ["q-menu", "Q Menu"], ["poll", "Poll"], ["sidebar-panels", "Sidebar Panels"], ["draw-as", "Draw As"],
+    ["utility-pie", "Utility Pie"], ["uv-pies", "UV Pies"], ["q-menu", "Q Menu"], ["poll", "Poll"], ["sidebar-panels", "Sidebar Panels"], ["hide-ui", "Hide Blender UI"], ["operator-parameters", "Operator Parameters"], ["draw-as", "Draw As"],
   ]},
   { page: "toolkit.html", title: "Toolkit Panel", items: [
     ["toolkit-panel", "Toolkit Panel"], ["object-toolkit", "Object Toolkit"], ["edit-toolkit", "Edit Toolkit"],

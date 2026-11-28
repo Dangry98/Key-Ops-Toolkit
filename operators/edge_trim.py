@@ -42,7 +42,16 @@ def _base_face(edge):
 
 
 def _in_face(face, mid, t):
-    """Direction inside a face, across the edge (perpendicular to it), from the edge into the face."""
+    """Direction inside a face, across the edge (perpendicular to it), from the edge into the face. Found from
+    the face's winding (its normal crossed with the edge, in loop order, points inside), so it is right for
+    concave n-gons too, whose centre can lie outside them."""
+    for loop in face.loops:
+        a, b = loop.vert.co, loop.link_loop_next.vert.co
+        if ((a + b) / 2 - mid).length < 1e-6:
+            d = face.normal.cross(b - a)
+            d -= d.project(t)
+            if d.length > 1e-12:
+                return d.normalized()
     d = face.calc_center_median() - mid
     d -= d.project(t)
     d -= d.project(face.normal)
@@ -109,8 +118,13 @@ def _segment_frames(verts, closed, profile):
             kind = _mixed_dirs(faces, t, up)
             if kind is not None and kind[0] == "TWO":
                 da, db = _in_face(kind[1], mid, t), _in_face(kind[2], mid, t)
-                if da is not None and db is not None and da.dot(db) > -0.999:  # two faces folding at the edge
-                    dirs = (da, db, (kind[1].normal + kind[2].normal).normalized())
+                if da is not None and db is not None:
+                    if abs(kind[1].normal.dot(Z_UP) - kind[2].normal.dot(Z_UP)) <= 0.1 and da.dot(side) < 0:
+                        da, db = db, da  # neither face is more upward: A on the +side, the same all along a chain
+                    lift = kind[1].normal + kind[2].normal
+                    # two faces folding at the edge, or lying flat in one plane (a line across a surface: the trim
+                    # lies flat on both sides, like a decal)
+                    dirs = (da, db, lift.normalized() if lift.length > 1e-9 else up.copy())
             elif kind is not None:
                 da = _in_face(kind[1], mid, t)
                 if da is not None:
@@ -247,27 +261,44 @@ def _mitre(p, off_prev, t_prev, off_next, t_next, limit):
     return m
 
 
-def make_trims(bm, opts):
-    """Build an L trim along every selected chain; returns (chains done, branching selections skipped, new faces)."""
+def _world_len(m3, v):
+    return (m3 @ v).length if m3 is not None else v.length
+
+
+def _to_world_size(m3, o):
+    """An offset meant to be o.length metres in the scene, whatever the object's scale: same direction,
+    stretched so the object's transform brings it back to that length."""
+    if m3 is None:
+        return o
+    w = (m3 @ o).length
+    return o * (o.length / w) if w > 1e-12 else o
+
+
+def make_trims(bm, opts, m3=None, out=None):
+    """Build an L trim along every selected chain of bm; returns (chains done, branching selections skipped, new
+    faces). out: the bmesh the trims go into (default bm itself). With a separate one the edited mesh is only
+    read: nothing in it changes, which keeps big meshes fast (no split, no write-back)."""
     chains, skipped = trim_chains(bm)
-    uv = bm.loops.layers.uv.active or bm.loops.layers.uv.new("UVMap")
+    target = bm if out is None else out
+    uv = target.loops.layers.uv.active or target.loops.layers.uv.new("UVMap")
     new_faces = []
-    for f in bm.faces:
-        f.select = False
-    for e in bm.edges:
-        e.select = False
-    for v in bm.verts:
-        v.select = False
+    if out is None:
+        for f in bm.faces:
+            f.select = False
+        for e in bm.edges:
+            e.select = False
+        for v in bm.verts:
+            v.select = False
 
     a, b = opts.width_a, (opts.width_b if opts.separate_widths else opts.width_a)
     total = abs(a) + abs(b)  # a negative width points the flange the other way; the UV split uses its size
     v_corner = opts.v_min + (opts.v_max - opts.v_min) * (abs(a) / total if total > 0 else 0.5)
-    limit = 4.0 * (abs(opts.offset) + max(abs(a), abs(b)))
+    limit = 4.0 * (abs(opts.offset) + max(abs(a), abs(b)))  # fallback for a chain without profiles
     corner_edges = []
 
     def chain_length(verts, closed):
         n = len(verts)
-        return sum((verts[(i + 1) % n].co - verts[i].co).length for i in range(n if closed else n - 1))
+        return sum(_world_len(m3, verts[(i + 1) % n].co - verts[i].co) for i in range(n if closed else n - 1))
     spans = [chain_length(v, c) for v, c in chains]
     all_length = sum(spans) or 1.0
     u_start = 0.0  # Fit to Sheet: the chains share U 0 to 1, end to end, so none overlap and density matches
@@ -288,6 +319,10 @@ def make_trims(bm, opts):
                 da, db = db, da
             return (da, db, -lift if opts.flip_up else lift)
         profiles = [_profile(up, side, opts, a, b, mixed(f[6])) for (_t, up, side), f in zip(segs, frames)]
+        # widths and the gap are metres in the scene: undo the object's scale on them
+        profiles = [tuple(_to_world_size(m3, o) for o in prof) for prof in profiles]
+        # how far a sharp corner may reach, in the same (object) units as the profiles
+        chain_limit = 4.0 * max((o.length for prof in profiles for o in prof), default=limit / 4.0) or limit
         rows = []  # per point: (flange A end, corner, flange B end)
         for i, v in enumerate(verts):
             prev_s = (i - 1) % len(segs) if (closed or i > 0) else None
@@ -299,13 +334,13 @@ def make_trims(bm, opts):
                 elif next_s is None:
                     pts.append(v.co + profiles[prev_s][k])
                 else:
-                    pts.append(_mitre(v.co, profiles[prev_s][k], segs[prev_s][0], profiles[next_s][k], segs[next_s][0], limit))
-            rows.append(tuple(bm.verts.new(p) for p in pts))
+                    pts.append(_mitre(v.co, profiles[prev_s][k], segs[prev_s][0], profiles[next_s][k], segs[next_s][0], chain_limit))
+            rows.append(tuple(target.verts.new(p) for p in pts))
 
         # U along the length, measured on the corner line so both flanges share it: one piece in UV
         lengths = [0.0]
         for i in range(1, n + (1 if closed else 0)):
-            lengths.append(lengths[-1] + (rows[i % n][1].co - rows[i - 1][1].co).length)
+            lengths.append(lengths[-1] + _world_len(m3, rows[i % n][1].co - rows[i - 1][1].co))
         total_len = lengths[-1] or 1.0
         if opts.u_mode == "FIT":  # this chain's share of the strip, in proportion to its length
             u_per_metre = (span / all_length) / total_len
@@ -329,7 +364,7 @@ def make_trims(bm, opts):
             for k0, k1, v0, v1 in ((0, 1, opts.v_max, v_corner), (1, 2, v_corner, opts.v_min)):
                 quad = [rows[i][k0], rows[j][k0], rows[j][k1], rows[i][k1]]
                 uvs = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
-                face = bm.faces.new(quad)
+                face = target.faces.new(quad)
                 face.normal_update()
                 if (face.normal.dot(facing) < 0) != opts.flip_normals:
                     face.normal_flip()
@@ -349,7 +384,7 @@ def make_trims(bm, opts):
     else:
         for e in corner_edges:
             e.smooth = False
-    bm.select_flush(True)
+    target.select_flush(True)
     return len(chains), skipped, new_faces
 
 
@@ -450,31 +485,113 @@ class KEYOPS_OT_edge_trim(bpy.types.Operator):
         objs = [o for o in (context.objects_in_mode_unique_data or [context.edit_object]) if o.type == 'MESH']
         for obj in objs:
             bm = bmesh.from_edit_mesh(obj.data)
-            d, s, _faces = make_trims(bm, self)
+            if self.separate:
+                # straight into a new object: the edited mesh isn't split and written back (Blender's Separate
+                # does that for the whole mesh, slow on big meshes in big scenes)
+                out = bmesh.new()
+                d, s, faces = make_trims(bm, self, obj.matrix_world.to_3x3(), out)
+                done, skipped = done + d, skipped + s
+                if faces:
+                    out.normal_update()
+                    me = bpy.data.meshes.new(f"{obj.name}_Trim")
+                    out.to_mesh(me)
+                    for mat in obj.data.materials:
+                        me.materials.append(mat)
+                    new = obj.copy()  # same place, settings and (unless cleared) modifiers
+                    new.data = me
+                    new.name = f"{obj.name}_Trim"
+                    if self.clear_modifiers:
+                        new.modifiers.clear()
+                    for coll in obj.users_collection:
+                        coll.objects.link(new)
+                out.free()
+                continue
+            d, s, _faces = make_trims(bm, self, obj.matrix_world.to_3x3())
             done, skipped = done + d, skipped + s
             bm.normal_update()
             bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
         if not done:
             self.report({'WARNING'}, "Select the edges (or faces) to put trims on")
             return {'CANCELLED'}
-        if self.separate:
-            before = set(bpy.data.objects)
-            bpy.ops.mesh.separate(type='SELECTED')
-            new_objs = set(bpy.data.objects) - before  # the new trim objects
-            if self.clear_modifiers:
-                for obj in new_objs:
-                    obj.modifiers.clear()
-            if self.smooth:
-                for obj in new_objs:
-                    clear_custom_normals(obj.data)
         if skipped:
             self.report({'INFO'}, f"Skipped {skipped} selection(s) that branch")
         return {'FINISHED'}
 
 
+LIVE_GROUP = "Edge Trim Live"  # resources/node_groups.blend, built by scripts/build_node_groups.py
+LIVE_MOD = "Edge Trim (Live)"
+
+
+class KEYOPS_OT_edge_trim_live(bpy.types.Operator):
+    """Make a live trim from the selected edges: a new object whose Geometry Nodes modifier sweeps the trim along
+    those edges and updates whenever the mesh changes. Width, offset, flips and trim sheet UVs stay editable in
+    its modifier"""
+    bl_idname = "keyops.edge_trim_live"
+    bl_label = "Make Live Edge Trim"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    width: FloatProperty(name="Width", default=0.05, soft_min=-1.0, soft_max=1.0, subtype='DISTANCE') # type: ignore
+    offset: FloatProperty(name="Offset", default=0.002, soft_min=-0.1, soft_max=0.1, subtype='DISTANCE') # type: ignore
+    wrap: BoolProperty(name="Wrap", default=True,
+                       description="Fold around the edge; off: one flange stands up, one lies on the surface") # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH' and context.edit_object is not None and context.edit_object.type == 'MESH'
+
+    def execute(self, context):
+        from ..utils.node_groups import get_node_group
+        from .toolkit_panel import set_gn_input
+        src = context.edit_object
+        if src.data.total_edge_sel == 0:
+            self.report({'WARNING'}, "Select the edges to put the trim on")
+            return {'CANCELLED'}
+        try:
+            group = get_node_group(LIVE_GROUP)  # before anything changes: nothing to undo if it's missing
+        except (KeyError, OSError) as e:
+            self.report({'ERROR'}, f"Live Edge Trim: {e}")
+            return {'CANCELLED'}
+        bpy.ops.object.mode_set(mode='OBJECT')  # attributes are written in Object Mode
+        try:
+            return self._make(context, src, group, set_gn_input)
+        finally:
+            if context.mode != 'EDIT_MESH':
+                bpy.ops.object.mode_set(mode='EDIT')  # keep editing: the trim follows
+
+    def _make(self, context, src, group, set_gn_input):
+        me = src.data
+        n = 1
+        while f"keyops_trim_{n}" in me.attributes:
+            n += 1
+        name = f"keyops_trim_{n}"
+        attr = me.attributes.new(name=name, type='BOOLEAN', domain='EDGE')
+        attr.data.foreach_set("value", [e.select for e in me.edges])
+        trim_me = bpy.data.meshes.new(f"{src.name}_Trim")
+        trim = bpy.data.objects.new(f"{src.name}_Trim", trim_me)
+        for coll in src.users_collection:
+            coll.objects.link(trim)
+        mod = trim.modifiers.new(LIVE_MOD, 'NODES')
+        mod.node_group = group
+        set_gn_input(mod, "Source", src)
+        set_gn_input(mod, "Edge Attribute", name)
+        set_gn_input(mod, "Width", self.width)
+        set_gn_input(mod, "Offset", self.offset)
+        set_gn_input(mod, "Wrap", self.wrap)
+        # the trim gets the source's material (its active one, else its first), and a slot for it
+        mat = src.active_material or next((m for m in src.data.materials if m is not None), None)
+        if mat is not None:
+            set_gn_input(mod, "Material", mat)
+            trim_me.materials.append(mat)
+        mod.show_group_selector = False
+        self.report({'INFO'}, f"Live trim on {trim.name} (edges marked as {name})")
+        return {'FINISHED'}
+
+
 def register():
     bpy.utils.register_class(KEYOPS_OT_edge_trim)
+    bpy.utils.register_class(KEYOPS_OT_edge_trim_live)
 
 
 def unregister():
+    bpy.utils.unregister_class(KEYOPS_OT_edge_trim_live)
     bpy.utils.unregister_class(KEYOPS_OT_edge_trim)

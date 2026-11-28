@@ -21,6 +21,7 @@ ICONS = {
     "merge_tool": "ops.mesh.merge_tool.dat",
     "fast_loop_cut": "ops.mesh.fast_loop_cut.dat",
     "cutter_tool": "ops.object.cutter_tool.dat",
+    "push_pull": "ops.mesh.push_pull.dat",  # Blender's Extrude Manifold icon, which the tool uses
 }
 
 

@@ -28,6 +28,10 @@ class QuickExport(bpy.types.Operator):
     skip_wire: bpy.props.BoolProperty(name="Skip Wire Display", default=True) # type: ignore
     only_visible: bpy.props.BoolProperty(name="Only Visible", default=True) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'  # exports objects: not from inside Edit Mode
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "scale")

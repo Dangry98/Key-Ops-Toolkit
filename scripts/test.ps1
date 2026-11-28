@@ -19,7 +19,7 @@
     Full path to a blender.exe.
 
 .PARAMETER Gui
-    Also run tests/gui_modal_smoke.py in a real Blender window (not -b) with simulated events: every modal
+    Also run every tests/gui_*.py in a real Blender window (not -b) with simulated events: every modal
     tool, pie and menu is opened, moved and cancelled, so draw callbacks and status bars really run.
     Fails on any Python traceback in that log. A window opens and closes by itself.
 
@@ -34,7 +34,7 @@
 param(
     [string]$Version = "5.4",
     [string]$Blender = "",
-    [string[]]$Tests = @("tests/test_registration.py", "tests/test_redesign.py", "tests/test_menu_drawing.py", "tests/test_ui_draw.py", "tests/test_kit_coverage.py"),
+    [string[]]$Tests = @("tests/test_registration.py", "tests/test_redesign.py", "tests/test_menu_drawing.py", "tests/test_ui_draw.py", "tests/test_kit_coverage.py", "tests/test_backlog.py", "tests/test_edge_trim.py", "tests/test_cylinder_sides.py", "tests/test_push_pull.py"),
     [switch]$Full,
     [switch]$Gui
 )
@@ -110,8 +110,9 @@ foreach ($t in $Tests) {
 }
 
 if ($Gui) {
-    $t = "tests/gui_modal_smoke.py"
-    $log = Join-Path $work "gui_modal_smoke.py.log"
+  foreach ($gt in (Get-ChildItem (Join-Path $repo "tests") -Filter "gui_*.py" | Sort-Object Name)) {
+    $t = "tests/" + $gt.Name
+    $log = Join-Path $work ($gt.Name + ".log")
     $code = Invoke-Blender @("--factory-startup", "--enable-event-simulate", "--python", (Join-Path $repo $t)) $log
     $lines = Get-Content $log
     $pass = @($lines | Where-Object { $_ -match '^PASS ' }).Count
@@ -127,6 +128,7 @@ if ($Gui) {
     $status = if ($ok) { "OK  " } else { "FAIL" }
     if (-not $ok) { $failed++ }
     Write-Output "$status $t  pass=$pass fail=$fail tracebacks=$tracebacks exit=$code"
+  }
 }
 
 Write-Output "logs: $work"

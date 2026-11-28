@@ -6,13 +6,14 @@ Exits non-zero on failure.
 """
 
 import importlib
+import os
 import sys
 import traceback
 
 import addon_utils
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 MOD = "bl_ext.user_default.Key_Ops_Toolkit"
 results = []
@@ -161,17 +162,57 @@ def test_whats_new_not_automatic():
 
 
 def test_header_element_button():
-    menus = bpy.types.VIEW3D_MT_editor_menus
     sm = sub("operators.subobject_modes")
-    patched = "draw_collapsible" in menus.__dict__
-    check("header: Element mode button drawn after Vertex/Edge/Face (editor menus patched)", patched)
-    check("Element mode uses the linked icon", sm.ELEMENT_ICON == 'LINKED')
+    H = bpy.types.VIEW3D_HT_header
+    check("header: Vertex / Edge / Face / Element drawn by Key Ops as one joined group in mesh Edit Mode",
+          sm._header_draw in getattr(H.draw, "_draw_funcs", ()))
+    # other add-ons' header items: added before or after Key Ops, they draw and can be removed again
+    def other_item(self, context):
+        pass
+    H.append(other_item)
+    sm._unpatch_header()
+    restored = sm._header_draw not in H.draw._draw_funcs and other_item in H.draw._draw_funcs
+    sm._patch_header()
+    H.remove(other_item)
+    check("header: other add-ons' items survive Key Ops patching / unpatching and can be removed",
+          restored and other_item not in H.draw._draw_funcs and sm._header_draw in H.draw._draw_funcs)
+    check("Element mode keeps its original icon", sm.ELEMENT_ICON == 'SNAP_VOLUME')
+    log = []
+
+    class Rec:
+        def __getattr__(self, name):
+            def call(*a, **k):
+                log.append((name, k.get("icon"), k.get("depress")))
+                return self if name in ("row", "column") else type("Op", (), {})()
+            return call
+    proxy = sm._LayoutProxy(Rec(), bpy.context)
+    real_mode = bpy.context.mode
+    if real_mode != 'EDIT_MESH':
+        clear_scene()
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.ops.object.mode_set(mode='EDIT')
+    proxy._context = bpy.context
+    proxy.template_header_3D_mode()
+    icons = [i for n, i, _d in log if n == "operator"]
+    check("header group: the four modes in one row", icons == ['VERTEXSEL', 'EDGESEL', 'FACESEL', 'SNAP_VOLUME']
+          and log[0][0] == "row", str(log[:5]))
+    bpy.ops.object.mode_set(mode='OBJECT')
 
 
 def test_duplicate_linked_in_object_menu():
     tp = sub("operators.toolkit_panel")
     fns = getattr(bpy.types.VIEW3D_MT_object, "_dyn_ui_initialize", lambda: [])()
     check("Object menu has Duplicate Linked Modifiers (same command as Alt+Shift+D)", tp.object_menu_duplicate in fns)
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("Object Mode")
+    bound = km is not None and any(k.idname == "object.duplicate_linked_modifiers" and k.type == 'D' and k.shift and k.alt
+                                   for k in km.keymap_items)
+    check("Duplicate Linked Modifiers is its own object.* operator on Shift Alt D (the shortcut shows on hover)", bound)
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    before = len(bpy.data.objects)
+    res = bpy.ops.object.duplicate_linked_modifiers('EXEC_DEFAULT')
+    check("Duplicate Linked Modifiers duplicates the selection", res == {'FINISHED'} and len(bpy.data.objects) == before + 1,
+          f"{res} {len(bpy.data.objects)}")
 
 
 # ---------------------------------------------------------------- Phase 2
@@ -302,7 +343,7 @@ def test_rebevel():
         return obj
 
     obj = bevelled_cube(3)
-    res = bpy.ops.keyops.rebevel(remove=True)
+    res = bpy.ops.keyops.rebevel(segments=0)
     bm = bmesh.from_edit_mesh(obj.data)
     corners = sorted(tuple(round(c, 4) for c in v.co) for v in bm.verts)
     check("Re-Bevel: Remove folds a bevel back into the sharp cube corner",
@@ -566,6 +607,141 @@ def test_attribute_ops():
           r_g == {"FINISHED"} and g is not None and sum(d.value for d in g.data) == 3, f"{r_g} {g and sum(d.value for d in g.data)}")
 
 
+def test_menu_preview_mode():
+    pm = sub("pie_menus")
+    prefs = sub("utils.pref_utils").get_keyops_prefs()
+    pie = pm._new_pie(prefs)
+    pie.name, pie.menu_type = "Preview Test", "MENU"
+    a = pie.items.add()
+    a.kind, a.idname, a.label, a.show_if = pm.O, "mesh.subdivide", "Edit Only", "mode == 'EDIT_MESH'"
+    b = pie.items.add()
+    b.kind, b.idname, b.label = pm.O, "object.join", "Always"
+    wm = bpy.context.window_manager
+    wm.keyops_preview_mode = 'EDITING'
+    every = not pm.preview_hidden(a) and not pm.preview_hidden(b)
+    wm.keyops_preview_mode = 'OBJECT'
+    obj_mode = pm.preview_hidden(a) and not pm.preview_hidden(b)
+    wm.keyops_preview_mode = 'EDIT_MESH'
+    edit_mode = not pm.preview_hidden(a)
+    sc = sub("ui.menu_canvas").build_menu(pie)
+    wm.keyops_preview_mode = 'OBJECT'
+    sc2 = sub("ui.menu_canvas").build_menu(pie)
+    wm.keyops_preview_mode = 'EDITING'
+    check("Custom Menus Preview In: items whose Poll is false in that mode are hidden, Every Item shows all",
+          every and obj_mode and edit_mode and len(sc2.els) < len(sc.els), f"{every} {obj_mode} {edit_mode} {len(sc.els)} {len(sc2.els)}")
+    prefs.pies.remove(list(prefs.pies).index(pie))
+
+
+def test_menu_preview_submenu_edit():
+    pm = sub("pie_menus")
+    mc = sub("ui.menu_canvas")
+    prefs = sub("utils.pref_utils").get_keyops_prefs()
+    parent = pm._new_pie(prefs)
+    parent.name, parent.menu_type = "Parent", "MENU"
+    child = pm._new_pie(prefs)
+    child.name, child.menu_type = "Child", "MENU"
+    parent = pm.find_pie(parent.uid)
+    a = parent.items.add()
+    a.kind, a.idname, a.label = pm.O, "object.join", "Join"
+    s_ = parent.items.add()
+    s_.kind, s_.idname, s_.label = pm.SUB, child.uid, "More"
+    c = child.items.add()
+    c.kind, c.idname, c.label = pm.O, "object.delete", "Delete"
+    prefs.active_pie = list(prefs.pies).index(parent)
+    prefs.pie_slot = 1  # the submenu item: the preview opens its submenu beside it
+    pies = mc.menu_chain(parent, prefs)
+    opened = [p.uid for p in pies] == [parent.uid, child.uid]
+    switched = mc.edit_chain_menu(2 * mc.SUB_STRIDE + 0)  # click Delete in the submenu
+    edits_child = pm._active_pie(prefs).uid == child.uid and prefs.pie_slot == 0
+    still = [p.uid for p in mc.menu_chain(pm._active_pie(prefs), prefs)] == [parent.uid, child.uid]
+    check("Custom Menus preview: clicking an item of a submenu edits that submenu, the menu above stays open",
+          opened and switched and edits_child and still, f"{opened} {switched} {edits_child} {still}")
+    moved = mc.move_item_to_menu(child, 0, parent, 0)  # drag Delete up into the parent menu
+    check("Custom Menus preview: an item dragged into the menu beside it moves there",
+          moved and len(child.items) == 0 and parent.items[0].idname == "object.delete" and len(parent.items) == 3,
+          f"{moved} {[i.idname for i in parent.items]}")
+    loop = mc.move_item_to_menu(parent, 2, child, 0)  # the submenu item into its own submenu: refused
+    check("Custom Menus preview: a submenu can't be dropped into itself", not loop and len(child.items) == 0)
+    for p in (child, parent):
+        prefs.pies.remove(list(prefs.pies).index(pm.find_pie(p.uid)))
+
+
+def test_attribute_view():
+    """The Attributes panel's reading side: active value, mixed values, Geometry Nodes limits."""
+    V = sub("operators.atri_view")
+    A = sub("operators.atri_op")
+    clear_scene()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=4, y_subdivisions=4)
+    obj = bpy.context.object
+    me = obj.data
+    w = me.attributes.new("Width", 'FLOAT', 'POINT')
+    for i, d in enumerate(w.data):
+        d.value = 0.1 * (i % 3)
+    me.attributes.active = me.attributes["Width"]
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(me)
+    bm.verts.ensure_lookup_table()
+    for v in bm.verts:
+        v.select_set(v.index in (0, 3))   # values 0.0 and 0.0
+    bm.select_history.clear()
+    bm.select_history.add(bm.verts[1])
+    bm.verts[1].select_set(True)          # value 0.1, active
+    bmesh.update_edit_mesh(me)
+    data = V.take_snapshot(obj)
+    active, text = V.summary(data)
+    check("Attributes: the active vertex's value is shown", active is not None and abs(float(active) - 0.1) < 1e-4, str(active))
+    check("Attributes: a selection holding different values says so", text.startswith("Mixed (2 values)"), text)
+    for v in bm.verts:
+        v.select_set(v.index in (0, 3))
+    bm.select_history.clear()
+    bmesh.update_edit_mesh(me)
+    data = V.take_snapshot(obj)
+    active, text = V.summary(data)
+    check("Attributes: one shared value is shown as such", active is None and text == "All 2 selected: 0", f"{active} {text}")
+    # a Geometry Nodes input that reads the attribute gives the value field its limits and units
+    ng = bpy.data.node_groups.new("AttrLimits", "GeometryNodeTree")
+    ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    sock = ng.interface.new_socket("Trim Width", in_out="INPUT", socket_type="NodeSocketFloat")
+    sock.subtype, sock.min_value, sock.max_value = 'DISTANCE', 0.0, 0.5
+    mod = obj.modifiers.new("Limits", 'NODES')
+    mod.node_group = ng
+    sub("operators.toolkit_panel").set_gn_attribute_input(obj, mod, "Trim Width", "Width")
+    m2, found = V.linked_socket(obj, "Width")
+    spec = V.socket_spec(found)
+    check("Attributes: finds the Geometry Nodes input reading the attribute", m2 == mod and spec["unit"] == 'LENGTH'
+          and spec["max"] == 0.5, str(spec))
+    A._apply_spec(spec)
+    wm = bpy.context.window_manager
+    rna = wm.bl_rna.properties["float_value"]
+    A._quiet["on"] = True
+    wm.float_value = 3.0
+    A._quiet["on"] = False
+    check("Attributes: the value field takes the input's min, max and units", rna.hard_max == 0.5 and rna.subtype == 'DISTANCE'
+          and abs(wm.float_value - 0.5) < 1e-6, f"{rna.hard_max} {rna.subtype} {wm.float_value}")
+    A._apply_spec(None)
+    check("Attributes: without such an input the field is plain again", wm.bl_rna.properties["float_value"].subtype == 'NONE')
+    # Use Active Value
+    for v in bm.verts:
+        v.select_set(v.index == 2)
+    bm.select_history.clear()
+    bm.select_history.add(bm.verts[2])
+    bmesh.update_edit_mesh(me)
+    A._quiet["on"] = True
+    wm.float_value = 0.9
+    A._quiet["on"] = False
+    r = bpy.ops.keyops.atri_pick()
+    check("Attributes: Use Active Value puts the active value in the field, without assigning it",
+          r == {'FINISHED'} and abs(wm.float_value - 0.2) < 1e-5, f"{r} {wm.float_value}")
+    # a color attribute shows with Blender's own Solid shading (no overlay of Key Ops' own)
+    me.color_attributes.new("Paint", 'BYTE_COLOR', 'CORNER')
+    me.attributes.active = me.attributes["Paint"]
+    check("Attributes: no viewport overlay of its own (only Blender's shading)", not hasattr(V, "_draw_view")
+          and not hasattr(bpy.types.WindowManager, "keyops_attr_show_numbers"))
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.data.node_groups.remove(ng)
+
+
 def test_parent_used_objects_unique():
     clear_scene()
     bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
@@ -739,7 +915,26 @@ def test_macro_operator_params():
     check("Operator Parameters: the chosen options are written into the step", res == {'FINISHED'}
           and pm._parse_props(step.props).get("type") == 'BEVEL', step.props)
     check("Operator Parameters: the operator's own last-used values are put back", last.type == before or not last.is_property_set("type"))
-    prefs.pies.remove(len(prefs.pies) - 1)
+    # the inline dropdown: fields load from the step, an edited field is stored in the step, closing gives back
+    slot = list(prefs.pies).index(pie)
+    key = (pie.uid, 0, 0)
+    pm._inline_request(key)
+    pm._inline_sync()
+    loaded = pm._inline["key"] == key and last.type == 'BEVEL'
+    last.type = 'ARRAY'
+    pm._inline_request(key)
+    pm._inline_sync()
+    stored = pm._parse_props(step.props).get("type") == 'ARRAY'
+    step.props = "type='MIRROR'"  # typed in the text field: the fields follow
+    pm._inline_request(key)
+    pm._inline_sync()
+    follows = last.type == 'MIRROR'
+    pm._inline_close()
+    check("Operator Parameters dropdown: loads the step's options, stores edited fields, follows typed text",
+          loaded and stored and follows, f"{loaded} {stored} {follows} {step.props}")
+    check("Operator Parameters dropdown: closing puts the operator's last-used values back",
+          last.type == before or not last.is_property_set("type"), last.type)
+    prefs.pies.remove(slot)
 
 
 def test_hide_ui():
@@ -813,6 +1008,602 @@ def test_triplanar():
     obj.evaluated_get(dg).to_mesh_clear()
 
 
+def test_edge_trim_live():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    for e in bm.edges:
+        e.select_set(all(v.co.z > 0.99 for v in e.verts))
+    bmesh.update_edit_mesh(obj.data)
+    res = bpy.ops.keyops.edge_trim_live(width=0.1, offset=0.0)
+    trim = next((o for o in bpy.data.objects if o.name.endswith("_Trim")), None)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = trim.evaluated_get(dg).to_mesh() if trim else None
+    faces = len(ev.polygons) if ev else 0
+    on_cube = ev is not None and all(max(abs(c) for c in v.co) > 0.999 for v in ev.vertices)
+    uv_ok = ev is not None and ev.uv_layers.get("UVMap") is not None
+    check("Live Edge Trim: a trim object with a modifier sweeping the marked edges (8 faces round the top)",
+          res == {'FINISHED'} and faces == 8, f"{res} faces {faces}")
+    check("Live Edge Trim: wraps the top edges, lying on the cube's faces, with UVs", on_cube and uv_ok)
+    if trim:
+        trim.evaluated_get(dg).to_mesh_clear()
+    # live: move a top vertex of the source and the trim follows
+    obj.data.vertices[next(i for i, v in enumerate(obj.data.vertices) if v.co.z > 0.99)].co.z += 0.5
+    obj.data.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev2 = trim.evaluated_get(dg).to_mesh()
+    top = max(v.co.z for v in ev2.vertices)
+    check("Live Edge Trim: follows changes to the source mesh", top > 1.2, f"top {top:.3f}")
+    trim.evaluated_get(dg).to_mesh_clear()
+
+
+def test_smart_extrude():
+    def cube_top(subdiv=0):
+        clear_scene()
+        bpy.ops.mesh.primitive_cube_add(size=2)
+        obj = bpy.context.object
+        bpy.ops.object.mode_set(mode='EDIT')
+        if subdiv:
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.subdivide(number_cuts=subdiv)
+        bm = bmesh.from_edit_mesh(obj.data)
+        for f in bm.faces:
+            c = f.calc_center_median()
+            f.select_set(f.normal.z > 0.9 and (not subdiv or (abs(c.x) < 0.4 and abs(c.y) < 0.4)))
+        bmesh.update_edit_mesh(obj.data)
+        return obj
+
+    obj = cube_top()
+    res = bpy.ops.keyops.push_pull(distance=0.5)
+    bm = bmesh.from_edit_mesh(obj.data)
+    check("Smart Extrude: square walls just stretch (push/pull), no new geometry",
+          res == {'FINISHED'} and len(bm.verts) == 8 and abs(max(v.co.z for v in bm.verts) - 1.5) < 1e-5,
+          f"{len(bm.verts)} verts, top {max(v.co.z for v in bm.verts):.3f}")
+    obj = cube_top()
+    res = bpy.ops.keyops.push_pull(distance=-0.5)
+    bm = bmesh.from_edit_mesh(obj.data)
+    check("Smart Extrude: pushing square walls in shortens them", abs(max(v.co.z for v in bm.verts) - 0.5) < 1e-5)
+
+    obj = cube_top(subdiv=2)  # the middle top face: its neighbours are flat, not walls
+    res = bpy.ops.keyops.push_pull(distance=-0.5)
+    bm = bmesh.from_edit_mesh(obj.data)
+    zs = sorted({round(v.co.z, 3) for v in bm.verts})
+    sound = all(e.is_manifold for e in bm.edges)
+    check("Smart Extrude: pushed into the surface it cuts a pocket (boolean difference), still closed",
+          res == {'FINISHED'} and 0.5 in zs and sound and max(zs) == 1.0, f"{zs} manifold {sound}")
+    obj = cube_top(subdiv=2)
+    res = bpy.ops.keyops.push_pull(distance=0.5)
+    bm = bmesh.from_edit_mesh(obj.data)
+    inner = [f for f in bm.faces if abs(f.calc_center_median().z - 1.0) < 1e-4 and abs(f.calc_center_median().x) < 0.3
+             and abs(f.calc_center_median().y) < 0.3]
+    check("Smart Extrude: pulled out it adds a block (union), no faces left inside",
+          res == {'FINISHED'} and abs(max(v.co.z for v in bm.verts) - 1.5) < 1e-4 and not inner
+          and all(e.is_manifold for e in bm.edges), f"top {max(v.co.z for v in bm.verts):.3f} inner {len(inner)}")
+    obj = cube_top()
+    res = bpy.ops.keyops.smart_extrude(distance=0.5)
+    bm = bmesh.from_edit_mesh(obj.data)
+    check("Smart Extrude (its own tool): always extrudes, even with square walls (new geometry, still closed)",
+          res == {'FINISHED'} and len(bm.verts) > 8 and abs(max(v.co.z for v in bm.verts) - 1.5) < 1e-4
+          and all(e.is_manifold for e in bm.edges), f"{len(bm.verts)} verts")
+    check("Smart Extrude: nothing left behind (no modifier, no cutter object)",
+          not obj.modifiers and not any(o.name.startswith(".keyops_extrude") for o in bpy.data.objects))
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_node_group_versions():
+    ng = sys.modules[MOD + ".utils.node_groups"]
+    files = [os.path.basename(f) for f in ng.candidate_files()]
+    check("Node groups: base file always last, newer files only up to this Blender",
+          files[-1] == "node_groups.blend" and all(
+              tuple(int(x) for x in f[len("node_groups_"):-len(".blend")].split("_")) <= bpy.app.version[:2]
+              for f in files[:-1]), str(files))
+    for g in [g for g in bpy.data.node_groups if g.name == "Edge Trim Live"]:
+        bpy.data.node_groups.remove(g)
+    group = ng.get_node_group("Edge Trim Live")
+    gizmos = sum(1 for n in group.nodes if n.bl_idname == "GeometryNodeGizmoLinear")
+    want = 3 if bpy.app.version >= (4, 3) else 0
+    check(f"Node groups: Live Edge Trim has {want} viewport gizmos in this version", gizmos == want, str(gizmos))
+    names = ["Delete Loose Edge", "Duplicate Linked Modifiers", "Extrude Edge By Normal", "Offset UV",
+             "SharpFromUVIslands", "Triplanar UV", "Unwrap In Place Tool"]
+    missing = []
+    for name in names:
+        try:
+            ng.get_node_group(name)
+        except Exception:  # noqa: BLE001
+            missing.append(name)
+    check("Node groups: every group loads in this version", not missing, str(missing))
+
+
+def test_cutter_mirror_preview_joined():
+    from types import SimpleNamespace
+    ct = sys.modules[MOD + ".tools.cutter_tool"]
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    pivot = bpy.context.object
+    # a box from x -0.3 to 0.7: it crosses the X mirror plane, so it overlaps its mirrored copy
+    top = [Vector(c) for c in ((-0.3, -0.4, 1.2), (0.7, -0.4, 1.2), (0.7, 0.4, 1.2), (-0.3, 0.4, 1.2))]
+    coords = top + [Vector((c.x, c.y, 0.5)) for c in top]
+    fake = SimpleNamespace(mirror_object=pivot, mirror_x=True, mirror_y=False, mirror_z=False)
+    fake._mirror_matrices = lambda: ct.Cutter._mirror_matrices(fake)
+    fake._mirror_sides = lambda c: ct.Cutter._mirror_sides(fake, c)
+    positions, tris, lines, _thin = ct.Cutter._joined_mirror_preview(fake, coords, False, 4)
+    xs = [p.x for p in positions]
+    seam = [i for i in range(0, len(lines), 2) if abs(lines[i].x) < 1e-6 and abs(lines[i + 1].x) < 1e-6]
+    check("Cutter: mirrored copies that overlap preview as one piece (-0.7..0.7, no seam lines)",
+          abs(min(xs) + 0.7) < 1e-5 and abs(max(xs) - 0.7) < 1e-5 and not seam and tris,
+          f"x {min(xs):.3f}..{max(xs):.3f}, seam lines {len(seam)}")
+    # centred exactly on the mirror plane: both halves stay
+    mid = [Vector((c.x - 0.2, c.y, c.z)) for c in coords]
+    positions, tris, lines, _thin = ct.Cutter._joined_mirror_preview(fake, mid, False, 4)
+    xs = [p.x for p in positions]
+    check("Cutter: a shape centred on the mirror plane previews whole", abs(min(xs) + 0.5) < 1e-5
+          and abs(max(xs) - 0.5) < 1e-5, f"x {min(xs):.3f}..{max(xs):.3f}")
+    # apart from each other: still two pieces, each a full box
+    far = [Vector((c.x + 1.0, c.y, c.z)) for c in coords]
+    positions, tris, lines, _thin = ct.Cutter._joined_mirror_preview(fake, far, False, 4)
+    check("Cutter: mirrored copies apart stay two boxes", len(positions) == 16 and len(lines) == 2 * 24,
+          f"{len(positions)} points, {len(lines) // 2} lines")
+
+
+def test_cutter_array():
+    from types import SimpleNamespace
+    ct = sys.modules[MOD + ".tools.cutter_tool"]
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    target = bpy.context.object
+    plane = Matrix.Translation((0.0, 0.0, 1.0))
+    box = [Vector((-0.2, -0.1)), Vector((0.2, -0.1)), Vector((0.2, 0.1)), Vector((-0.2, 0.1))]
+    fake = SimpleNamespace(array_count=3, array_axis='X', array_gap=0.5, plane=plane, _fixed_profile=box,
+                           mirror_object=target, mirror_x=False, mirror_y=False, mirror_z=False)
+    fake.profile = lambda: box
+    mats = ct.Cutter._array_matrices(fake, box)
+    xs = [round(m.translation.x, 4) for m in mats]
+    check("Cutter array: copies spaced by the shape's width plus the gap (0.4 x 1.5)", xs == [0.0, 0.6, 1.2], str(xs))
+    fake.array_axis = 'Y'
+    ys = [round(m.translation.y, 4) for m in ct.Cutter._array_matrices(fake, box)]
+    check("Cutter array: along Y uses the shape's height", ys == [0.0, 0.3, 0.6], str(ys))
+    fake.array_count = 1
+    check("Cutter array: a count of 1 is no array", len(ct.Cutter._array_matrices(fake, box)) == 1)
+    # the modifier: right before the Mirror modifier, relative offset matching the preview
+    bpy.ops.mesh.primitive_cube_add(size=0.2)
+    cutter = bpy.context.object
+    cutter.modifiers.new("Mirror", 'MIRROR')
+    fake.cutter, fake.array_count, fake.array_axis = cutter, 4, 'X'
+    ct.Cutter._update_array_modifier(fake)
+    mods = [m.type for m in cutter.modifiers]
+    arr = cutter.modifiers.get("Array")
+    check("Cutter array: an Array modifier before the Mirror modifier", mods == ['ARRAY', 'MIRROR'] and arr.count == 4
+          and abs(arr.relative_offset_displace[0] - 1.5) < 1e-6, f"{mods} {arr and arr.count}")
+    fake.array_count = 1
+    ct.Cutter._update_array_modifier(fake)
+    check("Cutter array: back to 1 removes the modifier", [m.type for m in cutter.modifiers] == ['MIRROR'])
+    # Add in Edit Mode: three boxes go into the mesh
+    bpy.context.view_layer.objects.active = target
+    for o in bpy.context.selected_objects:
+        o.select_set(o == target)
+    bpy.ops.object.mode_set(mode='EDIT')
+    before = len(target.data.vertices)
+    bm = bmesh.from_edit_mesh(target.data)
+    nverts = len(bm.verts)
+    fake.array_count, fake.array_axis = 3, 'X'
+    fake._profile_center = lambda: Vector((0.0, 0.0))
+    fake._cutter_matrix = lambda c: ct.Cutter._cutter_matrix(fake, c)
+    fake._mirror_matrices = lambda: ct.Cutter._mirror_matrices(fake)
+    fake._mirror_sides = lambda c: ct.Cutter._mirror_sides(fake, c)
+    fake._array_matrices = lambda prof=None: ct.Cutter._array_matrices(fake, prof)
+    ct.Cutter._add_to_edit_mesh(fake, target, box, (0.0, 0.3))
+    bm = bmesh.from_edit_mesh(target.data)
+    new = [v for v in bm.verts if v.select]
+    xs = sorted({round(v.co.x, 3) for v in new})
+    check("Cutter array: Add in Edit Mode builds every copy", len(bm.verts) - nverts == 24 and xs[0] == -0.2 and xs[-1] == 1.4,
+          f"{len(bm.verts) - nverts} new, x {xs}")
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_edge_trim_small_scale():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    obj.scale = (0.1, 0.1, 0.1)
+    bpy.context.view_layer.update()
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    for e in bm.edges:
+        e.select_set(all(v.co.z > 0.99 for v in e.verts))
+    bmesh.update_edit_mesh(obj.data)
+    before = set(bpy.data.objects)
+    bpy.ops.keyops.edge_trim(width_a=0.05, offset=0.0)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+    new = [o.matrix_world @ v.co for o in set(bpy.data.objects) - before for v in o.data.vertices]
+    zs = [p.z for p in new]
+    span = max(zs) - min(zs) if zs else 0.0
+    check("Edge Trim: corners keep their full width on an object at scale 0.1 (world z span 0.05)",
+          abs(span - 0.05) < 2e-3, f"{span:.4f}")
+
+
+def test_realign_linked_scales():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    a = bpy.context.object
+    a.rotation_euler = (0.3, 0.2, 0.7)
+    bpy.ops.object.transform_apply(rotation=True)
+    b = a.copy()  # a linked duplicate: same mesh, different scale
+    bpy.context.collection.objects.link(b)
+    a.scale = (1, 1, 2)
+    b.scale = (1, 1, 3)
+    b.location = (3, 0, 0)
+    bpy.context.view_layer.update()
+
+    def world_box(o):
+        return sorted(tuple(round(c, 4) for c in (o.matrix_world @ v.co)) for v in o.data.vertices)
+    before = (world_box(a), world_box(b))
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    a.select_set(True)
+    b.select_set(True)
+    bpy.context.view_layer.objects.active = a
+    bpy.ops.keyops.realign_rotation(source='SHAPE')
+    bpy.context.view_layer.update()
+    check("Re-Align: linked duplicates with different scales keep their shape",
+          (world_box(a), world_box(b)) == before, f"a {world_box(a)[:1]} b {world_box(b)[:1]}")
+
+
+def test_fast_bevel_keys():
+    fb = sub("operators.fast_bevel")
+    check("Fast Bevel: number row 1 / 2 / 3 are the bevel types, no segment presets",
+          fb.PRESET_KEYS == {'ONE': 1, 'TWO': 2, 'THREE': 3} and not hasattr(fb, "SEGMENT_KEYS"))
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    obj = bpy.context.object
+    mod = obj.modifiers.new("Bevel", 'BEVEL')
+    mod.segments = 4
+
+    class Fake:
+        def target_mods(self):
+            return [(obj, mod)]
+
+        def report(self, *a):
+            pass
+
+        def capture_base(self):
+            pass
+    fake = Fake()
+    fake.unshade = lambda objs=None: fb.FastBevel.unshade(fake, objs)
+    fb.FastBevel.preset(fake, 1)
+    me = obj.data
+    smooth = all(p.use_smooth for p in me.polygons)
+    sharp = all(not e.use_edge_sharp for e in me.edges) is False
+    check("Fast Bevel 1: one segment, Harden Normals, flat mesh shaded smooth with its corners kept hard",
+          mod.segments == 1 and mod.harden_normals and mod.affect == 'EDGES' and smooth and sharp,
+          f"seg {mod.segments} harden {mod.harden_normals} smooth {smooth} sharp {sharp}")
+    fb.FastBevel.preset(fake, 3)
+    flat = not any(p.use_smooth for p in me.polygons) and not any(e.use_edge_sharp for e in me.edges)
+    check("Fast Bevel 3 after 1: the shading key 1 added is gone again (flat, no sharp marks)",
+          flat and mod.segments == 2 and not mod.harden_normals)
+    fb.FastBevel.preset(fake, 1)
+    fake.unshade()  # what cancelling does
+    check("Fast Bevel: cancelling puts the shading back", not any(p.use_smooth for p in me.polygons))
+
+
+def test_realign_fresh_cube():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)  # every face selected in the mesh data
+    o = bpy.context.object
+    o.rotation_euler = (0.3, 0.2, 0.7)
+    bpy.ops.object.transform_apply(rotation=True)
+    bpy.ops.keyops.realign_rotation()
+    d = o.dimensions
+    check("Re-Align: a cube whose rotation was applied gets its tight 2x2x2 box back (Object Mode)",
+          all(abs(c - 2.0) < 1e-3 for c in d), f"{tuple(round(c, 3) for c in d)}")
+    o.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.ops.object.transform_apply(rotation=True)
+    for p in o.data.polygons:
+        p.select = p.index == 0
+    bpy.ops.keyops.realign_rotation(source='SELECTION')
+    d = o.dimensions
+    check("Re-Align: Selected Faces works from Object Mode too", all(abs(c - 2.0) < 1e-3 for c in d),
+          f"{tuple(round(c, 3) for c in d)}")
+
+
+def test_element_mode_sync():
+    sm = sub("operators.subobject_modes")
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(-2, 0, 0))
+    a = bpy.context.object
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(2, 0, 0))
+    b = bpy.context.object
+    a.select_set(True)
+    bpy.context.view_layer.objects.active = a
+    bpy.ops.object.mode_set(mode='EDIT')
+    # a second island in object a
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(-2, 0, 3))
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.mesh.select_mode(type='VERT')
+    objs = sm._edit_meshes(bpy.context)
+
+    def bms():
+        return [bmesh.from_edit_mesh(o.data) for o in objs]
+
+    def snaps():
+        return {o.name: sm.snapshot(bmesh.from_edit_mesh(o.data)) for o in objs}
+
+    def sel_counts():
+        return [sum(v.select for v in bm.verts) for bm in bms()]
+
+    def set_verts(obj, test, value=True):
+        bm = bmesh.from_edit_mesh(obj.data)
+        for v in bm.verts:
+            if test(v):
+                v.select = value
+        bm.select_flush(value)
+        bmesh.update_edit_mesh(obj.data)
+
+    lower_a = lambda v: v.co.z < 1.5
+    snap = snaps()
+    set_verts(a, lambda v: lower_a(v) and v.co.x < -0.4 and v.co.y < 0)  # one vertex of the lower island
+    snap, changed = sm.sync(objs, snap, click=True, hint='pick')
+    check("Element sync: a picked vertex selects its whole island, not the other island", changed and
+          sel_counts()[objs.index(a)] == 8, str(sel_counts()))
+    set_verts(a, lambda v: lower_a(v) and v.co.x < -0.4 and v.co.y < 0, False)
+    snap, changed = sm.sync(objs, snap, click=True, hint='toggle')
+    check("Element sync: unpicking part of an island unpicks all of it (Shift+click)", changed and
+          sel_counts()[objs.index(a)] == 0, str(sel_counts()))
+    set_verts(a, lower_a)
+    snap, _c = sm.sync(objs, snap)
+    # a plain box select inside the selected island: Blender keeps only the box contents
+    set_verts(a, lambda v: lower_a(v) and v.co.x > -0.4, False)
+    snap, changed = sm.sync(objs, snap, click=True, hint='pick')
+    check("Element sync: a plain box select inside a selected island keeps the island", sel_counts()[objs.index(a)] == 8,
+          str(sel_counts()))
+    set_verts(a, lambda v: lower_a(v) and v.co.x > -0.4, False)
+    snap, changed = sm.sync(objs, snap, click=False, hint='remove')
+    check("Element sync: Ctrl box deselect over part of an island deselects it", sel_counts()[objs.index(a)] == 0,
+          str(sel_counts()))
+    # both objects at once (a box select across them)
+    set_verts(a, lambda v: not lower_a(v) and v.co.x < -0.4)
+    set_verts(b, lambda v: v.co.y < 0 and v.co.x > 0.4)
+    snap, changed = sm.sync(objs, snap)
+    check("Element sync: a box across two objects selects whole islands in both", sel_counts() == [8, 8]
+          if objs.index(a) == 0 else sel_counts() == [8, 8], str(sel_counts()))
+    # Face mode: deselecting one face of a selected island deselects the island
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.select_all(action='SELECT')
+    snap = snaps()
+    bm = bmesh.from_edit_mesh(a.data)
+    f = next(f for f in bm.faces if f.calc_center_median().z > 1.5)
+    f.select_set(False)
+    bmesh.update_edit_mesh(a.data)
+    snap, changed = sm.sync(objs, snap, click=True, hint='toggle')
+    bm = bmesh.from_edit_mesh(a.data)
+    upper = [f.select for f in bm.faces if f.calc_center_median().z > 1.5]
+    lower = [f.select for f in bm.faces if f.calc_center_median().z < 1.5]
+    check("Element sync: Face mode, unpicking one face unpicks its island only", not any(upper) and all(lower),
+          f"upper {sum(upper)} lower {sum(lower)}")
+    check("Element mode button has no redo panel", 'REGISTER' not in sm.KEYOPS_OT_sub_object_mode.bl_options)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_rebevel_rework():
+    def bevelled(kind, segs=3):
+        clear_scene()
+        if kind == "cylinder":
+            bpy.ops.mesh.primitive_cylinder_add(vertices=24)
+        else:
+            bpy.ops.mesh.primitive_cube_add(size=2)
+        obj = bpy.context.object
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_mode(type='EDGE')
+        bm = bmesh.from_edit_mesh(obj.data)
+        for e in bm.edges:
+            a, b = e.verts
+            top = a.co.z > 0.9 and b.co.z > 0.9
+            e.select = top and (kind != "edge" or (a.co.y > 0.9 and b.co.y > 0.9))
+        bm.select_flush(True)
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.mesh.bevel(offset=0.2, segments=segs, affect='EDGES')
+        bpy.ops.mesh.select_mode(type='FACE')
+        return obj
+
+    def key(obj):
+        return sorted(tuple(round(c, 4) for c in v.co) for v in bmesh.from_edit_mesh(obj.data).verts)
+    for kind in ("edge", "loop", "cylinder"):
+        obj = bevelled(kind)
+        k0 = key(obj)
+        sel0 = {f.index for f in bmesh.from_edit_mesh(obj.data).faces if f.select}
+        for _i in range(4):
+            res = bpy.ops.keyops.rebevel(segments=3)
+        k1 = key(obj)
+        drift = max((abs(a - b) for p, q in zip(k0, k1) for a, b in zip(p, q)), default=0.0) if len(k0) == len(k1) else 9
+        sel1 = sum(f.select for f in bmesh.from_edit_mesh(obj.data).faces)
+        check(f"Re-Bevel ({kind}): four runs with the same settings move nothing", res == {'FINISHED'} and drift < 1e-4,
+              f"{res} drift {drift}")
+        bevel_faces = {"edge": 3, "loop": 12, "cylinder": 72}[kind]  # without a face the selection took along
+        check(f"Re-Bevel ({kind}): only the bevel's faces stay selected", sel1 == bevel_faces, f"{len(sel0)} -> {sel1}")
+        bpy.ops.object.mode_set(mode='OBJECT')
+    obj = bevelled("edge")
+    res = bpy.ops.keyops.rebevel(width=0.0)
+    check("Re-Bevel: width 0 removes the bevel", len(bmesh.from_edit_mesh(obj.data).verts) == 8, str(res))
+    bpy.ops.object.mode_set(mode='OBJECT')
+    # Follow Loops: one face of a bevel around the cube top takes the whole bevel
+    obj = bevelled("cylinder", segs=1)
+    bm = bmesh.from_edit_mesh(obj.data)
+    picked = next(f for f in bm.faces if f.select)
+    for f in bm.faces:
+        f.select = f is picked
+    bmesh.update_edit_mesh(obj.data)
+    bpy.ops.keyops.rebevel(segments=2, follow_loops=True)
+    sel = sum(f.select for f in bmesh.from_edit_mesh(obj.data).faces)
+    check("Re-Bevel: Follow Loops re-bevels the whole bevel from one face", sel == 48, str(sel))
+    bpy.ops.object.mode_set(mode='OBJECT')
+    rb = sub("operators.rebevel").KEYOPS_OT_rebevel
+    check("Re-Bevel: no Remove Bevel option any more", "remove" not in rb.__annotations__)
+
+
+def test_lattice_best_fit_modes():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    o = bpy.context.object
+    o.rotation_euler = (0.3, 0.2, 0.7)
+    bpy.ops.object.transform_apply(rotation=True)
+    bpy.ops.keyops.add_modifier(type='LATTICE', min_box=True)
+    lat = next(x for x in bpy.data.objects if x.type == 'LATTICE')
+    check("Lattice Best Fit in Object Mode: tight box around the turned cube", all(abs(c - 2.02) < 0.01 for c in lat.scale),
+          str(tuple(round(c, 3) for c in lat.scale)))
+    if bpy.context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2)
+    o = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    o.select_set(False)  # in Edit Mode but not selected: still the object to work on
+    poll = bpy.ops.keyops.add_modifier.poll()
+    res = bpy.ops.keyops.add_modifier(type='LATTICE')
+    check("Lattice in Edit Mode works on the objects being edited (selected or not)",
+          poll and res == {'FINISHED'} and any(m.type == 'LATTICE' for m in o.modifiers), f"poll {poll} {res}")
+    if bpy.context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def test_realign_keeps_location():
+    clear_scene()
+    bpy.ops.mesh.primitive_cube_add(size=2, location=(3, 1, 2))
+    o = bpy.context.object
+    o.rotation_euler = (0.3, 0.2, 0.7)
+    bpy.ops.object.transform_apply(rotation=True)
+    bpy.ops.object.empty_add(location=(-1, 0, 0))
+    parent = bpy.context.object
+    parent.rotation_euler = (0, 0, 0.4)
+    o.parent = parent
+    o.matrix_parent_inverse = parent.matrix_world.inverted()
+    bpy.context.view_layer.update()
+    loc_before = o.location.copy()
+    world_before = o.matrix_world.translation.copy()
+    for x in bpy.context.selected_objects:
+        x.select_set(False)
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    res = bpy.ops.keyops.realign_rotation()
+    bpy.context.view_layer.update()
+    check("Re-Align: one run does it, and only the rotation changes (location stays, also parented)",
+          res == {'FINISHED'} and (o.location - loc_before).length < 1e-5
+          and (o.matrix_world.translation - world_before).length < 1e-5 and all(abs(c - 2.0) < 1e-3 for c in o.dimensions),
+          f"{res} loc {tuple(round(c, 4) for c in o.location)} dims {tuple(round(c, 3) for c in o.dimensions)}")
+
+
+def test_parent_used_no_move():
+    clear_scene()
+    bpy.ops.object.empty_add(location=(5, 0, 0))
+    root = bpy.context.object
+    root.rotation_euler = (0, 0, 0.5)
+    bpy.context.view_layer.update()
+    objs = {}
+    for name, loc in (("A", (0, 0, 0)), ("B", (3, 0, 0)), ("C", (0.4, 0, 0.4)), ("D", (0.5, 0.2, 0.6))):
+        bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
+        objs[name] = bpy.context.object
+        objs[name].name = name
+    for o in (objs["A"], objs["B"]):
+        o.parent = root
+        o.matrix_parent_inverse = root.matrix_world.inverted()
+        o.modifiers.new("Bool", 'BOOLEAN').object = objs["C"]
+    objs["C"].modifiers.new("Bool", 'BOOLEAN').object = objs["D"]
+    bpy.context.view_layer.update()
+    objs["C"].location = (0.6, 0.1, 0.4)  # moved just now: its matrix_world is out of date until the scene updates
+    expect = {n: (o.parent.matrix_world if o.parent else Matrix()) @ o.matrix_parent_inverse @ o.matrix_basis
+              for n, o in objs.items()}
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    objs["A"].select_set(True)
+    bpy.context.view_layer.objects.active = objs["A"]
+    bpy.ops.keyops.parent_used_objects(make_unique=True)
+    bpy.context.view_layer.update()
+    moved = [n for n, m in expect.items() if (objs[n].matrix_world.translation - m.translation).length > 1e-4]
+    copies = [o for o in bpy.data.objects if o.name.startswith(("C.", "D."))]
+    stray = [o.name for o in copies if min((o.matrix_world.translation - expect[o.name[0]].translation).length, 9) > 1e-4]
+    check("Parent Used Objects (Make Unique): nothing moves, copies sit exactly on their originals",
+          not moved and copies and not stray, f"moved {moved} stray {stray}")
+    # C was parented to A by an earlier run and B uses it too: after Make Unique, B's cutter no longer follows A
+    clear_scene()
+    for name, loc in (("A", (0, 0, 0)), ("B", (3, 0, 0)), ("C", (0.4, 0, 0.4))):
+        bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
+        objs[name] = bpy.context.object
+        objs[name].name = name
+    for o in (objs["A"], objs["B"]):
+        o.modifiers.new("Bool", 'BOOLEAN').object = objs["C"]
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    objs["A"].select_set(True)
+    bpy.context.view_layer.objects.active = objs["A"]
+    bpy.ops.keyops.parent_used_objects()
+    c_world = objs["C"].matrix_world.copy()
+    bpy.ops.keyops.parent_used_objects(make_unique=True)
+    bpy.context.view_layer.update()
+    check("Parent Used Objects (Make Unique): a cutter the selected object no longer uses lets go of it, in place",
+          objs["C"].parent is None and (objs["C"].matrix_world.translation - c_world.translation).length < 1e-5,
+          f"parent {objs['C'].parent}")
+
+
+def test_slide_scale_lines_and_rotate():
+    import math
+    clear_scene()
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=1, depth=2)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    side = [e for e in bm.edges if abs(e.verts[0].co.z - e.verts[1].co.z) > 1.9]
+    bmesh.ops.subdivide_edges(bm, edges=side, cuts=7, use_grid_fill=False)
+    # a diagonal line across the side: one vertex per row, one column further each row, joined by cuts
+    rows = sorted({round(v.co.z, 4) for v in bm.verts})
+    diag = []
+    for k, z in enumerate(rows):
+        ang = math.radians(k * 360.0 / 32)
+        diag.append(min((v for v in bm.verts if abs(v.co.z - z) < 1e-4),
+                        key=lambda v: (v.co.x - math.cos(ang)) ** 2 + (v.co.y - math.sin(ang)) ** 2))
+    for a, b in zip(diag, diag[1:]):
+        bmesh.ops.connect_verts(bm, verts=[a, b])
+    for v in bm.verts:
+        v.select = False
+    mid = diag[2:7]
+    for v in mid:
+        v.select = True
+    bm.select_flush(True)
+    bmesh.update_edit_mesh(obj.data)
+    bpy.ops.keyops.slide_scale(factor=1.6)
+    bm = bmesh.from_edit_mesh(obj.data)
+    radii = [math.hypot(v.co.x, v.co.y) for v in bm.verts if v.select]
+    zs = sorted(v.co.z for v in bm.verts if v.select)
+    check("Slide Scale: a diagonal line across a cylinder stays on the cylinder (and grows)",
+          all(0.98 < r < 1.0001 for r in radii) and zs[-1] - zs[0] > 4 * (rows[1] - rows[0]) * 1.2,
+          f"radius {min(radii):.4f}..{max(radii):.4f} span {zs[-1] - zs[0]:.3f}")
+    bpy.ops.object.mode_set(mode='OBJECT')
+    # Slide Rotate: a ring on a sphere turned around Z stays on the sphere
+    clear_scene()
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+    zs = sorted({round(v.co.z, 4) for v in bm.verts})
+    ring_z = [z for z in zs if 0.3 < z < 0.6][0]
+    for v in bm.verts:
+        v.select = abs(v.co.z - ring_z) < 1e-4
+    bm.select_flush(True)
+    bmesh.update_edit_mesh(obj.data)
+    before = {v.index: v.co.copy() for v in bm.verts if v.select}
+    bpy.ops.keyops.slide_scale(mode='ROTATE', angle=math.radians(5), axis='Z')
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    moved = max((bm.verts[i].co - c).length for i, c in before.items())
+    on = all(0.98 < bm.verts[i].co.length < 1.0001 for i in before)
+    check("Slide Rotate: a ring on a sphere turns along the sphere's own edges, staying on it", moved > 0.01 and on,
+          f"moved {moved:.3f}")
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def run():
     addon_utils.enable(MOD, default_set=True)
     for t in (test_revolve_axis, test_curve_tools, test_q_menu_migration, test_whats_new_not_automatic,
@@ -821,8 +1612,13 @@ def run():
               test_alt_c_screw_and_instances, test_edge_trim,
               test_attribute_ops, test_parent_used_objects_unique, test_lattice_min_box,
               test_modifier_order, test_realign_rotation, test_slide_scale,
-              test_full_edge_loop, test_macro_operator_params, test_hide_ui,
-              test_triplanar):
+              test_full_edge_loop, test_macro_operator_params, test_attribute_view, test_menu_preview_mode, test_menu_preview_submenu_edit, test_hide_ui,
+              test_triplanar, test_edge_trim_live, test_smart_extrude, test_node_group_versions,
+              test_cutter_mirror_preview_joined, test_cutter_array, test_edge_trim_small_scale,
+              test_realign_linked_scales, test_fast_bevel_keys, test_realign_fresh_cube,
+              test_element_mode_sync, test_rebevel_rework, test_lattice_best_fit_modes,
+              test_realign_keeps_location, test_parent_used_no_move,
+              test_slide_scale_lines_and_rotate):
         try:
             t()
         except Exception as e:  # noqa: BLE001

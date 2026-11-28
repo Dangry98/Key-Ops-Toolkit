@@ -130,6 +130,16 @@ def _repoint(owner, old, new):
     return changed
 
 
+def _data_collection(data):
+    """The bpy.data collection name an object's data block lives in (meshes, curves, ...)."""
+    for name in ("meshes", "curves", "lights", "cameras", "lattices", "metaballs", "grease_pencils", "armatures",
+                 "volumes", "pointclouds", "hair_curves", "speakers", "lightprobes", "texts"):
+        coll = getattr(bpy.data, name, None)
+        if coll is not None and data.name in coll and coll[data.name] == data:
+            return name
+    return "meshes"
+
+
 def _unique_copy(dep):
     """A copy of dep with its own data, in the same collections."""
     new = dep.copy()
@@ -150,11 +160,14 @@ def _is_self_or_ancestor(candidate, obj):
     return False
 
 
-def _parent_keep_transform(child, parent):
-    world = child.matrix_world.copy()
+def _parent_keep_transform(child, parent, worlds=None):
+    """Parent child to parent without moving it. worlds: world matrices read before anything changed (copies
+    and objects re-parented earlier in the same run have no up-to-date matrix_world until the scene updates)."""
+    world = (worlds or {}).get(child.name_full) or child.matrix_world.copy()
+    parent_world = (worlds or {}).get(parent.name_full) or parent.matrix_world.copy()
     child.parent = parent
     child.parent_type = 'OBJECT'
-    child.matrix_parent_inverse = parent.matrix_world.inverted_safe()
+    child.matrix_parent_inverse = parent_world.inverted_safe()
     child.matrix_basis = world
 
 
@@ -163,7 +176,7 @@ class ParentUsedObjects(bpy.types.Operator):
     bl_label = "KeyOps: Parent Used Objects"
     bl_description = (
         "Parent all objects used by the selected objects' modifiers (boolean cutters, mirror/array "
-        "objects, Geometry Nodes inputs, etc.) so they move with it"
+        "objects, Geometry Nodes inputs, etc.) so they move with it. Ctrl+click: shared ones are made unique first"
     )
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -179,7 +192,8 @@ class ParentUsedObjects(bpy.types.Operator):
     make_unique: bpy.props.BoolProperty(
         name="Make Unique",
         description="Objects that other (unselected) objects' modifiers also use, like a cutter shared by two "
-                    "meshes, are copied for the selected object first, so parenting them never moves the others",
+                    "meshes, are copied for the selected object first, so parenting them never moves the others "
+                    "(Ctrl+click)",
         default=False,
     )  # type: ignore
 
@@ -192,6 +206,10 @@ class ParentUsedObjects(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.mode == 'OBJECT' and bool(context.selected_objects)
+
+    def invoke(self, context, event):
+        self.make_unique = event.ctrl
+        return self.execute(context)
 
     def execute(self, context):
         booleans_only = self.filter == 'BOOLEANS'
@@ -209,6 +227,9 @@ class ParentUsedObjects(bpy.types.Operator):
         copied_count = 0
         users = _object_users(booleans_only) if self.make_unique else {}
         root_names = {r.name_full for r in roots}
+        # every world matrix as it is now, from the evaluated scene, before anything changes
+        dg = context.evaluated_depsgraph_get()
+        worlds = {o.name_full: o.evaluated_get(dg).matrix_world.copy() for o in context.scene.objects}
 
         def process(owner):
             nonlocal parented_count, skipped_count, copied_count
@@ -226,17 +247,27 @@ class ParentUsedObjects(bpy.types.Operator):
                     others = users.get(dep.name_full, set()) - {owner.name_full} - root_names
                     if others:  # used by objects that aren't being parented to: give this owner its own copy
                         new = _unique_copy(dep)
+                        worlds[new.name_full] = worlds.get(dep.name_full, dep.matrix_world).copy()
                         if _repoint(owner, dep, new):
                             users.setdefault(new.name_full, set()).add(owner.name_full)
                             users[dep.name_full].discard(owner.name_full)
+                            if dep.parent == owner:
+                                # parented to this owner before (an earlier run), but now only the others use
+                                # it: let it go, in place, so it no longer moves with this owner
+                                w = worlds.get(dep.name_full, dep.matrix_world).copy()
+                                dep.parent = None
+                                dep.matrix_basis = w
                             dep = new
                             copied_count += 1
                         else:  # only reachable through a collection: can't repoint it, so leave it shared
+                            data = new.data if new.data is not dep.data else None
                             bpy.data.objects.remove(new)
+                            if data is not None and data.users == 0:
+                                getattr(bpy.data, _data_collection(data)).remove(data)
                             skipped_count += 1
                             continue
                 if dep.parent != owner:
-                    _parent_keep_transform(dep, owner)
+                    _parent_keep_transform(dep, owner, worlds)
                     parented_count += 1
                 assigned.add(dep.name_full)
                 if self.recursive:

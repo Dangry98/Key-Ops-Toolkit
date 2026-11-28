@@ -417,9 +417,10 @@ class AddModifier(bpy.types.Operator):
     mode: bpy.props.EnumProperty(name="Mode",default='KEY_BSPLINE',items=
             (("KEY_LINEAR", "Linear", ""), ("KEY_BSPLINE", "Bspline", ""))) #type:ignore
     lattice_subdivisions: bpy.props.IntProperty(name="Subdivisions", description="Subdivisions", default=1, min=1, max=10) #type:ignore
-    min_box: bpy.props.BoolProperty(name="Minimum Box", default=False,
-                                    description="Edit Mode: fit the lattice to the selected vertices as tightly as "
-                                                "possible, turned to match them (not lined up with the world axes)") #type:ignore
+    min_box: bpy.props.BoolProperty(name="Best Fit", default=False,
+                                    description="Fit the lattice as tightly as possible around the objects (Edit Mode: "
+                                                "the selected vertices), turned to match them instead of lined up "
+                                                "with the world axes") #type:ignore
     cage : bpy.props.BoolProperty(name="Cage", description="Use cage", default=True) #type:ignore
     subdivisions: bpy.props.IntProperty(name="Subdivisions", description="Subdivisions", default=2, min=2, max=64) #type:ignore
     outside: bpy.props.BoolProperty(name="Outside", description="Use outside", default=True) #type:ignore
@@ -431,7 +432,9 @@ class AddModifier(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return any(o.type == 'MESH' or o.type == 'LATTICE' or o.type == 'CURVE' or o.type == 'SURFACE' or o.type == 'FONT' for o in context.selected_objects)
+        # in Edit Mode: the objects being edited (they needn't be selected); otherwise the selected ones
+        objs = context.objects_in_mode if context.mode == 'EDIT_MESH' else context.selected_objects
+        return any(o.type in {'MESH', 'LATTICE', 'CURVE', 'SURFACE', 'FONT'} for o in objs)
     
     def invoke(self, context, event):
         global ev 
@@ -492,8 +495,8 @@ class AddModifier(bpy.types.Operator):
             row.label(text="Interpolation:")
             row.prop(self, "mode", expand=True)
             self.layout.prop(self, "individual")
+            self.layout.prop(self, "min_box")
             if started_in_edit_mode:
-                self.layout.prop(self, "min_box")
                 self.layout.prop(self, "modified")
             self.layout.prop(self, "subdivisions")
             self.layout.prop(self, "outside")
@@ -567,7 +570,6 @@ class AddModifier(bpy.types.Operator):
                     return {'CANCELLED'}
                     
         if self.type == 'LATTICE':  
-            context.evaluated_depsgraph_get()
             supported_objects = ["MESH", "CURVE", "SURFACE", "FONT"]
             
             for obj in context.selected_objects:
@@ -585,6 +587,8 @@ class AddModifier(bpy.types.Operator):
                         lattice_ob.location = obj.matrix_world @ object_center
                         lattice_ob.scale = obj.dimensions * 1.01
                         lattice_ob.rotation_euler = obj.rotation_euler
+                        if self.min_box:
+                            fit_lattice_min_box(lattice_ob, _world_points(obj))
 
                         lattice_ob.select_set(True)
                         context.view_layer.objects.active = lattice_ob
@@ -616,6 +620,10 @@ class AddModifier(bpy.types.Operator):
                     lattice_ob.location = (x_min + x_max) / 2, (y_min + y_max) / 2, (z_min + z_max) / 2
                     lattice_ob.scale = (x_max - x_min), (y_max - y_min), (z_max - z_min)
                     lattice_ob.scale = lattice_ob.scale * 1.01
+                    if self.min_box:
+                        pts = [p for o in context.selected_objects if o.type in supported_objects
+                               for p in _world_points(o)]
+                        fit_lattice_min_box(lattice_ob, pts)
 
                     for obj in [o for o in context.selected_objects if o.type in supported_objects]:
                         add_lattice_modifier(self, obj, lattice_ob)
@@ -630,13 +638,13 @@ class AddModifier(bpy.types.Operator):
                 return {'FINISHED'} 
                     
             elif context.mode == 'EDIT_MESH':
-                import time
-                exec_time = time.time()
                 import bmesh
-                depsgraph = context.evaluated_depsgraph_get()
+                # only "Modified" needs the evaluated scene (in a big scene evaluating it is the slow part)
+                depsgraph = context.evaluated_depsgraph_get() if self.modified else None
+                edited = [o for o in context.objects_in_mode if o.type in supported_objects]
 
                 lattice_groups = {}  # object name -> its new "Lattice" vertex group
-                for obj in [o for o in context.selected_objects if o.type in supported_objects]:
+                for obj in edited:
                     if obj.data.total_vert_sel > 0:
                         #add vertex group to selected vertices
                         lattice_verts = obj.vertex_groups.new(name='Lattice')
@@ -653,14 +661,15 @@ class AddModifier(bpy.types.Operator):
                             v[bm_deform][group] = 1
                         obj.update_from_editmode()
 
-                context.view_layer.update()
+                if self.modified:
+                    context.view_layer.update()
 
                 #if in edit mode, add lattice modifier to the current selection if the object has any selction
                 if not self.individual:
                     verts = []
                     # Get bounding box of all selected mesh objects and create one big lattice object from it
 
-                    for obj in [o for o in context.selected_objects if o.type in supported_objects]:
+                    for obj in edited:
                         if obj.data.total_vert_sel > 0:
                             if self.modified:
                                 group = len(obj.vertex_groups) - 1
@@ -671,7 +680,7 @@ class AddModifier(bpy.types.Operator):
                               
                                 m.to_mesh_clear()
                             else:
-                                verts += [obj.matrix_world @ v.co for v in obj.data.vertices if v.select]   
+                                verts += _selected_world(obj)
                     if not verts: return {"CANCELLED"}
 
                     lattice_ob = create_lattice_object(self, context)
@@ -689,7 +698,7 @@ class AddModifier(bpy.types.Operator):
                         lattice_ob.scale.z = 1.0     
 
                     # every object with selected vertices gets the modifier, on its own vertex group
-                    for obj in [o for o in context.selected_objects if o.name in lattice_groups]:
+                    for obj in [o for o in edited if o.name in lattice_groups]:
                         mod = obj.modifiers.new(type='LATTICE', name='Lattice')
                         mod.object = lattice_ob
                         mod.show_in_editmode = self.modified
@@ -700,7 +709,7 @@ class AddModifier(bpy.types.Operator):
 
                             
                 if self.individual:
-                    for obj in [o for o in context.selected_objects if o.type in supported_objects]:
+                    for obj in edited:
                         verts = []
                         
                         if obj.data.total_vert_sel > 0:
@@ -720,7 +729,7 @@ class AddModifier(bpy.types.Operator):
                                     
                                 m.to_mesh_clear()
                             else:
-                                verts = [v.co for v in obj.data.vertices if v.select]
+                                verts = _selected_world(obj, local=True)
                             if not verts: return {"CANCELLED"}
                             if self.min_box:
                                 fit_lattice_min_box(lattice_ob, [obj.matrix_world @ v for v in verts])
@@ -857,6 +866,38 @@ def add_lattice_modifier(self, obj, lattice_ob):
     mod.show_on_cage = self.cage
     if self.cage:
         mod.show_in_editmode = True
+
+def _selected_world(obj, local=False):
+    """Selected vertices of a mesh in Edit Mode (as last written to the mesh), world space (or local), read with
+    numpy: fast on big meshes."""
+    import numpy as np
+    me = obj.data
+    n = len(me.vertices)
+    if not n:
+        return []
+    sel = np.empty(n, dtype=bool)
+    me.vertices.foreach_get("select", sel)
+    co = np.empty(n * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)[sel]
+    if not local:
+        m = np.array(obj.matrix_world, dtype=np.float64)
+        co = co @ m[:3, :3].T + m[:3, 3]
+    return [Vector(p) for p in co]
+
+
+def _world_points(obj):
+    """World positions to fit a box around: a mesh's vertices, otherwise its bounding box corners."""
+    import numpy as np
+    if obj.type == 'MESH' and len(obj.data.vertices):
+        me = obj.data
+        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get("co", co)
+        m = np.array(obj.matrix_world, dtype=np.float64)
+        co = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+        return [Vector(p) for p in co]
+    return [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+
 
 def fit_lattice_min_box(lattice_ob, world_points):
     """Place the lattice on the smallest box around the points, turned to match them."""

@@ -75,7 +75,7 @@ class KEYOPS_OT_curve_radius(bpy.types.Operator):
 
 
 class KEYOPS_OT_edges_to_curve(bpy.types.Operator):
-    """Copy the selected edges into a new curve object (the mesh stays as it is)"""
+    """Copy the selected edges into a new curve object (the mesh stays as it is), then drag its thickness"""
     bl_idname = "keyops.edges_to_curve"
     bl_label = "Edges to Curve"
     bl_options = {'REGISTER', 'UNDO'}
@@ -138,6 +138,13 @@ class KEYOPS_OT_edges_to_curve(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='EDIT')
         self.report({'INFO'}, f"Made {len(made)} curve{'s' if len(made) > 1 else ''}")
         return {'FINISHED'}
+
+    def invoke(self, context, event):
+        """Make the curve, then drag its thickness right away (like Radius)."""
+        result = self.execute(context)
+        if result == {'FINISHED'} and not self.stay_in_edit and context.area and context.area.type == 'VIEW_3D':
+            bpy.ops.keyops.curve_radius('INVOKE_DEFAULT')
+        return result
 
 
 classes = (KEYOPS_OT_curve_radius, KEYOPS_OT_edges_to_curve)

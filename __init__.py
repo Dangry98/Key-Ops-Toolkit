@@ -28,7 +28,7 @@ from .operators import (
     flatten, legacy_shortcuts, looptools_menu, material_index, maya_navigation, maya_pivot, mesh_cleanup,
     modi_key, offset_extrude_edge, optional_keys, origin_to_selection, outliner_options,
     parent_used_objects, poly_count_list, quick_bake_name, quick_export, realign_rotation, rebevel, resample_edges, select_similar,
-    set_cylinder_sides, set_flow, slide_scale, smart_apply_scale, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
+    set_cylinder_sides, set_flow, slide_scale, smart_apply_scale, smart_extrude, snap_to_floor, subobject_modes, toggle_retopology, toolkit_panel,
     uv_tools, viewport_menu,
 )
 from .operators.xray_select import register_xray_select, unregister_xray_select
@@ -82,6 +82,7 @@ def register():
     register_module(set_cylinder_sides)
     register_module(rebevel)
     register_module(slide_scale)
+    register_module(smart_extrude)
     register_module(mesh_cleanup)
     register_module(set_flow)
     register_module(curve_tools)
@@ -186,6 +187,7 @@ def unregister():
     unregister_module(curve_tools)
     unregister_module(set_flow)
     unregister_module(mesh_cleanup)
+    unregister_module(smart_extrude)
     unregister_module(slide_scale)
     unregister_module(rebevel)
     unregister_module(set_cylinder_sides)
