@@ -18,10 +18,8 @@ polycount_sorting_ascending = True
 polycount_sorting = 'TRIS'
 ev = []
 total_tris = 0
-latest_updateded_objects_in_depsgrapth = set()  # names of objects changed since the list was last built
+latest_updateded_objects_in_depsgrapth = []
 list_cache = {}
-_list_changed = [True]  # something changed (an edit, an object added or removed, a selection): rebuild on draw
-_list_signature = [None]
 obj_lookup_cache = {}
 
 def _get_modifier_times(ob_eval, mod): # we should not call it per modifier, but only once per object
@@ -160,7 +158,6 @@ def get_poly_count(context, force_update_all=False):
         edges = 0
         faces = 0
         if obj.name in latest_updateded_objects_in_depsgrapth or obj not in list_cache:
-            # only objects changed since the last build are measured again; the rest come from the cache
             ms = 0
             if obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE', 'META'}:
                 eval_obj = obj.evaluated_get(depsgraph)
@@ -187,7 +184,7 @@ def get_poly_count(context, force_update_all=False):
         polycount.append((obj.name, tris, verts, edges, faces, ms))  # Store directly in polycount list, we should not receate it each time, instead the list_cache should be used everwhere!
     # print("Time taken to get polycount: {:.4f} ms".format((time.time() - start_time) * 1000))
 
-    latest_updateded_objects_in_depsgrapth = set()
+    latest_updateded_objects_in_depsgrapth = []
 
     if show_collection_instances:
         for obj in c.scene.objects:
@@ -220,52 +217,29 @@ def get_poly_count(context, force_update_all=False):
 
 @persistent
 def get_latest_updated_objects_in_depsgraph_poly_count_list(scene, depsgraph):
-    """Remember every object that changed until the list is drawn again (not just the last update), so the list
-    is always up to date and only those objects are measured again."""
-    global list_cache
-    shown = 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode
-    if not shown:
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
-                    shown = True
-                    break
-    if not shown:
-        # not on screen: start over (measure everything) the next time it is shown
+    global latest_updateded_objects_in_depsgrapth, list_cache
+    scene_tab_is_open = False
+    
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.spaces[0].type == 'PROPERTIES' and area.spaces[0].context == 'SCENE':
+                latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
+                scene_tab_is_open = True
+                break
+            
+    if 'POLYCOUNT_LIST' in bpy.context.window_manager.toolkit_panel_mode:
+        latest_updateded_objects_in_depsgrapth = [update.id.name for update in depsgraph.updates if isinstance(update.id, bpy.types.Object)]
+        scene_tab_is_open = True
+
+    if not scene_tab_is_open:
+        # reset list_cache, since it will need to be recomputed once the scene tab is opened again
         if list_cache:
             list_cache.clear()
-        _list_changed[0] = True
-        return
-    for update in depsgraph.updates:
-        if isinstance(update.id, bpy.types.Object):
-            latest_updateded_objects_in_depsgrapth.add(update.id.name)
-        _list_changed[0] = True
-
-
-def _signature(context, props):
-    """What decides which objects are listed and how: when it changes, the list is rebuilt."""
-    sel = len(context.selected_objects) if props.polycount_use_selection_only else -1
-    coll = props.my_collection.name if getattr(props, "my_collection", None) else ""
-    return (len(context.scene.objects), sel, props.filter_by, coll, props.child_collection,
-            props.show_only_enabled_collections, props.show_collection_instances, tuple(sorted(props.filter_list_show)),
-            polycount_sorting, polycount_sorting_ascending)
-
-
-def refresh_if_needed(context):
-    """Rebuild the list when something changed since the last draw; otherwise the draw reuses it as it is."""
-    props = context.scene.keyops.polycount_props
-    sig = _signature(context, props)
-    if _list_changed[0] or sig != _list_signature[0] or not polycount:
-        polycount.clear()
-        get_poly_count(context)
-        _list_changed[0] = False
-        _list_signature[0] = sig
-
 
 class PolyCountList(bpy.types.Operator):
     bl_idname = "keyops.poly_count_list"
     bl_label = "Poly Count List"
-    bl_description = "Measure every object again (the list keeps itself up to date; this starts it over)"
+    bl_description = "Refresh the polycount list, only needed if auto update is off"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -344,7 +318,12 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
     show_ms = 'MS' in filter_list_show
 
     ui_updates += 1
-    refresh_if_needed(context)  # always up to date: rebuilt only when something changed, from the cache
+    
+    if props.auto_update_polycount:
+        if ui_updates >= props.update_rate:
+            polycount.clear()
+            get_poly_count(context)
+            ui_updates = 0
 
     if not properteries_panel:
         row = layout.row(align=True)
@@ -369,7 +348,14 @@ def draw_polycount_list_ui(self, context, properteries_panel=False):
             sub.label(text=ms)
         
 
+    if len(polycount) > 2500 and props.auto_update_polycount:
+        row = layout.row(align=True)
+        row.label(text="Auto Update might be slow", icon="INFO")
+        row.scale_x = 0.45
+        row.prop(props, "update_rate", text="Update Rate")
+
     row = layout.row(align=True)
+    row.prop(props, "auto_update_polycount", text="Auto", icon="FILE_REFRESH", toggle=False)
     row.operator("keyops.poly_count_list", text="Refresh", icon="FILE_REFRESH")
     row.prop(props, "polycount_use_selection_only", text="Selected", icon="RESTRICT_SELECT_OFF", toggle=False)
     row.popover(panel="POLYCOUNTILST_PT_Settings", icon="FILTER", text="")
@@ -601,6 +587,10 @@ class POLYCOUNTILST_PT_Settings(bpy.types.Panel):
         row = layout.row()
         row.label(text="Length:")
         row.prop(props, "max_list_length", text="")
+
+        if props.auto_update_polycount:
+            row.label(text="Redraw")
+            row.prop(props, "update_rate", text="")
 
 
         row = layout.row()

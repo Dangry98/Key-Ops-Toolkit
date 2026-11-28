@@ -730,9 +730,14 @@ def test_attribute_view():
     A._quiet["on"] = True
     wm.float_value = 0.9
     A._quiet["on"] = False
-    r = bpy.ops.keyops.atri_pick()
-    check("Attributes: Use Active Value puts the active value in the field, without assigning it",
-          r == {'FINISHED'} and abs(wm.float_value - 0.2) < 1e-5, f"{r} {wm.float_value}")
+    data = V.take_snapshot(obj, positions=False)
+    A._set_field("FLOAT", V.active_value(data))
+    bpy.ops.object.mode_set(mode='OBJECT')
+    vals = [round(d.value, 4) for d in me.attributes["Width"].data]
+    bpy.ops.object.mode_set(mode='EDIT')
+    check("Attributes: the Value field shows the active element's value, without assigning it",
+          abs(wm.float_value - 0.2) < 1e-5 and vals[2] == 0.2 and vals.count(0.2) == sum(1 for i in range(len(vals)) if i % 3 == 2),
+          f"{wm.float_value} {vals[:6]}")
     # a color attribute shows with Blender's own Solid shading (no overlay of Key Ops' own)
     me.color_attributes.new("Paint", 'BYTE_COLOR', 'CORNER')
     me.attributes.active = me.attributes["Paint"]

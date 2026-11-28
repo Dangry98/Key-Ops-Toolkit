@@ -298,39 +298,39 @@ def _follow_socket(spec):
         bpy.app.timers.register(lambda: _apply_spec(spec), first_interval=0.0)
 
 
-class KEYOPS_OT_atri_pick(bpy.types.Operator):
-    """Put the active element's value (or the value the selection shares) in the Value field"""
-    bl_idname = "keyops.atri_pick"
-    bl_label = "Use Active Value"
-    bl_options = {'INTERNAL'}
+_shown = {"data": None}
 
-    @classmethod
-    def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
 
-    def execute(self, context):
-        attr = _active_attribute(context)
-        kind = LAYERS.get(attr.data_type, (None, None))[1] if attr else None
-        data = V.take_snapshot(context.active_object, positions=False) if kind else None
-        value = V.active_value(data)
-        if value is None or kind not in VALUE_PROPS:
-            self.report({'WARNING'}, "No active element, and the selection holds different values")
-            return {'CANCELLED'}
-        wm = context.window_manager
-        prop = VALUE_PROPS[kind]
-        _quiet["on"] = True
-        try:
-            if kind in ("INT", "FLOAT"):
-                setattr(wm, prop, (int if kind == "INT" else float)(value))
-            elif kind == "VECTOR2":
-                cur = list(wm.keyops_vector_value)
-                cur[:2] = [float(x) for x in value[:2]]
-                wm.keyops_vector_value = cur
-            else:
-                setattr(wm, prop, [float(x) for x in value])
-        finally:
-            _quiet["on"] = False
-        return {'FINISHED'}
+def _follow_selection(data, kind):
+    """When a new snapshot of the mesh comes in, put its active value in the field (in a timer: a draw can't
+    write), without assigning it to anything."""
+    if data is None or data is _shown["data"]:
+        return
+    _shown["data"] = data
+    value = V.active_value(data)
+    if value is None:
+        return
+    bpy.app.timers.register(lambda: _set_field(kind, value), first_interval=0.0)
+
+
+def _set_field(kind, value):
+    """Put a value in the Value field without assigning it to the selection."""
+    wm = bpy.context.window_manager
+    _quiet["on"] = True
+    try:
+        if kind in ("INT", "FLOAT"):
+            setattr(wm, VALUE_PROPS[kind], (int if kind == "INT" else float)(value))
+        elif kind == "VECTOR2":
+            cur = list(wm.keyops_vector_value)
+            cur[:2] = [float(x) for x in value[:2]]
+            wm.keyops_vector_value = cur
+        else:
+            setattr(wm, VALUE_PROPS[kind], [float(x) for x in value])
+    except (TypeError, ValueError, OverflowError):
+        pass
+    finally:
+        _quiet["on"] = False
+    return None
 
 
 def draw_custom_button(self, context):
@@ -355,16 +355,10 @@ def draw_custom_button(self, context):
             row.operator("keyops.atri_op", text="Select").type = "Select"
             row.operator("keyops.atri_op", text="Deselect").type = "Deselect"
         if kind != "BOOL":
-            r = layout.row(align=True)
-            r.prop(wm, VALUE_PROPS[kind], text="Value")
-            r.operator("keyops.atri_pick", text="", icon='EYEDROPPER')
-        # one quiet line: the active element's value, and whether the selection holds several values
-        active, sel_text = V.summary(V.snapshot(context), spec["unit"] if spec else None)
-        r = layout.row()
-        r.active = False
-        r.label(text=f"Active: {active}" if active is not None else "No active element")
-        if sel_text.startswith("Mixed"):
-            r.label(text=sel_text.split(":")[0])
+            # the field shows the active element's value (or the one the selection shares), like Blender's own
+            # Bevel Weight field; changing it assigns it to the selection
+            _follow_selection(V.snapshot(context), kind)
+            layout.prop(wm, VALUE_PROPS[kind], text="Value")
         if attr.data_type in ('FLOAT_COLOR', 'BYTE_COLOR') and attr.domain in ('POINT', 'CORNER'):
             layout.operator("keyops.atri_show", text="Show in Viewport", icon='SHADING_SOLID')
 
@@ -444,7 +438,6 @@ class AtriOP(bpy.types.Operator):
 
 def register():
     bpy.utils.register_class(AtriOP)
-    bpy.utils.register_class(KEYOPS_OT_atri_pick)
     bpy.utils.register_class(KEYOPS_OT_atri_show)
     bpy.types.DATA_PT_mesh_attributes.append(draw_custom_button)
     bpy.types.WindowManager.float_color_value = bpy.props.FloatVectorProperty(size=4, subtype="COLOR", name="Float Color Value", default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, update=_live_update)
@@ -455,7 +448,6 @@ def register():
 
 def unregister():
     V.unregister()
-    bpy.utils.unregister_class(KEYOPS_OT_atri_pick)
     bpy.utils.unregister_class(KEYOPS_OT_atri_show)
     bpy.utils.unregister_class(AtriOP)
     bpy.types.DATA_PT_mesh_attributes.remove(draw_custom_button)
